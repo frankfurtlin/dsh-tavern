@@ -1,0 +1,41 @@
+{
+  "name": "dsh-story-between",
+  "version": "0.1.0",
+  "private": true,
+  "description": "「故事之间」DSH 插件：侧栏入口 + 主面板内嵌本地写作应用（同源反向代理，仅 DSH 登录用户可访问），一键把当前故事交给 DSH Agent 续写 / 角色扮演。",
+  "type": "module",
+  "license": "MIT",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-layout"
+      ]
+    }
+  },
+  "files": [
+    "lib",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "docs"
+  ],
+  "scripts": {
+    "check": "node --check lib/index.js && node --check client.js"
+  }
+}

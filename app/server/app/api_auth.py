@@ -5,7 +5,7 @@ from pydantic import Field
 from .db import get_db
 from .config import settings
 from .models import User, UserSettings, DeviceSession, Task, now
-from .security import current_user, username_format, password_format, password_hasher, check_password, issue_session, origin_check, rate_limit, token_result
+from .security import current_user, username_format, password_format, password_hasher, check_password, issue_session, origin_check, rate_limit, token_result, trusted_identity
 from .schemas import Credentials, Refresh, ReadingSettings, Strict
 from .domain import digest, owned
 from .errors import Problem
@@ -72,6 +72,16 @@ def login(data: Credentials, request: Request, response: Response, db=Depends(ge
 @router.post("/auth/refresh")
 def refresh(data: Refresh, request: Request, response: Response, db=Depends(get_db)):
     import secrets
+    # The DSH plugin host already authenticated the browser and proxies a
+    # trusted header. Reuse the stable web session, skip cookie rotation, and
+    # bootstrap the SPA exactly like a normal refresh so store.init() is silent.
+    trusted = trusted_identity(request, db)
+    if trusted is not None:
+        from .account_bootstrap import build
+        session = request.state.session
+        bootstrap = build(db, trusted, session)
+        db.commit()
+        return token_result(session, trusted, None, response, bootstrap=bootstrap)
     origin_check(request)
     cookie = request.cookies.get("reader_refresh")
     if cookie and data.refreshToken:
@@ -108,6 +118,10 @@ def refresh(data: Refresh, request: Request, response: Response, db=Depends(get_
 
 @router.post("/auth/logout")
 def logout(request: Request, response: Response, user=Depends(current_user), db=Depends(get_db)):
+    # Trusted mode owns the session at the plugin host level; the panel closing
+    # the app (or clearing cookies) must not revoke the shared stable session.
+    if getattr(request.state, "trusted", False):
+        return Response(status_code=204)
     request.state.session.revoked_at = now()
     response.delete_cookie("reader_refresh", path=settings.cookie_path_prefix+"/api/reader/v1/auth")
     db.commit()

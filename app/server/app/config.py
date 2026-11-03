@@ -1,4 +1,5 @@
 from pathlib import Path
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -41,6 +42,11 @@ class Settings(BaseSettings):
     product_payment_allowed_hosts: str = "pancake.waffo.ai"
     product_waffo_service_url: str = "http://127.0.0.1:3010"
     product_waffo_service_token: str = ""
+    # DSH plugin host authenticates the browser and proxies "/story/**" with a
+    # shared secret header. When enabled, that header replaces app-side login.
+    trusted_auth: bool = Field(False, validation_alias=AliasChoices("DSH_TRUSTED_AUTH", "TRUSTED_AUTH"))
+    trusted_username: str = Field("", validation_alias=AliasChoices("DSH_TRUSTED_USERNAME", "TRUSTED_USERNAME"))
+    trusted_secret: str = Field("", validation_alias=AliasChoices("DSH_TRUSTED_SECRET", "TRUSTED_SECRET"))
 
 
 settings = Settings()

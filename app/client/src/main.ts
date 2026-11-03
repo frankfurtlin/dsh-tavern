@@ -11,6 +11,7 @@ import {installProductFoundation} from './foundation/runtime'
 import {loginDestination} from './platform/auth-navigation'
 import {legacyDestination,ACCOUNT_HOME} from './platform/workspace-routes'
 import {prepareWorker} from './platform/worker-startup'
+import {installDshBridge} from './dsh-bridge'
 import {APP_BASE} from './platform/base'
 const app=createApp(App);app.use(createPinia())
 export const router=createRouter({history:createWebHistory(APP_BASE),scrollBehavior(to,_from,saved){if(to.meta.immersive)return false;return saved||{top:0,left:0}},routes:[
@@ -128,7 +129,11 @@ async function start(){
       navigator.serviceWorker.controller!.postMessage({kind:'reader-auth-ready'},[channel.port2])
     })
   }
-  app.use(router);app.mount('#app')
+  app.use(router)
+  // Inside the DSH panel iframe this exposes story context to the host; as a
+  // normal top-level page it returns immediately and does nothing.
+  installDshBridge({router})
+  app.mount('#app')
   if(!import.meta.env.DEV&&!native&&navigator.serviceWorker?.controller)void router.isReady().then(()=>{warmOfflineShell();if(checkForWorkerUpdate)setTimeout(()=>{if(navigator.onLine)void checkForWorkerUpdate!().catch(()=>{})},15000)})
 }
 start().catch(error=>{
