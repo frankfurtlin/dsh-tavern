@@ -111,7 +111,9 @@ iframe → 父（主动，节流）：
 
 | 范围 | owner |
 | --- | --- |
-| `app/**`（server + client 源码、dist 构建） | app-auth |
+| `app/server/**`（服务端源码与测试） | app-auth |
+| `app/client/src/characters/**`、`app/client/src/main.ts`、`app/client/src/workspace/navigation.ts`、`app/client/src/workspace/capabilities.ts`（角色卡功能期间，见 `docs/step1-character-card-chat.md`） | cards-client |
+| `app/client/**` 其它源码与 dist 构建 | app-auth |
 | `package.json`、`cordis.patch.yml`、`lib/**`、`client.js`、`README.md`、`docs/architecture.md`、`docs/contract.md` | plugin-core |
 | `scripts/**`、`verify.mjs`、`docs/testing.md` | verifier |
 | `/etc/systemd/system`、Caddy、`/root/.dsh/profiles/web`（host 级，不在本仓库） | Lead |

@@ -11,6 +11,7 @@ const pages:Record<string,PageLocation>={
  '/recent':{title:'最近游玩',area:{path:'/recent',label:'最近游玩'}},
  '/my-prompts':{title:'我的提示词',area:{path:'/my-prompts',label:'我的提示词'}},
  '/worlds/scripts':{title:'创作工作台',area:creative},
+ '/characters':{title:'角色卡库',area:creative,parent:creative},
  '/settings':{title:'账号设置',area:settings},
  '/settings/models':{title:'模型与用量',area:settings,parent:settings},
  '/settings/import-history':{title:'导入旧版内容',area:settings,parent:{path:'/settings?section=data',label:'数据与备份'}},

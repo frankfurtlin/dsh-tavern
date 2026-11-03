@@ -8,6 +8,7 @@
 #   scripts/check.sh --with-app-tests # 额外跑应用前端 typecheck + 单测（慢）
 #   scripts/check.sh --no-bridge     # E2E 跳过「交给 Agent」的端到端点击
 #   scripts/check.sh --open-story   # E2E 先在应用内打开一部作品（会写阅读进度，全链路验证用）
+#   scripts/check.sh --cards         # E2E 额外跑角色卡导入 + 单卡聊天（会写入/删除测试卡）
 #   scripts/check.sh --keep-home     # 保留 /tmp/dsh-tavern-check（排查用）
 #   scripts/check.sh --port 3199     # 换端口
 #
@@ -16,6 +17,8 @@
 #   $OUT/logs/*.log                    —— 每个静态命令的输出
 #   $OUT/logs/dsh.log                  —— 隔离实例的 DSH 日志（启动失败时先看这个）
 #   截图 01-sidebar.png … 08-refresh-home.png（含 03b-tavern-open / 06-restore-panel / 07-reload-restore）
+#        --cards 时另有 09-cards-page.png … 14-cards-deleted.png
+#   角色卡 fixture：/tmp/tavern-verify/cards/{v2-png.png,v2-json.json,v1-json.json,manifest.json}
 #
 # 设计（参考同级插件 dsh-ziwei/scripts/check.sh）：
 #   - 在 /tmp/dsh-tavern-check 起一个完全隔离的 DSH_HOME，profile=check，端口默认 3099，
@@ -43,6 +46,7 @@ RUN_INSTANCE=1
 WITH_APP_TESTS=0
 NO_BRIDGE=0
 OPEN_STORY=0
+CARDS=0
 KEEP_HOME=0
 PASS=0
 FAIL=0
@@ -56,6 +60,7 @@ while [[ $# -gt 0 ]]; do
     --with-app-tests) WITH_APP_TESTS=1 ;;
     --no-bridge) NO_BRIDGE=1 ;;
     --open-story) OPEN_STORY=1 ;;
+    --cards) CARDS=1 ;;
     --keep-home) KEEP_HOME=1 ;;
     --port) PORT="${2:?--port 需要端口号}"; shift ;;
     --help|-h) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -122,6 +127,12 @@ static_checks() {
     fi
   else
     bad "package.json 缺失（owner: plugin-core）"
+  fi
+
+  if [[ -f "$ROOT/scripts/fixtures/make-cards.py" ]]; then
+    run "python 语法 check scripts/fixtures/make-cards.py" env PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile "$ROOT/scripts/fixtures/make-cards.py"
+  else
+    skip "python 语法 check（scripts/fixtures/make-cards.py 不存在）"
   fi
 
   if [[ "$WITH_APP_TESTS" -eq 1 ]]; then
@@ -325,10 +336,17 @@ instance_checks() {
     *) bad "旧 /story/ 期望 302/401，实际 HTTP ${legacy_code:-无响应}" ;;
   esac
 
+  if [[ "$CARDS" -eq 1 ]]; then
+    say "角色卡 fixture（make-cards.py）"
+    local fixture_args=(--out /tmp/tavern-verify/cards)
+    run "生成角色卡 fixture（v2 PNG / v2 JSON / v1 JSON）" python3 "$ROOT/scripts/fixtures/make-cards.py" "${fixture_args[@]}"
+  fi
+
   say "真实浏览器 E2E（verify.mjs）"
   local verify_args=(--url "$url" --out "$OUT")
   [[ "$NO_BRIDGE" -eq 1 ]] && verify_args+=(--no-bridge)
   [[ "$OPEN_STORY" -eq 1 ]] && verify_args+=(--open-story)
+  [[ "$CARDS" -eq 1 ]] && verify_args+=(--cards --cards-dir /tmp/tavern-verify/cards)
   if node "$ROOT/verify.mjs" "${verify_args[@]}"; then
     ok "verify.mjs 全部检查通过"
   else

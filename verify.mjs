@@ -2,7 +2,7 @@
  * dsh-tavern 端到端验收脚本（真实浏览器行为，不是静态代码检查）。
  *
  * 用法：
- *   node verify.mjs --url "http://127.0.0.1:3080/?token=..." [--out dir] [--no-bridge] [--open-story]
+ *   node verify.mjs --url "http://127.0.0.1:3080/?token=..." [--out dir] [--no-bridge] [--open-story] [--cards]
  *
  * 检查分组（与 docs/contract.md v1 对应）：
  *   A. 鉴权与入口：未登录 GET /tavern/ 必须被 DSH 闸门挡住（401）；登录态 200。
@@ -14,17 +14,21 @@
  *      appPath/worldTitle/lineTitle/mode/characters/recentText）。
  *   F. 点「让 DSH 续写」：期望新会话打开 + 编辑器草稿被填充，或剪贴板兜底；
  *      上下文不可用时插件应优雅降级（面板内出现错误提示、不误开空会话）。如实记录分支。
- *   G. 截图 + 输出目录下 report.json；无控制台 JS 报错。
+ *   G. 位置记忆：切面板/整页 reload 恢复、点「刷新」清记忆回首页。
+ *   H. --cards：角色卡库 → 导入 fixture 卡（PNG/v2 JSON/v1 JSON）→ 开聊 →
+ *      发「你好」→ mock 回复 → 刷新后消息仍在 → 删除卡后列表消失。
+ *      会向应用写测试卡（软删除后仍留 world，仅测试库使用）。
+ *   I. 截图 + 输出目录下 report.json；无控制台 JS 报错。
  *
  * 设计原则：
- *   - 插件/应用尚未就绪时（/tavern 404、应用登录页、P2 桥没有响应）不崩：
- *     能跑出「未就绪」报告，依赖项记为 SKIP 并写明 owner，退出码仍为非 0。
+ *   - 插件/应用尚未就绪时（/tavern 404、应用登录页、P2 桥没有响应、角色卡页面未接入）
+ *     不崩：能跑出「未就绪」报告，依赖项记为 SKIP 并写明 owner，退出码仍为非 0。
  *   - 默认不写应用数据：不打开作品、只开草稿、不点发送。
  *     --open-story 会在应用 explore 页点一部 live 作品进入故事页（会写阅读进度），
- *     仅用于验证「续写提示词模板」全链路。
+ *     仅用于验证「续写提示词模板」全链路；--cards 会导入/删除测试角色卡。
  */
 import { createRequire } from 'node:module'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 const require = createRequire('/root/workspace/hermes-site/tools/node_modules/')
@@ -880,6 +884,382 @@ try {
     }
   }
   report.restore = restoreEvidence
+
+  // ── H. 角色卡导入 + 单卡聊天（--cards）────────────────────────────────────
+  // 依赖 cards-client 的 /characters 页面 + app-auth 的 /character-cards API。
+  // 选择器原则：能用稳定文本（导航「角色卡库」、按钮「导入角色卡」「开聊」「删除」）就不猜 class。
+  const runCards = args.includes('--cards')
+  const cardsEvidence = { fixturesDir: null, imported: [], avatar: null, chat: null, reload: null, deleted: null }
+  if (runCards) {
+    const fixtureDir = arg('cards-dir', '/tmp/tavern-verify/cards')
+    cardsEvidence.fixturesDir = fixtureDir
+    const cardsCheckNames = [
+      '角色卡库页面可进入（导航「角色卡库」）',
+      '角色卡库有导入入口（input[type=file]）',
+      '导入 PNG 卡后列表出现卡名',
+      '导入 v2 JSON 卡后列表出现卡名',
+      '导入 v1 JSON 卡后列表出现卡名',
+      '卡头像已渲染（img 加载成功）',
+      '「开聊」进入 /conversations/world/<id>',
+      '聊天页显示角色名',
+      '发送「你好」后出现 mock 回复',
+      '刷新聊天页后用户消息与回复仍在',
+      '删除卡后列表不再出现该卡名',
+      '删除只删一张卡（其余 fixture 卡仍在）',
+    ]
+    const skipAllCards = (reason) => {
+      for (const name of cardsCheckNames) skip(name, reason)
+    }
+    let manifest = null
+    try {
+      manifest = JSON.parse(await readFile(path.join(fixtureDir, 'manifest.json'), 'utf8'))
+    } catch {
+      manifest = null
+    }
+    const fnow = () => page.frames().find((candidate) => /\/tavern\//.test(candidate.url())) || null
+    async function waitFrameUrl(pattern, timeoutMs = 20000) {
+      const deadline = Date.now() + timeoutMs
+      while (Date.now() < deadline) {
+        const frame = fnow()
+        if (frame && pattern.test(frame.url())) return frame
+        await page.waitForTimeout(300)
+      }
+      return null
+    }
+    async function openCharactersPage() {
+      const frame = fnow()
+      if (!frame) return null
+      const candidates = [
+        frame.locator('a[href="/characters"]').first(),
+        frame.getByRole('link', { name: '角色卡库', exact: true }).first(),
+        frame.getByRole('button', { name: '角色卡库', exact: true }).first(),
+        frame.getByText('角色卡库', { exact: true }).first(),
+      ]
+      for (const candidate of candidates) {
+        if (!(await candidate.count().catch(() => 0))) continue
+        await candidate.click({ force: true }).catch(() => {})
+        const reached = await waitFrameUrl(/\/characters(\/|$|\?)/, 20000)
+        if (reached) return reached
+      }
+      return null
+    }
+    async function waitChatReady(frame, timeoutMs = 30000) {
+      const deadline = Date.now() + timeoutMs
+      while (Date.now() < deadline) {
+        if (await frame.locator('#world-chat-message').count().catch(() => 0)) return true
+        await page.waitForTimeout(300)
+      }
+      return false
+    }
+    async function findCardRoot(frame, name) {
+      // 首选应用自己的卡片容器（article.character-card[data-card-id]），失败再退 xpath。
+      const article = frame.locator('article.character-card').filter({ has: frame.getByText(name, { exact: true }) }).first()
+      if (await article.count().catch(() => 0)) return article
+      const nameLocator = frame.getByText(name, { exact: true }).first()
+      return nameLocator.locator("xpath=ancestor::*[.//button[normalize-space(.)='开聊'] or .//button[normalize-space(.)='删除']][1]")
+    }
+
+    if (!manifest || !Array.isArray(manifest.cards) || !manifest.cards.length) {
+      skipAllCards(`缺少 fixture：先跑 python3 scripts/fixtures/make-cards.py（找 ${path.join(fixtureDir, 'manifest.json')}）`)
+    } else {
+      if (!(await panelVisible())) await openStoryPanel()
+      let frame = await waitFrameUrl(/\/tavern\//, 20000)
+      if (!frame) {
+        skipAllCards('主面板/iframe 打不开，无法进入角色卡库（owner: plugin-core）')
+      } else {
+        const cardsPage = await openCharactersPage()
+        check(
+          cardsCheckNames[0],
+          Boolean(cardsPage),
+          cardsPage
+            ? `url=${new URL(cardsPage.url()).pathname}`
+            : '应用侧没有「角色卡库」导航或 /characters 路由（cards-client 尚未构建 dist / 页面未接入，owner: cards-client）',
+        )
+        if (!cardsPage) {
+          for (const name of cardsCheckNames.slice(1)) skip(name, '角色卡库页面不可用')
+        } else {
+          frame = cardsPage
+          await page.waitForTimeout(600)
+          await shot(page, '09-cards-page.png')
+          const fileInput = frame.locator('input[type="file"]').first()
+          const hasInput = (await fileInput.count().catch(() => 0)) > 0
+          check(cardsCheckNames[1], hasInput, hasInput ? 'input[type=file] 存在' : '找不到导入文件框（期望 accept .png,.json，owner: cards-client）')
+
+          // 隔离实例与生产库共用：库里可能已有同名卡（Lead 冒烟会先导入一张「林小满」）。
+          // 导入/删除断言都基于「基线计数」判断增量，避免把环境里的同名卡算成自己导入的。
+          await page.waitForTimeout(600)
+          const baseline = {}
+          for (const card of manifest.cards) {
+            baseline[card.name] = await frame.getByText(card.name, { exact: true }).count().catch(() => 0)
+          }
+          const baselineImages = await frame
+            .evaluate(() => [...document.images].filter((image) => image.naturalWidth > 0).length)
+            .catch(() => 0)
+          cardsEvidence.baseline = { counts: baseline, loadedImages: baselineImages }
+
+          let importedCount = 0
+          let cardIndex = 0
+          for (const card of manifest.cards) {
+            const nameVisible = async (timeoutMs = 25000) => {
+              const deadline = Date.now() + timeoutMs
+              const expected = (baseline[card.name] || 0) + 1
+              while (Date.now() < deadline) {
+                if ((await frame.getByText(card.name, { exact: true }).count().catch(() => 0)) >= expected) return true
+                await page.waitForTimeout(400)
+              }
+              return false
+            }
+            const input = frame.locator('input[type="file"]').first()
+            let uploaded = false
+            if (await input.count().catch(() => 0)) {
+              uploaded = await input
+                .setInputFiles(path.join(fixtureDir, card.file))
+                .then(() => true)
+                .catch(() => false)
+            }
+            const appeared = uploaded && (await nameVisible())
+            const alertText = await frame
+              .locator('[role="alert"], .toast, [data-toast]')
+              .first()
+              .textContent()
+              .catch(() => null)
+            const apiMissing = /请求不可用|RESOURCE_NOT_FOUND|404/.test(alertText || '')
+            check(
+              cardsCheckNames[2 + cardIndex],
+              appeared,
+              appeared
+                ? `${card.format} 「${card.name}」已出现在列表`
+                : `上传/导入失败：uploaded=${uploaded}${alertText ? ` 提示=${clip(alertText, 100)}` : ''}（owner: ${apiMissing ? 'app-auth（/character-cards API 404：8001 进程未重启）' : 'cards-client UI / app-auth API'}）`,
+            )
+            if (appeared) {
+              importedCount += 1
+              cardsEvidence.imported.push({ file: card.file, format: card.format, name: card.name })
+            }
+            cardIndex += 1
+          }
+          for (let index = cardIndex; index < 3; index += 1) skip(cardsCheckNames[2 + index], 'manifest 里卡数量不足')
+
+          const avatarCount = await frame
+            .evaluate(() => [...document.images].filter((image) => image.naturalWidth > 0).length)
+            .catch(() => 0)
+          cardsEvidence.avatar = { loadedImages: avatarCount, baselineImages }
+          if (importedCount === 0) {
+            skip(cardsCheckNames[5], '没有卡导入成功，无法验证头像渲染（先看上面的导入失败项）')
+          } else {
+            check(
+              cardsCheckNames[5],
+              avatarCount > baselineImages,
+              `导入后已加载图片数=${avatarCount}（导入前 ${baselineImages}；PNG 卡头像应为 blob: img，owner: cards-client）`,
+            )
+          }
+          await shot(page, '10-cards-imported.png')
+
+          const pngCard = manifest.cards.find((card) => card.format === 'png-v2') || manifest.cards[0]
+          const nameStillThere =
+            (await frame.getByText(pngCard.name, { exact: true }).count().catch(() => 0)) > (baseline[pngCard.name] || 0)
+          if (!nameStillThere) {
+            for (const name of cardsCheckNames.slice(6)) skip(name, `PNG 卡「${pngCard.name}」没进列表，无法开聊`)
+          } else {
+            const cardRoot = await findCardRoot(frame, pngCard.name)
+            let startButton = cardRoot.getByRole('button', { name: '开聊' }).first()
+            if (!(await startButton.count().catch(() => 0))) {
+              startButton = frame.getByRole('button', { name: '开聊' }).first()
+            }
+            await startButton.click({ force: true }).catch(() => {})
+            const chatFrame = await waitFrameUrl(/\/conversations\/world\/[^/?#]+/, 25000)
+            const sessionId = chatFrame ? (chatFrame.url().match(/\/conversations\/world\/([^/?#]+)/) || [])[1] : null
+            check(
+              cardsCheckNames[6],
+              Boolean(chatFrame && sessionId),
+              chatFrame ? `url=${new URL(chatFrame.url()).pathname}` : '点「开聊」后 25s 内没进入 /conversations/world/<id>（owner: cards-client / app-auth）',
+            )
+            if (!chatFrame) {
+              for (const name of cardsCheckNames.slice(7)) skip(name, '没有进入聊天页')
+            } else {
+              frame = chatFrame
+              const ready = await waitChatReady(frame)
+              const characterVisible = ready && (await frame.getByText(pngCard.name, { exact: true }).first().isVisible().catch(() => false))
+              check(
+                cardsCheckNames[7],
+                characterVisible,
+                characterVisible ? `页面显示「${pngCard.name}」` : '聊天页没显示角色名（期望标题/说话人含卡名，owner: cards-client）',
+              )
+              await shot(page, '11-chat-open.png')
+
+              const composer = frame.locator('#world-chat-message')
+              const sendButton = frame.locator('form.world-chat-compose button[type="submit"]').first()
+              let reply = null
+              let sendError = ''
+              let submitEnabled = false
+              let composeHint = null
+              if (!(await composer.count().catch(() => 0))) {
+                sendError = '聊天输入框 #world-chat-message 不存在（owner: cards-client）'
+              } else {
+                await composer.fill('你好')
+                // 发送按钮在 draft 为空 / app.online=false / busy 时是 disabled 的；
+                // 直接 force click 会命中 disabled 按钮（浏览器不发 click），所以先等它可用。
+                const enableDeadline = Date.now() + 8000
+                while (Date.now() < enableDeadline) {
+                  if (!(await sendButton.isDisabled().catch(() => true))) {
+                    submitEnabled = true
+                    break
+                  }
+                  await page.waitForTimeout(200)
+                }
+                composeHint = await frame
+                  .locator('form.world-chat-compose small')
+                  .first()
+                  .textContent()
+                  .catch(() => null)
+                if (submitEnabled) {
+                  await sendButton.click().catch(() => {})
+                } else {
+                  // 兜底：组件支持 Ctrl/Cmd+Enter 发送
+                  await composer.press('Control+Enter').catch(() => {})
+                }
+                const deadline = Date.now() + 120000
+                while (Date.now() < deadline) {
+                  const userOk = (await frame.locator('.world-chat-message.user p').filter({ hasText: '你好' }).count().catch(() => 0)) > 0
+                  const replies = await frame.locator('.world-chat-message.assistant p').allTextContents().catch(() => [])
+                  const candidate = replies.map((text) => text.trim()).filter(Boolean).pop()
+                  if (userOk && candidate) {
+                    reply = candidate
+                    break
+                  }
+                  const alertText = await frame.locator('[role="alert"]').first().textContent().catch(() => null)
+                  if (alertText) sendError = alertText
+                  await page.waitForTimeout(600)
+                }
+              }
+              cardsEvidence.chat = {
+                url: frame.url(),
+                sessionId,
+                character: pngCard.name,
+                userMessage: '你好',
+                reply,
+                error: sendError || null,
+                submitEnabled,
+                composeHint: composeHint ? composeHint.trim() : null,
+              }
+              check(
+                cardsCheckNames[8],
+                Boolean(reply),
+                reply ? `mock 回复：${clip(reply, 100)}` : `120s 内没等到回复${sendError ? `（提示=${clip(sendError, 100)}）` : ''}（owner: app-auth mock 任务 / cards-client）`,
+              )
+              if (reply) await shot(page, '12-chat-reply.png')
+
+              // 刷新聊天页（同源 iframe 内 reload，不重载整个 DSH）
+              await frame.evaluate(() => location.reload()).catch(() => {})
+              const reloaded = await waitFrameUrl(/\/conversations\/world\//, 25000)
+              let persisted = null
+              if (reloaded) {
+                await waitChatReady(reloaded, 30000)
+                const deadline = Date.now() + 30000
+                while (Date.now() < deadline) {
+                  const userTexts = await reloaded.locator('.world-chat-message.user p').allTextContents().catch(() => [])
+                  const replyTexts = await reloaded.locator('.world-chat-message.assistant p').allTextContents().catch(() => [])
+                  const userKept = userTexts.some((text) => text.includes('你好'))
+                  const replyKept = replyTexts.some((text) => text.trim().length > 0)
+                  if (userKept && replyKept) {
+                    persisted = { userMessages: userTexts.length, assistantMessages: replyTexts.length }
+                    break
+                  }
+                  await page.waitForTimeout(500)
+                }
+              }
+              cardsEvidence.reload = persisted
+              check(
+                cardsCheckNames[9],
+                Boolean(persisted),
+                persisted
+                  ? `刷新后 user=${persisted.userMessages} assistant=${persisted.assistantMessages} 条`
+                  : '刷新后聊天记录为空（owner: app-auth 持久化 / cards-client 读取）',
+              )
+              await shot(page, '13-chat-after-reload.png')
+
+              // 回角色卡库删除这张 PNG 卡，列表应消失且不影响其它卡
+              // 注意库里可能有基线同名卡，所以「消失」= 计数回落到导入前基线，而不是归零。
+              frame = (await openCharactersPage()) || frame
+              // 等列表重新加载完成（应用有「正在读取角色卡…」状态）
+              await frame.locator('.workspace-loading').waitFor({ state: 'detached', timeout: 15000 }).catch(() => {})
+              await page.waitForTimeout(1000)
+              const nameGone = async (timeoutMs = 20000) => {
+                const deadline = Date.now() + timeoutMs
+                while (Date.now() < deadline) {
+                  const current = await frame.getByText(pngCard.name, { exact: true }).count().catch(() => 0)
+                  if (current <= (baseline[pngCard.name] || 0)) return true
+                  await page.waitForTimeout(400)
+                }
+                return false
+              }
+              const cardRoot2 = await findCardRoot(frame, pngCard.name)
+              let deleteButton = cardRoot2.getByRole('button', { name: '删除' }).first()
+              if (!(await deleteButton.count().catch(() => 0))) {
+                deleteButton = frame.getByRole('button', { name: '删除' }).first()
+              }
+              // 记录删除请求的真实响应，失败时能区分「没点到」和「API 失败」
+              const deleteCalls = []
+              const onResponse = (response) => {
+                if (/character-cards\/[^/?#]+/.test(response.url()) && response.request().method() === 'DELETE') {
+                  deleteCalls.push({ url: new URL(response.url()).pathname, status: response.status() })
+                }
+              }
+              page.on('response', onResponse)
+              const deleteDisabled = await deleteButton.isDisabled().catch(() => true)
+              const beforeUrl = frame.url()
+              page.once('dialog', (dialog) => dialog.accept().catch(() => {}))
+              await deleteButton.click({ force: true }).catch(() => {})
+              // 自定义确认弹层（Sheet）兜底
+              const confirmButton = frame.getByRole('button', { name: /确认删除|确定删除/ }).first()
+              if (await confirmButton.count().catch(() => 0)) await confirmButton.click({ force: true }).catch(() => {})
+              await page.waitForTimeout(1200)
+              page.off('response', onResponse)
+              const afterUrl = frame.url()
+              const listErrorText = await frame.locator('[role="alert"]').first().textContent().catch(() => null)
+              const toastText = await frame.locator('.toast, [data-toast], [role="status"]').first().textContent().catch(() => null)
+              const countsAfterDelete = {}
+              for (const card of manifest.cards) {
+                countsAfterDelete[card.name] = await frame.getByText(card.name, { exact: true }).count().catch(() => 0)
+              }
+              const gone = await nameGone()
+              cardsEvidence.deleteDiagnostics = {
+                deleteDisabled,
+                beforeUrl: new URL(beforeUrl).pathname,
+                afterUrl: new URL(afterUrl).pathname,
+                deleteCalls,
+                listError: listErrorText ? listErrorText.trim() : null,
+                toast: toastText ? toastText.trim() : null,
+                countsAfterDelete,
+              }
+              const othersKept = []
+              {
+                // 删除请求是异步刷新列表：等列表稳定后再数其余卡
+                await frame.locator('.workspace-loading').waitFor({ state: 'detached', timeout: 15000 }).catch(() => {})
+                await page.waitForTimeout(1200)
+              }
+              for (const card of manifest.cards.filter((item) => item.name !== pngCard.name)) {
+                const count = await frame.getByText(card.name, { exact: true }).count().catch(() => 0)
+                const importedBefore = cardsEvidence.imported.some((item) => item.name === card.name)
+                const expected = (baseline[card.name] || 0) + (importedBefore ? 1 : 0)
+                if (count >= expected) othersKept.push(card.name)
+              }
+              cardsEvidence.deleted = { name: pngCard.name, baseline: baseline[pngCard.name] || 0, excludedFromList: gone, othersKept }
+              check(
+                cardsCheckNames[10],
+                gone,
+                gone
+                  ? `列表里「${pngCard.name}」回落到导入前数量（基线 ${baseline[pngCard.name] || 0}）`
+                  : '删除后卡名数量没有回落（owner: cards-client 删除按钮/刷列表）',
+              )
+              check(cardsCheckNames[11], othersKept.length >= 2, `仍在列表：${othersKept.join('、') || '无'}`)
+              await shot(page, '14-cards-deleted.png')
+            }
+          }
+        }
+      }
+    }
+  }
+  report.cards = cardsEvidence
 
   // ── G. 控制台报错 ──────────────────────────────────────────────────────────
   const fatalErrors = consoleErrors.filter((text) => !/Failed to load resource/.test(text))
