@@ -1,0 +1,60 @@
+{
+  "repository": "https://github.com/yongze233-ctrl/product-foundation",
+  "revision": "5b82297d404f905f82c75efa15b2cf731db957e4",
+  "excludedModules": [
+    "foundation-llm",
+    "foundation-prompts"
+  ],
+  "backendAdaptation": "FastAPI/PostgreSQL; existing UUID ownership/authentication and dispatch remain authoritative",
+  "reusedFiles": [
+    {
+      "source": "packages/frontend-sdk/src/telemetry.js",
+      "target": "client/src/foundation/vendor/telemetry.js",
+      "sourceSha256": "82c9334664b8b7e61afc8da4f2a44497de25f04f82ffa764b4f076bf447ff36f",
+      "targetSha256": "012f223767ac7966fb4edee55b3a9d5b25a492f714ea644245a2d46d021dbc61",
+      "adapted": true
+    },
+    {
+      "source": "packages/frontend-sdk/src/i18n.js",
+      "target": "client/src/foundation/vendor/i18n.js",
+      "sourceSha256": "823d21a1cad6ef26c9d145683089c410c1646d246c99f38ea1cf19f7f87652e7",
+      "targetSha256": "823d21a1cad6ef26c9d145683089c410c1646d246c99f38ea1cf19f7f87652e7",
+      "adapted": false
+    },
+    {
+      "source": "packages/frontend-sdk/src/seo.js",
+      "target": "client/src/foundation/vendor/seo.js",
+      "sourceSha256": "d931fa9a697c0209d64967d26fd5e01f93976ae44749d06c12b6359cfc831b52",
+      "targetSha256": "d931fa9a697c0209d64967d26fd5e01f93976ae44749d06c12b6359cfc831b52",
+      "adapted": false
+    },
+    {
+      "source": "packages/payment-waffo/src/adapter.mjs",
+      "target": "integrations/payment-waffo/src/adapter.mjs",
+      "sourceSha256": "beea4e5c35c86ab656ed282bd73b7c8a1a97e6083a7473a80c09041be7a86214",
+      "targetSha256": "beea4e5c35c86ab656ed282bd73b7c8a1a97e6083a7473a80c09041be7a86214",
+      "adapted": false
+    },
+    {
+      "source": "packages/payment-waffo/src/webhooks.mjs",
+      "target": "integrations/payment-waffo/src/webhooks.mjs",
+      "sourceSha256": "82963313baa0cea75d906a991dacb598fb35714a832fc12a60e2ad410cfe8743",
+      "targetSha256": "82963313baa0cea75d906a991dacb598fb35714a832fc12a60e2ad410cfe8743",
+      "adapted": false
+    },
+    {
+      "source": "packages/payment-waffo/src/server.mjs",
+      "target": "integrations/payment-waffo/src/server.mjs",
+      "sourceSha256": "df927bdf853b652da00be12321093004653775a3cfec96abb9ea5232d61b5d66",
+      "targetSha256": "df927bdf853b652da00be12321093004653775a3cfec96abb9ea5232d61b5d66",
+      "adapted": false
+    },
+    {
+      "source": "packages/content-site/src/generate.mjs",
+      "target": "client/scripts/foundation-content.mjs",
+      "sourceSha256": "582a865e80199d79296cfdccf86078bab12b84af83b96bd2445cd5cfb52d3ed5",
+      "targetSha256": "ada1210478de68c5114e9223f90b220b88522e4f4ba79e27f2182f15a100ef85",
+      "adapted": true
+    }
+  ]
+}

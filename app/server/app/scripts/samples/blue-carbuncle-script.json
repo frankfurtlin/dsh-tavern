@@ -1,0 +1,2124 @@
+{
+  "routes": {
+    "brixton": [
+      "covent_garden"
+    ],
+    "baker_st": [
+      "street_london"
+    ],
+    "alpha_inn": [
+      "street_london",
+      "covent_garden"
+    ],
+    "covent_garden": [
+      "street_london",
+      "alpha_inn",
+      "brixton"
+    ],
+    "street_london": [
+      "baker_st",
+      "alpha_inn",
+      "covent_garden",
+      "cosmopolitan",
+      "police_station"
+    ],
+    "cosmopolitan": [
+      "street_london"
+    ],
+    "police_station": [
+      "street_london"
+    ]
+  },
+  "scenes": [
+    {
+      "id": "sc1",
+      "title": "破毡帽的推断",
+      "placeId": "baker_st",
+      "summary": "华生来访，福尔摩斯从毡帽推断主人境况，彼得森闯入报称鹅中藏石。",
+      "characterIds": [
+        "holmes",
+        "watson",
+        "peterson"
+      ],
+      "sourceBlockIds": [
+        "S0002",
+        "S0029",
+        "S0049"
+      ]
+    },
+    {
+      "id": "sc2",
+      "title": "宝石与启事",
+      "placeId": "baker_st",
+      "summary": "确认宝石为莫卡伯爵夫人所失，福尔摩斯拟启事寻贝克，并留石于保险箱。",
+      "characterIds": [
+        "holmes",
+        "watson",
+        "peterson"
+      ],
+      "sourceBlockIds": [
+        "S0057",
+        "S0065",
+        "S0072"
+      ]
+    },
+    {
+      "id": "sc3",
+      "title": "贝克到访",
+      "placeId": "baker_st",
+      "summary": "亨利·贝克依启事取帽与新鹅，说出鹅俱乐部，福尔摩斯断其无辜。",
+      "characterIds": [
+        "holmes",
+        "watson",
+        "baker"
+      ],
+      "sourceBlockIds": [
+        "S0082",
+        "S0095",
+        "S0096"
+      ]
+    },
+    {
+      "id": "sc4",
+      "title": "酒馆追鹅",
+      "placeId": "alpha_inn",
+      "summary": "二人赴阿尔法酒馆，得知鹅来自布雷克里奇。",
+      "characterIds": [
+        "holmes",
+        "watson",
+        "windigate"
+      ],
+      "sourceBlockIds": [
+        "S0100",
+        "S0106"
+      ]
+    },
+    {
+      "id": "sc5",
+      "title": "账簿赌局",
+      "placeId": "covent_garden",
+      "summary": "以赌局激布雷克里奇出示账簿，查到奥克肖特夫人；赖德此时纠缠贩子。",
+      "characterIds": [
+        "holmes",
+        "watson",
+        "breck"
+      ],
+      "sourceBlockIds": [
+        "S0129",
+        "S0143",
+        "S0153"
+      ]
+    },
+    {
+      "id": "sc6",
+      "title": "截住赖德",
+      "placeId": "covent_garden",
+      "summary": "福尔摩斯追上鼠脸小个子，点破其身份，同车返回贝克街。",
+      "characterIds": [
+        "holmes",
+        "watson",
+        "ryder"
+      ],
+      "sourceBlockIds": [
+        "S0159",
+        "S0170",
+        "S0172"
+      ]
+    },
+    {
+      "id": "sc7",
+      "title": "保险箱对质",
+      "placeId": "baker_st",
+      "summary": "福尔摩斯亮出宝石，赖德崩溃招供，道出塞石入鹅的经过。",
+      "characterIds": [
+        "holmes",
+        "watson",
+        "ryder"
+      ],
+      "sourceBlockIds": [
+        "S0180",
+        "S0185",
+        "S0190"
+      ]
+    },
+    {
+      "id": "sc8",
+      "title": "放走赖德",
+      "placeId": "baker_st",
+      "summary": "福尔摩斯开门放走赖德，认为霍纳无险，宽恕可救一魂。",
+      "characterIds": [
+        "holmes",
+        "watson"
+      ],
+      "sourceBlockIds": [
+        "S0211",
+        "S0215"
+      ]
+    }
+  ],
+  "endings": [
+    {
+      "id": "end_release",
+      "title": "释放赖德",
+      "checks": [
+        {
+          "kind": "knowledge",
+          "toId": null,
+          "field": null,
+          "value": null,
+          "itemId": null,
+          "loreId": "ryder_confession",
+          "placeId": null,
+          "entityId": "player",
+          "quantity": 1
+        },
+        {
+          "kind": "field",
+          "toId": null,
+          "field": "最终决定",
+          "value": "释放赖德",
+          "itemId": null,
+          "loreId": null,
+          "placeId": null,
+          "entityId": "player",
+          "quantity": 1
+        }
+      ],
+      "requires": [
+        "ob6"
+      ],
+      "description": "你让赖德离开贝克街，蓝宝石已交还莫卡伯爵夫人。赖德已获准离去；更正证言已登记，霍纳的指控已撤销并解除羁押。",
+      "sourceBlockIds": [
+        "S0211",
+        "S0215"
+      ],
+      "selectionDescription": "你已选择“释放赖德”。宝石归还、赖德处置与霍纳案件处理仍需实际办理。",
+      "settlementSteps": [
+        {
+          "id": "return",
+          "title": "向失主交还唯一宝石",
+          "description": "先从实际持有人取得宝石，再前往酒店，把它交给莫卡伯爵夫人。",
+          "checks": [
+            {
+              "kind": "transfer",
+              "entityId": "watson",
+              "itemId": "carbuncle",
+              "toId": "countess",
+              "quantity": 1
+            },
+            {
+              "kind": "inventory",
+              "entityId": "countess",
+              "itemId": "carbuncle",
+              "quantity": 1
+            },
+            {
+              "kind": "acquired",
+              "entityId": "watson",
+              "itemId": "carbuncle",
+              "quantity": 1
+            }
+          ],
+          "requires": [],
+          "origin": "adaptation",
+          "sourceBlockIds": [],
+          "completionClaims": [
+            "宝石已归还",
+            "宝石已经归还",
+            "宝石已交还",
+            "宝石已经交还",
+            "宝石交还给了",
+            "伯爵夫人已收到宝石"
+          ]
+        },
+        {
+          "id": "evidence",
+          "title": "向警方说明供词与嫁祸事实",
+          "description": "前往警务接收处，实际向接收警官说明已查明的赖德供词。",
+          "checks": [
+            {
+              "kind": "knowledge",
+              "entityId": "inspector",
+              "loreId": "ryder_confession"
+            }
+          ],
+          "requires": [],
+          "origin": "adaptation",
+          "sourceBlockIds": [],
+          "completionClaims": [
+            "警官已收到供词",
+            "警方已收到供词"
+          ]
+        },
+        {
+          "id": "disposition",
+          "title": "释放赖德",
+          "description": "明确办理赖德的处置；仅口头选择、委托或表示打算不能完成。",
+          "checks": [
+            {
+              "kind": "transition",
+              "entityId": "player",
+              "value": "end_release_release"
+            }
+          ],
+          "requires": [],
+          "origin": "adaptation",
+          "sourceBlockIds": [],
+          "completionClaims": [
+            "获准离去",
+            "赖德已离开",
+            "赖德已经离开",
+            "释放赖德已办理",
+            "赖德被释放",
+            "赖德已获释"
+          ]
+        },
+        {
+          "id": "horner",
+          "title": "办理撤案并解除霍纳羁押",
+          "description": "证言已送达后，明确申请办理更正；接收警官登记撤案并解除羁押，至少推进30分钟。",
+          "checks": [
+            {
+              "kind": "transition",
+              "entityId": "player",
+              "value": "end_release_dismiss"
+            },
+            {
+              "kind": "field",
+              "entityId": "horner",
+              "field": "案件状态",
+              "value": "已撤销指控"
+            },
+            {
+              "kind": "field",
+              "entityId": "horner",
+              "field": "羁押状态",
+              "value": "已解除羁押"
+            }
+          ],
+          "requires": [
+            "evidence",
+            "disposition"
+          ],
+          "origin": "adaptation",
+          "sourceBlockIds": [],
+          "completionClaims": [
+            "霍纳已获释",
+            "霍纳已经获释",
+            "霍纳获释",
+            "霍纳已解除羁押",
+            "霍纳的羁押已解除",
+            "霍纳已被释放",
+            "已撤销指控",
+            "已解除羁押"
+          ]
+        }
+      ],
+      "transitions": [
+        {
+          "id": "end_release_release",
+          "title": "获准离去的赖德离开贝克街",
+          "authorityId": "holmes",
+          "placeId": "baker_st",
+          "actionTerms": [
+            "释放赖德",
+            "让赖德离开",
+            "办理释放"
+          ],
+          "checks": [
+            {
+              "kind": "knowledge",
+              "entityId": "player",
+              "loreId": "ryder_confession"
+            },
+            {
+              "kind": "location",
+              "entityId": "ryder",
+              "placeId": "baker_st"
+            },
+            {
+              "kind": "field",
+              "entityId": "ryder",
+              "field": "处置状态",
+              "value": "尚未处理"
+            }
+          ],
+          "effects": [
+            {
+              "entityId": "ryder",
+              "field": "field:处置状态",
+              "value": "获准离去"
+            },
+            {
+              "entityId": "ryder",
+              "field": "location",
+              "value": "street_london"
+            }
+          ],
+          "requires": [],
+          "minMinutes": 1,
+          "origin": "adaptation",
+          "sourceBlockIds": []
+        },
+        {
+          "id": "end_release_dismiss",
+          "title": "登记撤销霍纳指控并解除羁押",
+          "authorityId": "inspector",
+          "placeId": "police_station",
+          "actionTerms": [
+            "办理更正",
+            "申请撤案",
+            "解除羁押",
+            "释放霍纳"
+          ],
+          "checks": [
+            {
+              "kind": "knowledge",
+              "entityId": "inspector",
+              "loreId": "ryder_confession"
+            },
+            {
+              "kind": "field",
+              "entityId": "horner",
+              "field": "案件状态",
+              "value": "被控盗窃"
+            },
+            {
+              "kind": "field",
+              "entityId": "horner",
+              "field": "羁押状态",
+              "value": "在押候审"
+            }
+          ],
+          "effects": [
+            {
+              "entityId": "horner",
+              "field": "field:案件状态",
+              "value": "已撤销指控"
+            },
+            {
+              "entityId": "horner",
+              "field": "field:羁押状态",
+              "value": "已解除羁押"
+            },
+            {
+              "entityId": "horner",
+              "field": "location",
+              "value": "street_london"
+            }
+          ],
+          "requires": [
+            "evidence",
+            "disposition"
+          ],
+          "minMinutes": 30,
+          "origin": "adaptation",
+          "sourceBlockIds": []
+        }
+      ]
+    },
+    {
+      "id": "end_police",
+      "title": "交由警方",
+      "checks": [
+        {
+          "kind": "knowledge",
+          "toId": null,
+          "field": null,
+          "value": null,
+          "itemId": null,
+          "loreId": "ryder_confession",
+          "placeId": null,
+          "entityId": "player",
+          "quantity": 1
+        },
+        {
+          "kind": "field",
+          "toId": null,
+          "field": "最终决定",
+          "value": "交给警方",
+          "itemId": null,
+          "loreId": null,
+          "placeId": null,
+          "entityId": "player",
+          "quantity": 1
+        }
+      ],
+      "requires": [
+        "ob6"
+      ],
+      "description": "宝石已交还莫卡伯爵夫人。赖德已由警方接收，等待进一步审理；更正证言已登记，霍纳的指控已撤销并解除羁押。",
+      "sourceBlockIds": [
+        "S0185",
+        "S0062"
+      ],
+      "selectionDescription": "你已选择“交由警方”。宝石归还、赖德处置与霍纳案件处理仍需实际办理。",
+      "settlementSteps": [
+        {
+          "id": "return",
+          "title": "向失主交还唯一宝石",
+          "description": "先从实际持有人取得宝石，再前往酒店，把它交给莫卡伯爵夫人。",
+          "checks": [
+            {
+              "kind": "transfer",
+              "entityId": "watson",
+              "itemId": "carbuncle",
+              "toId": "countess",
+              "quantity": 1
+            },
+            {
+              "kind": "inventory",
+              "entityId": "countess",
+              "itemId": "carbuncle",
+              "quantity": 1
+            },
+            {
+              "kind": "acquired",
+              "entityId": "watson",
+              "itemId": "carbuncle",
+              "quantity": 1
+            }
+          ],
+          "requires": [],
+          "origin": "adaptation",
+          "sourceBlockIds": [],
+          "completionClaims": [
+            "宝石已归还",
+            "宝石已经归还",
+            "宝石已交还",
+            "宝石已经交还",
+            "宝石交还给了",
+            "伯爵夫人已收到宝石"
+          ]
+        },
+        {
+          "id": "evidence",
+          "title": "向警方说明供词与嫁祸事实",
+          "description": "前往警务接收处，实际向接收警官说明已查明的赖德供词。",
+          "checks": [
+            {
+              "kind": "knowledge",
+              "entityId": "inspector",
+              "loreId": "ryder_confession"
+            }
+          ],
+          "requires": [],
+          "origin": "adaptation",
+          "sourceBlockIds": [],
+          "completionClaims": [
+            "警官已收到供词",
+            "警方已收到供词"
+          ]
+        },
+        {
+          "id": "disposition",
+          "title": "移交赖德",
+          "description": "明确办理赖德的处置；仅口头选择、委托或表示打算不能完成。",
+          "checks": [
+            {
+              "kind": "transition",
+              "entityId": "player",
+              "value": "end_police_custody"
+            }
+          ],
+          "requires": [],
+          "origin": "adaptation",
+          "sourceBlockIds": [],
+          "completionClaims": [
+            "赖德已移交警方",
+            "赖德已被警方收押",
+            "赖德已交给警方",
+            "赖德已经交给警方"
+          ]
+        },
+        {
+          "id": "horner",
+          "title": "办理撤案并解除霍纳羁押",
+          "description": "证言已送达后，明确申请办理更正；接收警官登记撤案并解除羁押，至少推进30分钟。",
+          "checks": [
+            {
+              "kind": "transition",
+              "entityId": "player",
+              "value": "end_police_dismiss"
+            },
+            {
+              "kind": "field",
+              "entityId": "horner",
+              "field": "案件状态",
+              "value": "已撤销指控"
+            },
+            {
+              "kind": "field",
+              "entityId": "horner",
+              "field": "羁押状态",
+              "value": "已解除羁押"
+            }
+          ],
+          "requires": [
+            "evidence",
+            "disposition"
+          ],
+          "origin": "adaptation",
+          "sourceBlockIds": [],
+          "completionClaims": [
+            "霍纳已获释",
+            "霍纳已经获释",
+            "霍纳获释",
+            "霍纳已解除羁押",
+            "霍纳的羁押已解除",
+            "霍纳已被释放",
+            "已撤销指控",
+            "已解除羁押"
+          ]
+        }
+      ],
+      "transitions": [
+        {
+          "id": "end_police_custody",
+          "title": "接收警官收押赖德",
+          "authorityId": "inspector",
+          "placeId": "police_station",
+          "actionTerms": [
+            "移交赖德",
+            "交警办理",
+            "收押赖德"
+          ],
+          "checks": [
+            {
+              "kind": "knowledge",
+              "entityId": "inspector",
+              "loreId": "ryder_confession"
+            },
+            {
+              "kind": "location",
+              "entityId": "ryder",
+              "placeId": "police_station"
+            },
+            {
+              "kind": "field",
+              "entityId": "ryder",
+              "field": "处置状态",
+              "value": "尚未处理"
+            }
+          ],
+          "effects": [
+            {
+              "entityId": "ryder",
+              "field": "field:处置状态",
+              "value": "已移交警方"
+            }
+          ],
+          "requires": [
+            "evidence"
+          ],
+          "minMinutes": 3,
+          "origin": "adaptation",
+          "sourceBlockIds": []
+        },
+        {
+          "id": "end_police_dismiss",
+          "title": "登记撤销霍纳指控并解除羁押",
+          "authorityId": "inspector",
+          "placeId": "police_station",
+          "actionTerms": [
+            "办理更正",
+            "申请撤案",
+            "解除羁押",
+            "释放霍纳"
+          ],
+          "checks": [
+            {
+              "kind": "knowledge",
+              "entityId": "inspector",
+              "loreId": "ryder_confession"
+            },
+            {
+              "kind": "field",
+              "entityId": "horner",
+              "field": "案件状态",
+              "value": "被控盗窃"
+            },
+            {
+              "kind": "field",
+              "entityId": "horner",
+              "field": "羁押状态",
+              "value": "在押候审"
+            }
+          ],
+          "effects": [
+            {
+              "entityId": "horner",
+              "field": "field:案件状态",
+              "value": "已撤销指控"
+            },
+            {
+              "entityId": "horner",
+              "field": "field:羁押状态",
+              "value": "已解除羁押"
+            },
+            {
+              "entityId": "horner",
+              "field": "location",
+              "value": "street_london"
+            }
+          ],
+          "requires": [
+            "evidence",
+            "disposition"
+          ],
+          "minMinutes": 30,
+          "origin": "adaptation",
+          "sourceBlockIds": []
+        }
+      ]
+    },
+    {
+      "id": "end_return",
+      "title": "亲自归还宝石",
+      "checks": [
+        {
+          "kind": "knowledge",
+          "toId": null,
+          "field": null,
+          "value": null,
+          "itemId": null,
+          "loreId": "ryder_confession",
+          "placeId": null,
+          "entityId": "player",
+          "quantity": 1
+        },
+        {
+          "kind": "field",
+          "toId": null,
+          "field": "最终决定",
+          "value": "亲自归还宝石",
+          "itemId": null,
+          "loreId": null,
+          "placeId": null,
+          "entityId": "player",
+          "quantity": 1
+        }
+      ],
+      "requires": [
+        "ob6"
+      ],
+      "description": "你亲自将蓝宝石交还莫卡伯爵夫人。赖德已获准离去；更正证言已登记，霍纳的指控已撤销并解除羁押。",
+      "sourceBlockIds": [
+        "S0059",
+        "S0072"
+      ],
+      "selectionDescription": "你已选择“亲自归还宝石”。宝石归还、赖德处置与霍纳案件处理仍需实际办理。",
+      "settlementSteps": [
+        {
+          "id": "return",
+          "title": "向失主交还唯一宝石",
+          "description": "先从实际持有人取得宝石，再前往酒店，把它交给莫卡伯爵夫人。",
+          "checks": [
+            {
+              "kind": "transfer",
+              "entityId": "watson",
+              "itemId": "carbuncle",
+              "toId": "countess",
+              "quantity": 1
+            },
+            {
+              "kind": "inventory",
+              "entityId": "countess",
+              "itemId": "carbuncle",
+              "quantity": 1
+            },
+            {
+              "kind": "acquired",
+              "entityId": "watson",
+              "itemId": "carbuncle",
+              "quantity": 1
+            },
+            {
+              "kind": "visit",
+              "entityId": "watson",
+              "placeId": "cosmopolitan"
+            }
+          ],
+          "requires": [],
+          "origin": "adaptation",
+          "sourceBlockIds": [],
+          "completionClaims": [
+            "宝石已归还",
+            "宝石已经归还",
+            "宝石已交还",
+            "宝石已经交还",
+            "宝石交还给了",
+            "伯爵夫人已收到宝石"
+          ]
+        },
+        {
+          "id": "evidence",
+          "title": "向警方说明供词与嫁祸事实",
+          "description": "前往警务接收处，实际向接收警官说明已查明的赖德供词。",
+          "checks": [
+            {
+              "kind": "knowledge",
+              "entityId": "inspector",
+              "loreId": "ryder_confession"
+            }
+          ],
+          "requires": [],
+          "origin": "adaptation",
+          "sourceBlockIds": [],
+          "completionClaims": [
+            "警官已收到供词",
+            "警方已收到供词"
+          ]
+        },
+        {
+          "id": "disposition",
+          "title": "释放赖德",
+          "description": "明确办理赖德的处置；仅口头选择、委托或表示打算不能完成。",
+          "checks": [
+            {
+              "kind": "transition",
+              "entityId": "player",
+              "value": "end_return_release"
+            }
+          ],
+          "requires": [],
+          "origin": "adaptation",
+          "sourceBlockIds": [],
+          "completionClaims": [
+            "获准离去",
+            "赖德已离开",
+            "赖德已经离开",
+            "释放赖德已办理",
+            "赖德被释放",
+            "赖德已获释"
+          ]
+        },
+        {
+          "id": "horner",
+          "title": "办理撤案并解除霍纳羁押",
+          "description": "证言已送达后，明确申请办理更正；接收警官登记撤案并解除羁押，至少推进30分钟。",
+          "checks": [
+            {
+              "kind": "transition",
+              "entityId": "player",
+              "value": "end_return_dismiss"
+            },
+            {
+              "kind": "field",
+              "entityId": "horner",
+              "field": "案件状态",
+              "value": "已撤销指控"
+            },
+            {
+              "kind": "field",
+              "entityId": "horner",
+              "field": "羁押状态",
+              "value": "已解除羁押"
+            }
+          ],
+          "requires": [
+            "evidence",
+            "disposition"
+          ],
+          "origin": "adaptation",
+          "sourceBlockIds": [],
+          "completionClaims": [
+            "霍纳已获释",
+            "霍纳已经获释",
+            "霍纳获释",
+            "霍纳已解除羁押",
+            "霍纳的羁押已解除",
+            "霍纳已被释放",
+            "已撤销指控",
+            "已解除羁押"
+          ]
+        }
+      ],
+      "transitions": [
+        {
+          "id": "end_return_release",
+          "title": "获准离去的赖德离开贝克街",
+          "authorityId": "holmes",
+          "placeId": "baker_st",
+          "actionTerms": [
+            "释放赖德",
+            "让赖德离开",
+            "办理释放"
+          ],
+          "checks": [
+            {
+              "kind": "knowledge",
+              "entityId": "player",
+              "loreId": "ryder_confession"
+            },
+            {
+              "kind": "location",
+              "entityId": "ryder",
+              "placeId": "baker_st"
+            },
+            {
+              "kind": "field",
+              "entityId": "ryder",
+              "field": "处置状态",
+              "value": "尚未处理"
+            }
+          ],
+          "effects": [
+            {
+              "entityId": "ryder",
+              "field": "field:处置状态",
+              "value": "获准离去"
+            },
+            {
+              "entityId": "ryder",
+              "field": "location",
+              "value": "street_london"
+            }
+          ],
+          "requires": [],
+          "minMinutes": 1,
+          "origin": "adaptation",
+          "sourceBlockIds": []
+        },
+        {
+          "id": "end_return_dismiss",
+          "title": "登记撤销霍纳指控并解除羁押",
+          "authorityId": "inspector",
+          "placeId": "police_station",
+          "actionTerms": [
+            "办理更正",
+            "申请撤案",
+            "解除羁押",
+            "释放霍纳"
+          ],
+          "checks": [
+            {
+              "kind": "knowledge",
+              "entityId": "inspector",
+              "loreId": "ryder_confession"
+            },
+            {
+              "kind": "field",
+              "entityId": "horner",
+              "field": "案件状态",
+              "value": "被控盗窃"
+            },
+            {
+              "kind": "field",
+              "entityId": "horner",
+              "field": "羁押状态",
+              "value": "在押候审"
+            }
+          ],
+          "effects": [
+            {
+              "entityId": "horner",
+              "field": "field:案件状态",
+              "value": "已撤销指控"
+            },
+            {
+              "entityId": "horner",
+              "field": "field:羁押状态",
+              "value": "已解除羁押"
+            },
+            {
+              "entityId": "horner",
+              "field": "location",
+              "value": "street_london"
+            }
+          ],
+          "requires": [
+            "evidence",
+            "disposition"
+          ],
+          "minMinutes": 30,
+          "origin": "adaptation",
+          "sourceBlockIds": []
+        }
+      ]
+    }
+  ],
+  "opening": "你以华生身份来到贝克街221B。福尔摩斯正在研究一顶旧帽，彼得森也在场。你尚不知道帽与鹅的来历，请先询问并观察眼前物品。",
+  "synopsis": "圣诞次日，贝克街221B收到一顶破毡帽与一只鹅。鹅嗉中竟藏有莫卡伯爵夫人的蓝宝石，牵出酒店窃案与被冤押的管道工霍纳。你循鹅的来路追至阿尔法酒馆、考文特花园，最终在贝克街对质真正的窃贼赖德。",
+  "definition": {
+    "lore": [
+      {
+        "id": "hat_deduction",
+        "text": "帽衬H.B.、三年前的上等款式、蜡油五处，推知主人曾富裕今落魄、中年、居家、妻已疏远。",
+        "title": "毡帽推断",
+        "source": "inferred",
+        "knownBy": [
+          "holmes"
+        ],
+        "evidence": [
+          {
+            "quote": "He picked it up and gazed at it in the peculiar introspective fashion\nwhich was characteristic of him. “It is perhaps less suggestive than it\nmight have been,” ",
+            "blockId": "S0029"
+          },
+          {
+            "quote": "“This hat is three years old. These flat brims curled at the edge came\nin then. It is a hat of the very best quality. Look at the band of\nribbed silk and the ex",
+            "blockId": "S0037"
+          },
+          {
+            "quote": "“One tallow stain, or even two, might come by chance; but when I see no\nless than five, I think that there can be little doubt that the\nindividual must be broug",
+            "blockId": "S0047"
+          }
+        ],
+        "triggers": [
+          "hat"
+        ],
+        "entityIds": [],
+        "privateTerms": []
+      },
+      {
+        "id": "goose_find",
+        "text": "彼得森之妻剖鹅嗉，发现蓝宝石，鹅来自贝克先生。",
+        "title": "鹅中藏石",
+        "source": "inferred",
+        "knownBy": [
+          "peterson"
+        ],
+        "evidence": [
+          {
+            "quote": "“See here, sir! See what my wife found in its crop!” He held out his\nhand and displayed upon the centre of the palm a brilliantly\nscintillating blue stone, rath",
+            "blockId": "S0052"
+          },
+          {
+            "quote": "“He brought round both hat and goose to me on Christmas morning,\nknowing that even the smallest problems are of interest to me. The\ngoose we retained until this",
+            "blockId": "S0016"
+          }
+        ],
+        "triggers": [
+          "goose"
+        ],
+        "entityIds": [],
+        "privateTerms": []
+      },
+      {
+        "id": "carbuncle_case",
+        "text": "12月22日莫卡伯爵夫人宝石失窃，管道工霍纳被捕押候审，领班赖德作证。",
+        "title": "酒店窃案",
+        "source": "inferred",
+        "knownBy": [
+          "holmes"
+        ],
+        "evidence": [
+          {
+            "quote": "“Precisely so, on December 22nd, just five days ago. John Horner, a\nplumber, was accused of having abstracted it from the lady’s\njewel-case. The evidence agains",
+            "blockId": "S0061"
+          },
+          {
+            "quote": "“Hotel Cosmopolitan Jewel Robbery. John Horner, 26, plumber, was\nbrought up upon the charge of having upon the 22nd inst., abstracted\nfrom the jewel-case of the",
+            "blockId": "S0062"
+          }
+        ],
+        "triggers": [
+          "carbuncle"
+        ],
+        "entityIds": [],
+        "privateTerms": []
+      },
+      {
+        "id": "goose_club",
+        "text": "贝克称鹅来自阿尔法酒馆温迪盖特所办的俱乐部，每周缴费领取。",
+        "title": "鹅俱乐部",
+        "source": "inferred",
+        "knownBy": [
+          "baker"
+        ],
+        "evidence": [
+          {
+            "quote": "“Certainly, sir,” said Baker, who had risen and tucked his newly gained\nproperty under his arm. “There are a few of us who frequent the Alpha\nInn, near the Muse",
+            "blockId": "S0095"
+          }
+        ],
+        "triggers": [
+          "baker"
+        ],
+        "entityIds": [],
+        "privateTerms": []
+      },
+      {
+        "id": "goose_supplier",
+        "text": "温迪盖特的鹅购自考文特花园贩子布雷克里奇。",
+        "title": "鹅的上家",
+        "source": "inferred",
+        "knownBy": [
+          "windigate"
+        ],
+        "evidence": [
+          {
+            "quote": "“Well, I got the two dozen from a salesman in Covent Garden.”",
+            "blockId": "S0106"
+          },
+          {
+            "quote": "“Breckinridge is his name.”",
+            "blockId": "S0108"
+          }
+        ],
+        "triggers": [
+          "windigate"
+        ],
+        "entityIds": [],
+        "privateTerms": []
+      },
+      {
+        "id": "oakshott_ledger",
+        "text": "账簿载：12月22日奥克肖特夫人（布里克斯顿117号）售出24只鹅，转售温迪盖特。",
+        "title": "账簿线索",
+        "source": "inferred",
+        "knownBy": [
+          "breck"
+        ],
+        "evidence": [
+          {
+            "quote": "“Mrs. Oakshott, 117, Brixton Road—249,” read Holmes.",
+            "blockId": "S0143"
+          },
+          {
+            "quote": "“‘December 22nd. Twenty-four geese at 7_s_. 6_d_.’”",
+            "blockId": "S0147"
+          },
+          {
+            "quote": "“‘Sold to Mr. Windigate of the Alpha, at 12_s_.’”",
+            "blockId": "S0149"
+          }
+        ],
+        "triggers": [
+          "ledger"
+        ],
+        "entityIds": [],
+        "privateTerms": []
+      },
+      {
+        "id": "ryder_sister",
+        "text": "奥克肖特夫人为赖德之姐，赖德曾回姐家藏石。",
+        "title": "赖德与奥克肖特",
+        "source": "inferred",
+        "knownBy": [
+          "oakshott"
+        ],
+        "evidence": [
+          {
+            "quote": "Ryder passed his tongue over his parched lips. “I will tell you it just\nas it happened, sir,” said he. “When Horner had been arrested, it\nseemed to me that it w",
+            "blockId": "S0190"
+          }
+        ],
+        "triggers": [
+          "brixton"
+        ],
+        "entityIds": [],
+        "privateTerms": []
+      },
+      {
+        "id": "ryder_confession",
+        "text": "赖德受侍女卡萨克指使设局陷害霍纳，将石塞入鹅嗉，鹅混入市场后失控。",
+        "title": "赖德招供",
+        "source": "inferred",
+        "knownBy": [
+          "ryder"
+        ],
+        "evidence": [
+          {
+            "quote": "“I see—her ladyship’s waiting-maid. Well, the temptation of sudden\nwealth so easily acquired was too much for you, as it has been for\nbetter men before you; but",
+            "blockId": "S0185"
+          },
+          {
+            "quote": "Ryder passed his tongue over his parched lips. “I will tell you it just\nas it happened, sir,” said he. “When Horner had been arrested, it\nseemed to me that it w",
+            "blockId": "S0190"
+          },
+          {
+            "quote": "“Well, I did what she said, Mr. Holmes, and I carried the bird all the\nway to Kilburn. I told my pal what I had done, for he was a man that it\nwas easy to tell ",
+            "blockId": "S0202"
+          }
+        ],
+        "triggers": [
+          "ryder"
+        ],
+        "entityIds": [],
+        "privateTerms": []
+      }
+    ],
+    "title": "蓝宝石案",
+    "initial": {
+      "baker": {
+        "goal": "",
+        "alive": true,
+        "known": [
+          "goose_club"
+        ],
+        "fields": {},
+        "location": null,
+        "inventory": {},
+        "relations": {}
+      },
+      "breck": {
+        "goal": "",
+        "alive": true,
+        "known": [
+          "oakshott_ledger"
+        ],
+        "fields": {},
+        "location": "covent_garden",
+        "inventory": {
+          "ledger": 1
+        },
+        "relations": {}
+      },
+      "ryder": {
+        "goal": "",
+        "alive": true,
+        "known": [
+          "ryder_confession"
+        ],
+        "fields": {
+          "处置状态": "尚未处理"
+        },
+        "location": null,
+        "inventory": {},
+        "relations": {}
+      },
+      "cusack": {
+        "goal": "",
+        "alive": true,
+        "known": [],
+        "fields": {},
+        "location": null,
+        "inventory": {},
+        "relations": {}
+      },
+      "holmes": {
+        "goal": "",
+        "alive": true,
+        "known": [
+          "hat_deduction",
+          "carbuncle_case"
+        ],
+        "fields": {},
+        "location": "baker_st",
+        "inventory": {
+          "ad": 1,
+          "hat": 1,
+          "brandy": 1,
+          "carbuncle": 0
+        },
+        "relations": {}
+      },
+      "horner": {
+        "goal": "",
+        "alive": true,
+        "known": [],
+        "fields": {
+          "案件状态": "被控盗窃",
+          "羁押状态": "在押候审"
+        },
+        "location": null,
+        "inventory": {},
+        "relations": {}
+      },
+      "watson": {
+        "goal": "",
+        "alive": true,
+        "known": [],
+        "fields": {},
+        "location": "baker_st",
+        "inventory": {},
+        "relations": {}
+      },
+      "brixton": {
+        "goal": "",
+        "alive": null,
+        "known": [],
+        "fields": {},
+        "location": null,
+        "inventory": {},
+        "relations": {}
+      },
+      "baker_st": {
+        "goal": "",
+        "alive": null,
+        "known": [],
+        "fields": {},
+        "location": null,
+        "inventory": {},
+        "relations": {}
+      },
+      "oakshott": {
+        "goal": "",
+        "alive": true,
+        "known": [
+          "ryder_sister"
+        ],
+        "fields": {},
+        "location": "brixton",
+        "inventory": {},
+        "relations": {}
+      },
+      "peterson": {
+        "goal": "",
+        "alive": true,
+        "known": [
+          "goose_find"
+        ],
+        "fields": {},
+        "location": "baker_st",
+        "inventory": {
+          "goose": 1,
+          "carbuncle": 1
+        },
+        "relations": {}
+      },
+      "alpha_inn": {
+        "goal": "",
+        "alive": null,
+        "known": [],
+        "fields": {},
+        "location": null,
+        "inventory": {},
+        "relations": {}
+      },
+      "windigate": {
+        "goal": "",
+        "alive": true,
+        "known": [
+          "goose_supplier"
+        ],
+        "fields": {},
+        "location": "alpha_inn",
+        "inventory": {},
+        "relations": {}
+      },
+      "covent_garden": {
+        "goal": "",
+        "alive": null,
+        "known": [],
+        "fields": {},
+        "location": null,
+        "inventory": {},
+        "relations": {}
+      },
+      "street_london": {
+        "goal": "",
+        "alive": null,
+        "known": [],
+        "fields": {},
+        "location": null,
+        "inventory": {},
+        "relations": {}
+      },
+      "cosmopolitan": {
+        "alive": null,
+        "location": null,
+        "inventory": {},
+        "known": [],
+        "fields": {}
+      },
+      "police_station": {
+        "alive": null,
+        "location": null,
+        "inventory": {},
+        "known": [],
+        "fields": {}
+      },
+      "countess": {
+        "alive": true,
+        "location": "cosmopolitan",
+        "inventory": {},
+        "known": [],
+        "fields": {}
+      },
+      "inspector": {
+        "alive": true,
+        "location": "police_station",
+        "inventory": {},
+        "known": [],
+        "fields": {}
+      }
+    },
+    "entities": [
+      {
+        "id": "baker_st",
+        "name": "贝克街寓所",
+        "type": "place",
+        "source": "inferred",
+        "traits": "",
+        "aliases": [],
+        "knownBy": [],
+        "evidence": [
+          {
+            "quote": "I had called upon my friend Sherlock Holmes upon the second morning\nafter Christmas, with the intention of wishing him the compliments of\nthe season. He was lou",
+            "blockId": "S0002"
+          },
+          {
+            "quote": "I seated myself in his armchair and warmed my hands before his\ncrackling fire, for a sharp frost had set in, and the windows were\nthick with the ice crystals. “",
+            "blockId": "S0005"
+          }
+        ],
+        "stackable": false,
+        "hiddenGoal": "",
+        "knownFacts": [],
+        "description": "221B起居室，炉火明亮，堆着报纸与烟斗，椅上放着破毡帽与透镜，楼梯通向临街大门。",
+        "sourceCharacterId": null
+      },
+      {
+        "id": "street_london",
+        "name": "伦敦街道",
+        "type": "place",
+        "source": "inferred",
+        "traits": "",
+        "aliases": [],
+        "knownBy": [],
+        "evidence": [
+          {
+            "quote": "It was a bitter night, so we drew on our ulsters and wrapped cravats\nabout our throats. Outside, the stars were shining coldly in a\ncloudless sky, and the breat",
+            "blockId": "S0100"
+          }
+        ],
+        "stackable": false,
+        "hiddenGoal": "",
+        "knownFacts": [],
+        "description": "结霜的煤气灯街道，可通往贝克街、牛津街与酒馆区，行人呼出白气。",
+        "sourceCharacterId": null
+      },
+      {
+        "id": "alpha_inn",
+        "name": "阿尔法酒馆",
+        "type": "place",
+        "source": "inferred",
+        "traits": "",
+        "aliases": [],
+        "knownBy": [],
+        "evidence": [
+          {
+            "quote": "It was a bitter night, so we drew on our ulsters and wrapped cravats\nabout our throats. Outside, the stars were shining coldly in a\ncloudless sky, and the breat",
+            "blockId": "S0100"
+          },
+          {
+            "quote": "“Ah! yes, I see. But you see, sir, them’s not _our_ geese.”",
+            "blockId": "S0104"
+          }
+        ],
+        "stackable": false,
+        "hiddenGoal": "",
+        "knownFacts": [],
+        "description": "布卢姆斯伯里街角小酒馆，私人酒吧内挂灯明亮，柜台后是红脸老板，门通向街道。",
+        "sourceCharacterId": null
+      },
+      {
+        "id": "covent_garden",
+        "name": "考文特花园市场",
+        "type": "place",
+        "source": "inferred",
+        "traits": "",
+        "aliases": [],
+        "knownBy": [],
+        "evidence": [
+          {
+            "quote": "We passed across Holborn, down Endell Street, and so through a zigzag\nof slums to Covent Garden Market. One of the largest stalls bore the\nname of Breckinridge ",
+            "blockId": "S0111"
+          },
+          {
+            "quote": "“Well, there are some on the stall with the gas-flare.”",
+            "blockId": "S0117"
+          }
+        ],
+        "stackable": false,
+        "hiddenGoal": "",
+        "knownFacts": [],
+        "description": "夜市摊位灯火通明，大理石台面半空，卷帘门半落，通往街道与布里克斯顿。",
+        "sourceCharacterId": null
+      },
+      {
+        "id": "brixton",
+        "name": "布里克斯顿路",
+        "type": "place",
+        "source": "inferred",
+        "traits": "",
+        "aliases": [],
+        "knownBy": [],
+        "evidence": [
+          {
+            "quote": "“Mrs. Oakshott, 117, Brixton Road—249,” read Holmes.",
+            "blockId": "S0143"
+          },
+          {
+            "quote": "Ryder passed his tongue over his parched lips. “I will tell you it just\nas it happened, sir,” said he. “When Horner had been arrested, it\nseemed to me that it w",
+            "blockId": "S0190"
+          }
+        ],
+        "stackable": false,
+        "hiddenGoal": "",
+        "knownFacts": [],
+        "description": "城南禽舍与宅院，后院养鹅，账簿记于屋内，可折返市场。",
+        "sourceCharacterId": null
+      },
+      {
+        "id": "holmes",
+        "name": "福尔摩斯",
+        "type": "character",
+        "source": "inferred",
+        "traits": "敏锐、善推理、冷静",
+        "aliases": [],
+        "knownBy": [],
+        "evidence": [
+          {
+            "quote": "I had called upon my friend Sherlock Holmes upon the second morning\nafter Christmas, with the intention of wishing him the compliments of\nthe season. He was lou",
+            "blockId": "S0002"
+          },
+          {
+            "quote": "Sherlock Holmes sat up with a whistle. “By Jove, Peterson!” said he,\n“this is treasure trove indeed. I suppose you know what you have got?”",
+            "blockId": "S0053"
+          },
+          {
+            "quote": "“Hotel Cosmopolitan Jewel Robbery. John Horner, 26, plumber, was\nbrought up upon the charge of having upon the 22nd inst., abstracted\nfrom the jewel-case of the",
+            "blockId": "S0062"
+          }
+        ],
+        "stackable": false,
+        "hiddenGoal": "",
+        "knownFacts": [
+          "hat_deduction",
+          "carbuncle_case"
+        ],
+        "description": "贝克街私家侦探，正研究一顶破毡帽，思维敏捷，擅长从细节推断。",
+        "sourceCharacterId": null
+      },
+      {
+        "id": "watson",
+        "name": "华生",
+        "type": "character",
+        "source": "inferred",
+        "traits": "忠诚、务实、好奇",
+        "aliases": [],
+        "knownBy": [],
+        "evidence": [
+          {
+            "quote": "I had called upon my friend Sherlock Holmes upon the second morning\nafter Christmas, with the intention of wishing him the compliments of\nthe season. He was lou",
+            "blockId": "S0002"
+          },
+          {
+            "quote": "I seated myself in his armchair and warmed my hands before his\ncrackling fire, for a sharp frost had set in, and the windows were\nthick with the ice crystals. “",
+            "blockId": "S0005"
+          }
+        ],
+        "stackable": false,
+        "hiddenGoal": "",
+        "knownFacts": [],
+        "description": "医生与记述者，圣诞次日来访，协助福尔摩斯调查。",
+        "sourceCharacterId": null
+      },
+      {
+        "id": "peterson",
+        "name": "彼得森",
+        "type": "character",
+        "source": "inferred",
+        "traits": "诚实、易惊",
+        "aliases": [],
+        "knownBy": [],
+        "evidence": [
+          {
+            "quote": "“No, no, he found it. Its owner is unknown. I beg that you will look\nupon it not as a battered billycock but as an intellectual problem.\nAnd, first, as to how i",
+            "blockId": "S0012"
+          },
+          {
+            "quote": "Sherlock Holmes had opened his mouth to reply, when the door flew open,\nand Peterson, the commissionaire, rushed into the apartment with\nflushed cheeks and the ",
+            "blockId": "S0049"
+          },
+          {
+            "quote": "“See here, sir! See what my wife found in its crop!” He held out his\nhand and displayed upon the centre of the palm a brilliantly\nscintillating blue stone, rath",
+            "blockId": "S0052"
+          }
+        ],
+        "stackable": false,
+        "hiddenGoal": "",
+        "knownFacts": [
+          "goose_find"
+        ],
+        "description": "一位诚实的制服门房，圣诞清晨拾得一顶毡帽和一只鹅。",
+        "sourceCharacterId": null
+      },
+      {
+        "id": "baker",
+        "name": "亨利·贝克",
+        "type": "character",
+        "source": "inferred",
+        "traits": "落魄、有教养、无辜",
+        "aliases": [],
+        "knownBy": [],
+        "evidence": [
+          {
+            "quote": "“Mr. Henry Baker, I believe,” said he, rising from his armchair and\ngreeting his visitor with the easy air of geniality which he could so\nreadily assume. “Pray ",
+            "blockId": "S0082"
+          },
+          {
+            "quote": "He was a large man with rounded shoulders, a massive head, and a broad,\nintelligent face, sloping down to a pointed beard of grizzled brown. A\ntouch of red in n",
+            "blockId": "S0084"
+          },
+          {
+            "quote": "“Certainly, sir,” said Baker, who had risen and tucked his newly gained\nproperty under his arm. “There are a few of us who frequent the Alpha\nInn, near the Muse",
+            "blockId": "S0095"
+          }
+        ],
+        "stackable": false,
+        "hiddenGoal": "",
+        "knownFacts": [
+          "goose_club"
+        ],
+        "description": "落魄学者，鹅与帽的主人，戴苏格兰便帽，言辞谨慎。",
+        "sourceCharacterId": null
+      },
+      {
+        "id": "windigate",
+        "name": "温迪盖特",
+        "type": "character",
+        "source": "inferred",
+        "traits": "和气、市侩",
+        "aliases": [],
+        "knownBy": [],
+        "evidence": [
+          {
+            "quote": "It was a bitter night, so we drew on our ulsters and wrapped cravats\nabout our throats. Outside, the stars were shining coldly in a\ncloudless sky, and the breat",
+            "blockId": "S0100"
+          },
+          {
+            "quote": "“Well, I got the two dozen from a salesman in Covent Garden.”",
+            "blockId": "S0106"
+          },
+          {
+            "quote": "“Breckinridge is his name.”",
+            "blockId": "S0108"
+          }
+        ],
+        "stackable": false,
+        "hiddenGoal": "",
+        "knownFacts": [
+          "goose_supplier"
+        ],
+        "description": "阿尔法酒馆老板，红脸白围裙，办了圣诞鹅俱乐部。",
+        "sourceCharacterId": null
+      },
+      {
+        "id": "breck",
+        "name": "布雷克里奇",
+        "type": "character",
+        "source": "inferred",
+        "traits": "暴躁、精明",
+        "aliases": [],
+        "knownBy": [],
+        "evidence": [
+          {
+            "quote": "We passed across Holborn, down Endell Street, and so through a zigzag\nof slums to Covent Garden Market. One of the largest stalls bore the\nname of Breckinridge ",
+            "blockId": "S0111"
+          },
+          {
+            "quote": "“Warm! You’d be as warm, maybe, if you were as pestered as I am. When I\npay good money for a good article there should be an end of the\nbusiness; but it’s ‘Wher",
+            "blockId": "S0128"
+          },
+          {
+            "quote": "“Mrs. Oakshott, 117, Brixton Road—249,” read Holmes.",
+            "blockId": "S0143"
+          }
+        ],
+        "stackable": false,
+        "hiddenGoal": "",
+        "knownFacts": [
+          "oakshott_ledger"
+        ],
+        "description": "考文特花园的禽贩，尖脸侧须，脾气暴躁，随身保管着进货账簿。",
+        "sourceCharacterId": null
+      },
+      {
+        "id": "ryder",
+        "name": "詹姆斯·赖德",
+        "type": "character",
+        "source": "inferred",
+        "traits": "怯懦、贪婪、易崩溃",
+        "aliases": [],
+        "knownBy": [],
+        "evidence": [
+          {
+            "quote": "His remarks were suddenly cut short by a loud hubbub which broke out\nfrom the stall which we had just left. Turning round we saw a little\nrat-faced fellow stand",
+            "blockId": "S0153"
+          },
+          {
+            "quote": "A flush sprang to the white cheeks of the stranger. “Well then,” said\nhe, “my real name is James Ryder.”",
+            "blockId": "S0170"
+          },
+          {
+            "quote": "“I see—her ladyship’s waiting-maid. Well, the temptation of sudden\nwealth so easily acquired was too much for you, as it has been for\nbetter men before you; but",
+            "blockId": "S0185"
+          }
+        ],
+        "stackable": false,
+        "hiddenGoal": "",
+        "knownFacts": [
+          "ryder_confession"
+        ],
+        "description": "酒店领班，身材矮小，脸形瘦削，神情不安，正在追查鹅的下落。",
+        "sourceCharacterId": null
+      },
+      {
+        "id": "horner",
+        "name": "约翰·霍纳",
+        "type": "character",
+        "source": "inferred",
+        "traits": "冤屈、情绪激动",
+        "aliases": [],
+        "knownBy": [],
+        "evidence": [
+          {
+            "quote": "“Hotel Cosmopolitan Jewel Robbery. John Horner, 26, plumber, was\nbrought up upon the charge of having upon the 22nd inst., abstracted\nfrom the jewel-case of the",
+            "blockId": "S0062"
+          }
+        ],
+        "stackable": false,
+        "hiddenGoal": "",
+        "knownFacts": [],
+        "description": "管道工，因前科被控窃宝，现押候审，坚称无辜。",
+        "sourceCharacterId": null
+      },
+      {
+        "id": "oakshott",
+        "name": "奥克肖特夫人",
+        "type": "character",
+        "source": "inferred",
+        "traits": "勤勉、不知情",
+        "aliases": [],
+        "knownBy": [],
+        "evidence": [
+          {
+            "quote": "“Mrs. Oakshott, 117, Brixton Road—249,” read Holmes.",
+            "blockId": "S0143"
+          },
+          {
+            "quote": "Ryder passed his tongue over his parched lips. “I will tell you it just\nas it happened, sir,” said he. “When Horner had been arrested, it\nseemed to me that it w",
+            "blockId": "S0190"
+          }
+        ],
+        "stackable": false,
+        "hiddenGoal": "",
+        "knownFacts": [
+          "ryder_sister"
+        ],
+        "description": "布里克斯顿路禽贩，赖德之姐，豢鹅待售。",
+        "sourceCharacterId": null
+      },
+      {
+        "id": "cusack",
+        "name": "卡萨克",
+        "type": "character",
+        "source": "inferred",
+        "traits": "多嘴",
+        "aliases": [],
+        "knownBy": [],
+        "evidence": [
+          {
+            "quote": "“Hotel Cosmopolitan Jewel Robbery. John Horner, 26, plumber, was\nbrought up upon the charge of having upon the 22nd inst., abstracted\nfrom the jewel-case of the",
+            "blockId": "S0062"
+          },
+          {
+            "quote": "“It was Catherine Cusack who told me of it,” said he in a crackling\nvoice.",
+            "blockId": "S0184"
+          }
+        ],
+        "stackable": false,
+        "hiddenGoal": "",
+        "knownFacts": [],
+        "description": "莫卡伯爵夫人的侍女，熟悉酒店内情。",
+        "sourceCharacterId": null
+      },
+      {
+        "id": "hat",
+        "name": "破毡帽",
+        "type": "item",
+        "source": "inferred",
+        "traits": "",
+        "aliases": [],
+        "knownBy": [],
+        "evidence": [
+          {
+            "quote": "I had called upon my friend Sherlock Holmes upon the second morning\nafter Christmas, with the intention of wishing him the compliments of\nthe season. He was lou",
+            "blockId": "S0002"
+          },
+          {
+            "quote": "I took the tattered object in my hands and turned it over rather\nruefully. It was a very ordinary black hat of the usual round shape,\nhard and much the worse fo",
+            "blockId": "S0025"
+          }
+        ],
+        "stackable": false,
+        "hiddenGoal": "",
+        "knownFacts": [],
+        "description": "黑毡帽，衬里有H.B.缩写，多处裂痕与油渍，帽带松脱。",
+        "sourceCharacterId": null
+      },
+      {
+        "id": "carbuncle",
+        "name": "蓝宝石",
+        "type": "item",
+        "source": "inferred",
+        "traits": "",
+        "aliases": [],
+        "knownBy": [],
+        "evidence": [
+          {
+            "quote": "“See here, sir! See what my wife found in its crop!” He held out his\nhand and displayed upon the centre of the palm a brilliantly\nscintillating blue stone, rath",
+            "blockId": "S0052"
+          },
+          {
+            "quote": "“Precisely so. I ought to know its size and shape, seeing that I have\nread the advertisement about it in _The Times_ every day lately. It is\nabsolutely unique, ",
+            "blockId": "S0057"
+          }
+        ],
+        "stackable": false,
+        "hiddenGoal": "",
+        "knownFacts": [],
+        "description": "莫卡伯爵夫人失窃的蓝色宝石，光华夺目，悬赏千镑。",
+        "sourceCharacterId": null
+      },
+      {
+        "id": "goose",
+        "name": "替换用的鹅",
+        "type": "item",
+        "source": "inferred",
+        "traits": "",
+        "aliases": [],
+        "knownBy": [],
+        "evidence": [
+          {
+            "quote": "“Ah, yes, I shall keep the stone. Thank you. And, I say, Peterson, just\nbuy a goose on your way back and leave it here with me, for we must\nhave one to give to ",
+            "blockId": "S0071"
+          },
+          {
+            "quote": "“Yes, it would have been of no use to anyone had we not done so. But I\npresume that this other goose upon the sideboard, which is about the\nsame weight and perf",
+            "blockId": "S0089"
+          }
+        ],
+        "stackable": false,
+        "hiddenGoal": "",
+        "knownFacts": [],
+        "description": "彼得森另购的肥鹅，准备交还贝克先生。",
+        "sourceCharacterId": null
+      },
+      {
+        "id": "ad",
+        "name": "寻物启事稿",
+        "type": "item",
+        "source": "inferred",
+        "traits": "",
+        "aliases": [],
+        "knownBy": [],
+        "evidence": [
+          {
+            "quote": "“Give me a pencil and that slip of paper. Now, then: ‘Found at the\ncorner of Goodge Street, a goose and a black felt hat. Mr. Henry Baker\ncan have the same by a",
+            "blockId": "S0065"
+          }
+        ],
+        "stackable": false,
+        "hiddenGoal": "",
+        "knownFacts": [],
+        "description": "福尔摩斯拟的启事，寻Goodge街拾得的鹅与帽。",
+        "sourceCharacterId": null
+      },
+      {
+        "id": "ledger",
+        "name": "禽贩账簿",
+        "type": "item",
+        "source": "inferred",
+        "traits": "",
+        "aliases": [],
+        "knownBy": [],
+        "evidence": [
+          {
+            "quote": "The small boy brought round a small thin volume and a great\ngreasy-backed one, laying them out together beneath the hanging lamp.",
+            "blockId": "S0139"
+          },
+          {
+            "quote": "“‘December 22nd. Twenty-four geese at 7_s_. 6_d_.’”",
+            "blockId": "S0147"
+          }
+        ],
+        "stackable": false,
+        "hiddenGoal": "",
+        "knownFacts": [],
+        "description": "布雷克里奇的进货账簿，记有奥克肖特夫人24只鹅。",
+        "sourceCharacterId": null
+      },
+      {
+        "id": "brandy",
+        "name": "白兰地",
+        "type": "item",
+        "source": "inferred",
+        "traits": "",
+        "aliases": [],
+        "knownBy": [],
+        "evidence": [
+          {
+            "quote": "“The game’s up, Ryder,” said Holmes quietly. “Hold up, man, or you’ll\nbe into the fire! Give him an arm back into his chair, Watson. He’s not\ngot blood enough t",
+            "blockId": "S0181"
+          }
+        ],
+        "stackable": false,
+        "hiddenGoal": "",
+        "knownFacts": [],
+        "description": "贝克街柜中的酒，用于唤醒崩溃的赖德。",
+        "sourceCharacterId": null
+      },
+      {
+        "id": "cosmopolitan",
+        "name": "大都会酒店",
+        "type": "place",
+        "description": "改编善后地点：伯爵夫人的住所，沿伦敦街道可达。",
+        "source": "game",
+        "evidence": []
+      },
+      {
+        "id": "police_station",
+        "name": "警务接收处",
+        "type": "place",
+        "description": "改编善后地点：办理证言、人员移交与案件更正。",
+        "source": "game",
+        "evidence": []
+      },
+      {
+        "id": "countess",
+        "name": "莫卡伯爵夫人",
+        "type": "character",
+        "description": "蓝宝石的失主；在酒店接收归还物品。善后接收过程为改编。",
+        "source": "game",
+        "evidence": []
+      },
+      {
+        "id": "inspector",
+        "name": "接收警官",
+        "type": "character",
+        "description": "改编角色：在警务接收处登记供词，接收嫌疑人并办理更正指控。",
+        "source": "game",
+        "evidence": []
+      }
+    ],
+    "location": "baker_st",
+    "timeLabel": "圣诞次日清晨",
+    "unresolved": [
+      "研究毡帽，听取彼得森叙述，弄清鹅与帽如何来到贝克街。"
+    ],
+    "description": "圣诞次日，贝克街221B收到一顶破毡帽与一只鹅。鹅嗉中竟藏有莫卡伯爵夫人的蓝宝石，牵出酒店窃案与被冤押的管道工霍纳。你循鹅的来路追至阿尔法酒馆、考文特花园，最终在贝克街对质真正的窃贼赖德。",
+    "narrativeStyle": "中文沉浸叙事，第二人称视角；人物、因果、时代与原作一致。"
+  },
+  "objectives": [
+    {
+      "id": "ob1",
+      "title": "查明鹅与帽的来历",
+      "checks": [
+        {
+          "kind": "knowledge",
+          "toId": null,
+          "field": null,
+          "value": null,
+          "itemId": null,
+          "loreId": "hat_deduction",
+          "placeId": null,
+          "entityId": "player",
+          "quantity": 1
+        },
+        {
+          "kind": "knowledge",
+          "toId": null,
+          "field": null,
+          "value": null,
+          "itemId": null,
+          "loreId": "goose_find",
+          "placeId": null,
+          "entityId": "player",
+          "quantity": 1
+        }
+      ],
+      "requires": [],
+      "description": "研究毡帽，听取彼得森叙述，弄清鹅与帽如何来到贝克街。",
+      "sourceBlockIds": [
+        "S0012",
+        "S0029",
+        "S0052"
+      ]
+    },
+    {
+      "id": "ob2",
+      "title": "确认宝石与窃案",
+      "checks": [
+        {
+          "kind": "knowledge",
+          "toId": null,
+          "field": null,
+          "value": null,
+          "itemId": null,
+          "loreId": "carbuncle_case",
+          "placeId": null,
+          "entityId": "player",
+          "quantity": 1
+        }
+      ],
+      "requires": [
+        "ob1"
+      ],
+      "description": "辨认蓝宝石，读报了解霍纳被控的酒店窃案。",
+      "sourceBlockIds": [
+        "S0057",
+        "S0062"
+      ]
+    },
+    {
+      "id": "ob_ad",
+      "title": "刊登寻物启事",
+      "description": "向福尔摩斯取得寻物启事稿，交给彼得森送往晚刊，寻找鹅与帽子的主人。",
+      "requires": [
+        "ob2"
+      ],
+      "checks": [
+        {
+          "kind": "acquired",
+          "entityId": "player",
+          "itemId": "ad",
+          "quantity": 1
+        },
+        {
+          "kind": "transfer",
+          "entityId": "player",
+          "itemId": "ad",
+          "toId": "peterson",
+          "quantity": 1
+        }
+      ],
+      "sourceBlockIds": [
+        "S0065",
+        "S0071"
+      ]
+    },
+    {
+      "id": "ob3",
+      "title": "寻访亨利·贝克",
+      "checks": [
+        {
+          "kind": "knowledge",
+          "toId": null,
+          "field": null,
+          "value": null,
+          "itemId": null,
+          "loreId": "goose_club",
+          "placeId": null,
+          "entityId": "player",
+          "quantity": 1
+        }
+      ],
+      "requires": [
+        "ob_ad"
+      ],
+      "description": "发布启事，接待贝克，问明鹅的来处。",
+      "sourceBlockIds": [
+        "S0065",
+        "S0082",
+        "S0095"
+      ]
+    },
+    {
+      "id": "ob4",
+      "title": "追查鹅的上家",
+      "checks": [
+        {
+          "kind": "knowledge",
+          "toId": null,
+          "field": null,
+          "value": null,
+          "itemId": null,
+          "loreId": "goose_supplier",
+          "placeId": null,
+          "entityId": "player",
+          "quantity": 1
+        },
+        {
+          "kind": "visit",
+          "toId": null,
+          "field": null,
+          "value": null,
+          "itemId": null,
+          "loreId": null,
+          "placeId": "alpha_inn",
+          "entityId": "player",
+          "quantity": 1
+        }
+      ],
+      "requires": [
+        "ob3"
+      ],
+      "description": "走访阿尔法酒馆，问出鹅的批发来源。",
+      "sourceBlockIds": [
+        "S0100",
+        "S0108"
+      ]
+    },
+    {
+      "id": "ob5",
+      "title": "取得账簿证据",
+      "checks": [
+        {
+          "kind": "knowledge",
+          "toId": null,
+          "field": null,
+          "value": null,
+          "itemId": null,
+          "loreId": "oakshott_ledger",
+          "placeId": null,
+          "entityId": "player",
+          "quantity": 1
+        },
+        {
+          "kind": "visit",
+          "toId": null,
+          "field": null,
+          "value": null,
+          "itemId": null,
+          "loreId": null,
+          "placeId": "covent_garden",
+          "entityId": "player",
+          "quantity": 1
+        }
+      ],
+      "requires": [
+        "ob4"
+      ],
+      "description": "到考文特花园以赌局套出布雷克里奇的账簿，锁定奥克肖特夫人。",
+      "sourceBlockIds": [
+        "S0129",
+        "S0147"
+      ]
+    },
+    {
+      "id": "ob6",
+      "title": "对质真凶掌握真相",
+      "checks": [
+        {
+          "kind": "knowledge",
+          "toId": null,
+          "field": null,
+          "value": null,
+          "itemId": null,
+          "loreId": "ryder_confession",
+          "placeId": null,
+          "entityId": "player",
+          "quantity": 1
+        }
+      ],
+      "requires": [
+        "ob5"
+      ],
+      "description": "截住赖德带回贝克街，迫其招供，掌握全案真相。",
+      "sourceBlockIds": [
+        "S0159",
+        "S0185",
+        "S0190"
+      ]
+    }
+  ],
+  "recommendedCharacterId": "watson",
+  "conservedItemIds": [
+    "carbuncle"
+  ]
+}

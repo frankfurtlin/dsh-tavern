@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:reader:local-private:v1",
+  "title": "Reader device-private document and mutation receipt",
+  "type": "object",
+  "required": ["protocol", "operationId", "payloadHash", "documentId", "revision", "committedAt"],
+  "additionalProperties": false,
+  "properties": {
+    "protocol": {"const": "reader-local-v1"},
+    "operationId": {"type": "string", "minLength": 1, "maxLength": 160},
+    "payloadHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "documentId": {"type": "string", "minLength": 1, "maxLength": 160},
+    "revision": {"type": "integer", "minimum": 1},
+    "committedAt": {"type": "string", "format": "date-time"}
+  }
+}

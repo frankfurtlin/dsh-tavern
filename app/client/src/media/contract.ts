@@ -1,0 +1,48 @@
+import {canonical,ContractError,type DomainKind} from '../domain/local-contract'
+export type MediaProtocol='openai-images'|'openai-tts'|'openai-asr'|'openai-embeddings'|'runway-video'
+export type MediaKind='image'|'audio'|'video'
+export interface MediaProvider {
+  assetType:'media-provider';id:string;name:string;protocol:MediaProtocol;baseUrl:string;modelId:string;key:string;enabled:boolean;
+  slots:('image'|'speech'|'embedding'|'video')[];dailyCalls:number;firstPacketMs:number;idleMs:number;totalMs:number;source:string;verifiedAt:string;
+  imageFormat:'gpt-image'|'compatible-b64';voice:string;
+  videoCapabilities?:{text:boolean;image:boolean;durations:number[];ratios:string[];creditsPerSecond:number|null;pricingSource:string;pricingVerifiedAt:string};
+}
+export interface AssetLink {targetId:string;targetKind:DomainKind;targetRevision:number;role:'cover'|'illustration-before'|'illustration-after'|'background'|'portrait'|'attachment'|'speech';paragraphId?:string;branchId?:string|null;branchRevision?:number}
+export interface LocalAsset {
+  name:string;mediaKind:MediaKind;mime:string;sha256:string;bytes:number;sourceId:string;createdAt:string;
+  width:number|null;height:number|null;duration:number|null;origin:'import'|'generated';favorite:boolean;retired:boolean;
+  parentAssetId:string|null;links:AssetLink[];jobId:string|null;videoRecordId?:string|null;
+}
+export interface MediaJob {
+  type:'image'|'edit'|'tts'|'asr';configSnapshot:MediaProvider&{revision:number};prompt:string;referenceAssetIds:string[];referenceAssetHashes:string[];
+  source:AssetLink|null;intentHash:string;status:'queued'|'calling'|'completed'|'failed'|'unknown'|'cancelled'|'persistence_failed';
+  requestId:string|null;claimId:string|null;leaseUntil:string|null;outputAssetId:string|null;text:string|null;error:string|null;
+  inputTokens:number|null;outputTokens:number|null;createdAt:string;updatedAt:string;historical:boolean;
+}
+export const mediaProtocols:MediaProtocol[]=['openai-images','openai-tts','openai-asr','openai-embeddings','runway-video']
+export const mediaSlots=(protocol:MediaProtocol):MediaProvider['slots']=>protocol==='openai-images'?['image']:protocol==='openai-embeddings'?['embedding']:protocol==='runway-video'?['video']:['speech']
+const record=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
+const str=(v:unknown,n:number)=>typeof v==='string'&&v.length<=n
+const id=(v:unknown)=>str(v,160)&&!!v
+const num=(v:unknown)=>typeof v==='number'&&Number.isFinite(v)&&v>=0
+const int=(v:unknown)=>num(v)&&Number.isSafeInteger(v)
+const hash=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v)
+const date=(v:unknown)=>typeof v==='string'&&Number.isFinite(Date.parse(v))
+function bad():never {throw new ContractError('MEDIA_CONTRACT','媒体对象格式无效，原素材保留')}
+export function mediaBase(value:string){let url:URL;try{url=new URL(value)}catch{throw new ContractError('MEDIA_URL','媒体供应商地址无效')}if(url.username||url.password||url.search||url.hash||url.protocol!=='https:'&&!(url.protocol==='http:'&&['localhost','127.0.0.1','[::1]'].includes(url.hostname)))throw new ContractError('MEDIA_URL','请使用 HTTPS，或本机 HTTP 地址；凭据单独填写');return url.href.replace(/\/+$/,'')}
+export function validateMediaProvider(v:unknown,documentId?:string):asserts v is MediaProvider {
+  if(!record(v)||v.assetType!=='media-provider'||!id(v.id)||!String(v.id).startsWith('model:')||documentId!==undefined&&documentId!==v.id||!str(v.name,200)||!(v.name as string).trim()||!mediaProtocols.includes(v.protocol as MediaProtocol)||!str(v.baseUrl,2000)||!str(v.modelId,300)||!str(v.key,16000)||/[\r\n]/.test(String(v.key))||typeof v.enabled!=='boolean'||!Array.isArray(v.slots)||canonical(v.slots)!==canonical(mediaSlots(v.protocol as MediaProtocol))||!int(v.dailyCalls)||(v.dailyCalls as number)<1||(v.dailyCalls as number)>10000||['firstPacketMs','idleMs','totalMs'].some(k=>!int(v[k])||(v[k] as number)<100||(v[k] as number)>3600000)||!str(v.source,2000)||!date(v.verifiedAt)||!['gpt-image','compatible-b64'].includes(String(v.imageFormat))||!str(v.voice,200))bad();mediaBase(String(v.baseUrl))
+  if(v.protocol==='runway-video'){const caps=v.videoCapabilities;if(!record(caps)||typeof caps.text!=='boolean'||typeof caps.image!=='boolean'||!caps.text&&!caps.image||!Array.isArray(caps.durations)||!caps.durations.length||caps.durations.length>9||caps.durations.some(n=>!int(n)||n<2||n>10)||!Array.isArray(caps.ratios)||!caps.ratios.length||caps.ratios.length>6||caps.ratios.some(ratio=>!['1280:720','720:1280','960:960','1104:832','832:1104','1584:672'].includes(String(ratio)))||caps.creditsPerSecond!==null&&(!num(caps.creditsPerSecond)||Number(caps.creditsPerSecond)>1000000)||!str(caps.pricingSource,2000)||!date(caps.pricingVerifiedAt))bad()}
+}
+export const assetLinkKinds:DomainKind[]=['story','branch','paragraph','card','message','companion','session']
+export function validateAssetLink(v:unknown):asserts v is AssetLink {if(!record(v)||!id(v.targetId)||!assetLinkKinds.includes(v.targetKind as DomainKind)||!int(v.targetRevision)||!v.targetRevision||!['cover','illustration-before','illustration-after','background','portrait','attachment','speech'].includes(String(v.role))||v.paragraphId!==undefined&&!id(v.paragraphId)||v.branchId!==undefined&&v.branchId!==null&&(!id(v.branchId)||!int(v.branchRevision)||!v.branchRevision))bad()}
+export function validateAsset(v:unknown):asserts v is LocalAsset {
+  if(!record(v)||!str(v.name,512)||!(v.name as string).trim()||!['image','audio','video'].includes(String(v.mediaKind))||!['image/png','image/jpeg','image/webp','image/gif','audio/mpeg','audio/wav','audio/ogg','audio/webm','video/mp4','video/webm'].includes(String(v.mime))||!String(v.mime).startsWith(String(v.mediaKind)+'/')||!hash(v.sha256)||!int(v.bytes)||(v.bytes as number)<1||(v.bytes as number)>25*1024*1024||!id(v.sourceId)||!date(v.createdAt)||[v.width,v.height,v.duration].some(n=>n!==null&&!num(n))||v.width!==null&&(!int(v.width)||(v.width as number)<1||(v.width as number)>20000)||v.height!==null&&(!int(v.height)||(v.height as number)<1||(v.height as number)>20000)||!['import','generated'].includes(String(v.origin))||typeof v.favorite!=='boolean'||typeof v.retired!=='boolean'||!(v.parentAssetId===null||id(v.parentAssetId))||!(v.jobId===null||id(v.jobId))||v.videoRecordId!==undefined&&v.videoRecordId!==null&&(!id(v.videoRecordId)||v.jobId!==null||v.mediaKind!=='video')||!Array.isArray(v.links)||v.links.length>1000)bad();for(const link of v.links as unknown[])validateAssetLink(link)
+}
+export function validateMediaJob(v:unknown):asserts v is MediaJob {
+  if(!record(v)||!['image','edit','tts','asr'].includes(String(v.type))||!record(v.configSnapshot)||!str(v.prompt,20000)||!Array.isArray(v.referenceAssetIds)||v.referenceAssetIds.length>8||!v.referenceAssetIds.every(id)||!Array.isArray(v.referenceAssetHashes)||v.referenceAssetHashes.length!==v.referenceAssetIds.length||!v.referenceAssetHashes.every(hash)||!hash(v.intentHash)||!['queued','calling','completed','failed','unknown','cancelled','persistence_failed'].includes(String(v.status))||!(v.requestId===null||str(v.requestId,1000))||!(v.claimId===null||id(v.claimId))||!(v.leaseUntil===null||date(v.leaseUntil))||!(v.outputAssetId===null||id(v.outputAssetId))||!(v.text===null||str(v.text,1_000_000))||!(v.error===null||str(v.error,2000))||[v.inputTokens,v.outputTokens].some(n=>n!==null&&!int(n))||!date(v.createdAt)||!date(v.updatedAt)||typeof v.historical!=='boolean'||!int(v.configSnapshot.revision)||!v.configSnapshot.revision)bad()
+  validateMediaProvider(v.configSnapshot);if(v.source!==null)validateAssetLink(v.source)
+  const job=v as unknown as MediaJob
+  if(job.type==='image'&&job.referenceAssetIds.length||job.type==='edit'&&job.referenceAssetIds.length!==1||job.type==='asr'&&job.referenceAssetIds.length!==1||job.type==='tts'&&(job.referenceAssetIds.length||job.prompt.length>4096)||['image','edit'].includes(job.type)&&job.configSnapshot.protocol!=='openai-images'||job.type==='tts'&&job.configSnapshot.protocol!=='openai-tts'||job.type==='asr'&&job.configSnapshot.protocol!=='openai-asr'||job.status==='completed'&&(job.type==='asr'?job.text===null:job.outputAssetId===null)||job.status==='queued'&&(job.claimId||job.requestId))bad()
+}
+export function emptyMediaProvider(protocol:MediaProtocol):MediaProvider {return {assetType:'media-provider',id:'model:'+crypto.randomUUID(),name:{'openai-images':'图像通道','openai-tts':'在线配音','openai-asr':'语音转录','openai-embeddings':'向量通道','runway-video':'Runway 视频'}[protocol],protocol,baseUrl:protocol==='runway-video'?'https://api.dev.runwayml.com/v1':'https://api.openai.com/v1',modelId:protocol==='runway-video'?'gen4.5':'',key:'',enabled:true,slots:mediaSlots(protocol),dailyCalls:10,firstPacketMs:60000,idleMs:60000,totalMs:300000,source:{'openai-images':'https://developers.openai.com/api/reference/resources/images/methods/generate','openai-tts':'https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create','openai-asr':'https://developers.openai.com/api/reference/resources/audio/subresources/transcriptions/methods/create','openai-embeddings':'https://developers.openai.com/api/reference/resources/embeddings/methods/create','runway-video':'https://docs.dev.runwayml.com/guides/using-the-api/'}[protocol],verifiedAt:'2026-10-06',imageFormat:'gpt-image',voice:'alloy',...(protocol==='runway-video'?{videoCapabilities:{text:true,image:true,durations:[5,10],ratios:['1280:720','720:1280'],creditsPerSecond:12,pricingSource:'https://docs.dev.runwayml.com/guides/pricing/',pricingVerifiedAt:'2026-10-06'}}:{})}}

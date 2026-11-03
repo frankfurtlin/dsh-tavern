@@ -1,0 +1,10 @@
+.conversations-page{min-width:0}
+@media(min-width:768px){
+  .main-shell.conversations-shell{padding-bottom:24px}
+  .conversations-page{display:flex;flex-direction:column;min-height:0}
+  .conversations-page>.page-heading,.conversations-page>.error{flex-shrink:0}
+  .conversations-page>.chat-layout{flex:1;min-height:0}
+  .conversations-page .chat-sidebar{min-height:0;max-height:100%;height:100%;overscroll-behavior:contain}
+  .conversations-page .desktop-chat{min-width:0;min-height:0;overflow:hidden}
+  .conversations-page .desktop-chat>.empty{height:100%;overflow:auto}
+}

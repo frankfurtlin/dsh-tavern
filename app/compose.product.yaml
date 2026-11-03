@@ -1,0 +1,13 @@
+# Optional payment adapter. Never opens a cashier without private merchant configuration.
+services:
+  payment-waffo:
+    profiles: [payments]
+    build: ./integrations/payment-waffo
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      WAFFO_ENABLED: ${WAFFO_ENABLED:-false}
+    restart: unless-stopped
+  api:
+    environment:
+      PRODUCT_WAFFO_SERVICE_URL: http://payment-waffo:3010

@@ -1,0 +1,18 @@
+{
+  "protocol": "reader-world-100-logic-v1",
+  "license": "CC0-1.0; original synthetic fixture authored for this test",
+  "provider": "none",
+  "turns": 100,
+  "initial": {"minute": 0, "energy": 100, "money": null, "npcEnergy": 100, "npcLampReady": false},
+  "promise": {"createdAtTurn": 2, "dueMinute": 95, "description": "红封口信：九十五分钟前在青石灯塔交还约定的信", "resolvedAtTurn": 95, "resolution": "fulfilled"},
+  "background": {"turn": 40, "cost": 5, "location": "北塔", "description": "旅人用五份体力修好远处北塔的信号灯", "visibleToPlayer": false},
+  "relation": {"turn": 90, "value": "信任", "reason": "旅人修好北塔后寄来有落款的信，兑现了此前约定"},
+  "sourceFact": "青石灯塔的第七层有一盏蓝色旧灯，钥匙留在木盒里。",
+  "samples": {
+    "2": {"minute": 2, "energy": 98, "money": null, "npcEnergy": 100, "npcLampReady": false, "pendingPromiseCount": 1},
+    "40": {"minute": 40, "energy": 60, "money": null, "npcEnergy": 95, "npcLampReady": true, "pendingPromiseCount": 1},
+    "90": {"minute": 90, "energy": 10, "money": null, "npcEnergy": 95, "npcLampReady": true, "pendingPromiseCount": 1},
+    "95": {"minute": 95, "energy": 5, "money": null, "npcEnergy": 95, "npcLampReady": true, "pendingPromiseCount": 0},
+    "100": {"minute": 100, "energy": 0, "money": null, "npcEnergy": 95, "npcLampReady": true, "pendingPromiseCount": 0}
+  }
+}

@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="960" viewBox="0 0 640 960">
+<defs>
+ <linearGradient id="sky" x2="0" y2="1"><stop stop-color="#101f31"/><stop offset=".65" stop-color="#244c54"/><stop offset="1" stop-color="#0b252c"/></linearGradient>
+ <radialGradient id="light"><stop stop-color="#d3f7e5" stop-opacity=".8"/><stop offset=".3" stop-color="#75c5cd" stop-opacity=".24"/><stop offset="1" stop-color="#75c5cd" stop-opacity="0"/></radialGradient>
+ <linearGradient id="path" x2="0" y2="1"><stop stop-color="#b3d1ba" stop-opacity=".7"/><stop offset="1" stop-color="#486b61"/></linearGradient>
+ <filter id="blur"><feGaussianBlur stdDeviation="13"/></filter>
+</defs>
+<path fill="url(#sky)" d="M0 0h640v960H0z"/>
+<ellipse cx="331" cy="385" rx="300" ry="375" fill="url(#light)"/>
+<g fill="#34605c" opacity=".6">
+ <path d="M42 0h30l20 626-64 7zM123 0h22l32 589h-51zM491 0h21l26 612h-54zM560 0h28l31 661h-65z"/>
+ <path d="m68 202 95-96-11-14-91 67zm76 101L249 194l-18-12-91 71zm368-104-78-92 14-12 72 63zm55 156-98-94 12-15 90 65z"/>
+</g>
+<path d="M295 512c85 69-45 85-19 151s182 100 95 297H154c160-143 17-189 39-270s135-108 102-178" fill="url(#path)"/>
+<g fill="#102d31">
+ <path d="M0 0h42l25 472 24 488H0zm98 0h42l-7 391 26 569h-48l-18-502zM599 0h41v960h-81l22-529zM487 0h44l17 461-33 499h-59l43-474z"/>
+ <path d="m33 156 119-80 8 19-119 126zm89 185 113-104 13 18-121 143zm393-188-110-97-14 17 123 139zm82 222-125-81-12 20 127 104z"/>
+</g>
+<g fill="none" stroke="#78c7c5" stroke-width="2" opacity=".8">
+ <ellipse cx="324" cy="655" rx="90" ry="25"/>
+ <ellipse cx="324" cy="655" rx="76" ry="18" stroke-dasharray="5 12"/>
+ <path d="M280 710q46-32 20-95t30-102m-31 114q-39 4-52-27m59-6q38-2 43-32"/>
+</g>
+<g fill="#cef7d4"><circle cx="216" cy="497" r="2"/><circle cx="401" cy="478" r="2"/><circle cx="270" cy="554" r="3"/><circle cx="362" cy="592" r="2"/><circle cx="188" cy="629" r="2"/><circle cx="441" cy="635" r="2"/></g>
+<path d="M0 750h640v210H0z" fill="#0c242c" opacity=".82"/>
+<text x="320" y="786" text-anchor="middle" font-family="Georgia,serif" font-size="14" letter-spacing="6" fill="#9fc9bd">INTO THE SOUL FOREST</text>
+<text x="320" y="846" text-anchor="middle" font-family="Noto Serif SC,SimSun,serif" font-size="49" letter-spacing="8" fill="#edf0dd">斗罗大陆</text>
+<path d="M252 870h136" stroke="#88b9aa" stroke-width="1"/>
+<text x="320" y="905" text-anchor="middle" font-family="Noto Serif SC,SimSun,serif" font-size="23" letter-spacing="10" fill="#b8d3c6">星斗试炼</text>
+</svg>

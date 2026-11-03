@@ -1,0 +1,12 @@
+FROM docker:27.5.1-cli AS cli
+FROM node:22.21.1-bookworm-slim AS node
+FROM ghcr.io/cirruslabs/android-sdk:36@sha256:f9b3ea9ed2b5fc9522adae82c7b4622ab7aa54207ef532c8e615a347dca08f31
+COPY --from=cli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=cli /usr/local/libexec/docker/cli-plugins/ /usr/local/libexec/docker/cli-plugins/
+COPY --from=node /usr/local/ /usr/local/
+COPY client/package.json client/package-lock.json /tmp/reader-toolchain/
+RUN cd /tmp/reader-toolchain && npm ci && \
+    DEBIAN_FRONTEND=noninteractive npx playwright install --with-deps chromium && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y fonts-noto-cjk
+ENTRYPOINT []
+CMD ["bash"]

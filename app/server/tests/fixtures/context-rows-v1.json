@@ -1,0 +1,588 @@
+{
+  "original": {
+    "facts": [
+      {
+        "id": "ffffffffffffffffffffffffffffffff",
+        "subjectId": "cccccccccccccccccccccccccccccccc",
+        "subject": "林渡",
+        "predicate": "action",
+        "value": {
+          "zero": 0,
+          "false": false,
+          "null": null,
+          "literal": "c0 e0 p0"
+        },
+        "evidenceIds": [
+          "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        ],
+        "knownBy": [
+          "cccccccccccccccccccccccccccccccc"
+        ],
+        "occurredOrder": null,
+        "temporalRelation": "at_scope",
+        "readerRevealAnchor": "p-source",
+        "knowledgeAt": [
+          {
+            "characterId": "cccccccccccccccccccccccccccccccc",
+            "evidenceIds": [
+              "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+            ],
+            "learnedAt": "p-source",
+            "learnedOrder": null,
+            "validity": "at_scope"
+          }
+        ]
+      },
+      {
+        "id": "ffffffffffffffffffffffffffffffff",
+        "subjectId": "cccccccccccccccccccccccccccccccc",
+        "subject": "林渡",
+        "predicate": "action",
+        "value": {
+          "zero": 0,
+          "false": false,
+          "null": null,
+          "literal": "c0 e0 p0"
+        },
+        "evidenceIds": [
+          "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        ],
+        "knownBy": [
+          "cccccccccccccccccccccccccccccccc"
+        ],
+        "occurredOrder": null,
+        "temporalRelation": "at_scope",
+        "readerRevealAnchor": "p-source",
+        "knowledgeAt": [
+          {
+            "characterId": "cccccccccccccccccccccccccccccccc",
+            "evidenceIds": [
+              "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+            ],
+            "learnedAt": "p-source",
+            "learnedOrder": null,
+            "validity": "at_scope"
+          }
+        ]
+      },
+      {
+        "id": "ffffffffffffffffffffffffffffffff",
+        "subjectId": "cccccccccccccccccccccccccccccccc",
+        "subject": "林渡",
+        "predicate": "action",
+        "value": {
+          "zero": 0,
+          "false": false,
+          "null": null,
+          "literal": "c0 e0 p0"
+        },
+        "evidenceIds": [
+          "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        ],
+        "knownBy": [
+          "cccccccccccccccccccccccccccccccc"
+        ],
+        "occurredOrder": null,
+        "temporalRelation": "at_scope",
+        "readerRevealAnchor": "p-source",
+        "knowledgeAt": [
+          {
+            "characterId": "cccccccccccccccccccccccccccccccc",
+            "evidenceIds": [
+              "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+            ],
+            "learnedAt": "p-source",
+            "learnedOrder": null,
+            "validity": "at_scope"
+          }
+        ]
+      },
+      {
+        "id": "ffffffffffffffffffffffffffffffff",
+        "subjectId": "cccccccccccccccccccccccccccccccc",
+        "subject": "林渡",
+        "predicate": "action",
+        "value": {
+          "zero": 0,
+          "false": false,
+          "null": null,
+          "literal": "c0 e0 p0"
+        },
+        "evidenceIds": [
+          "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        ],
+        "knownBy": [
+          "cccccccccccccccccccccccccccccccc"
+        ],
+        "occurredOrder": null,
+        "temporalRelation": "at_scope",
+        "readerRevealAnchor": "p-source",
+        "knowledgeAt": [
+          {
+            "characterId": "cccccccccccccccccccccccccccccccc",
+            "evidenceIds": [
+              "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+            ],
+            "learnedAt": "p-source",
+            "learnedOrder": null,
+            "validity": "at_scope"
+          }
+        ]
+      },
+      {
+        "id": "ffffffffffffffffffffffffffffffff",
+        "subjectId": "cccccccccccccccccccccccccccccccc",
+        "subject": "林渡",
+        "predicate": "action",
+        "value": {
+          "zero": 0,
+          "false": false,
+          "null": null,
+          "literal": "c0 e0 p0"
+        },
+        "evidenceIds": [
+          "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        ],
+        "knownBy": [
+          "cccccccccccccccccccccccccccccccc"
+        ],
+        "occurredOrder": null,
+        "temporalRelation": "at_scope",
+        "readerRevealAnchor": "p-source",
+        "knowledgeAt": [
+          {
+            "characterId": "cccccccccccccccccccccccccccccccc",
+            "evidenceIds": [
+              "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+            ],
+            "learnedAt": "p-source",
+            "learnedOrder": null,
+            "validity": "at_scope"
+          }
+        ]
+      },
+      {
+        "id": "ffffffffffffffffffffffffffffffff",
+        "subjectId": "cccccccccccccccccccccccccccccccc",
+        "subject": "林渡",
+        "predicate": "action",
+        "value": {
+          "zero": 0,
+          "false": false,
+          "null": null,
+          "literal": "c0 e0 p0"
+        },
+        "evidenceIds": [
+          "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        ],
+        "knownBy": [
+          "cccccccccccccccccccccccccccccccc"
+        ],
+        "occurredOrder": null,
+        "temporalRelation": "at_scope",
+        "readerRevealAnchor": "p-source",
+        "knowledgeAt": [
+          {
+            "characterId": "cccccccccccccccccccccccccccccccc",
+            "evidenceIds": [
+              "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+            ],
+            "learnedAt": "p-source",
+            "learnedOrder": null,
+            "validity": "at_scope"
+          }
+        ]
+      },
+      {
+        "id": "ffffffffffffffffffffffffffffffff",
+        "subjectId": "cccccccccccccccccccccccccccccccc",
+        "subject": "林渡",
+        "predicate": "action",
+        "value": {
+          "zero": 0,
+          "false": false,
+          "null": null,
+          "literal": "c0 e0 p0"
+        },
+        "evidenceIds": [
+          "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        ],
+        "knownBy": [
+          "cccccccccccccccccccccccccccccccc"
+        ],
+        "occurredOrder": null,
+        "temporalRelation": "at_scope",
+        "readerRevealAnchor": "p-source",
+        "knowledgeAt": [
+          {
+            "characterId": "cccccccccccccccccccccccccccccccc",
+            "evidenceIds": [
+              "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+            ],
+            "learnedAt": "p-source",
+            "learnedOrder": null,
+            "validity": "at_scope"
+          }
+        ]
+      },
+      {
+        "id": "ffffffffffffffffffffffffffffffff",
+        "subjectId": "cccccccccccccccccccccccccccccccc",
+        "subject": "林渡",
+        "predicate": "action",
+        "value": {
+          "zero": 0,
+          "false": false,
+          "null": null,
+          "literal": "c0 e0 p0"
+        },
+        "evidenceIds": [
+          "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        ],
+        "knownBy": [
+          "cccccccccccccccccccccccccccccccc"
+        ],
+        "occurredOrder": null,
+        "temporalRelation": "at_scope",
+        "readerRevealAnchor": "p-source",
+        "knowledgeAt": [
+          {
+            "characterId": "cccccccccccccccccccccccccccccccc",
+            "evidenceIds": [
+              "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+            ],
+            "learnedAt": "p-source",
+            "learnedOrder": null,
+            "validity": "at_scope"
+          }
+        ]
+      }
+    ],
+    "sourcePositions": {
+      "p-source": {
+        "chapterId": "11111111111111111111111111111111",
+        "blockId": "22222222222222222222222222222222",
+        "start": 0,
+        "end": 42
+      }
+    },
+    "evidence": [
+      {
+        "id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "quote": "e0 c0 p0 是原始引用"
+      }
+    ],
+    "output": "e0 是正文",
+    "scope": {
+      "end": 42
+    }
+  },
+  "encoded": {
+    "facts": [
+      [
+        "ffffffffffffffffffffffffffffffff",
+        "c0",
+        "林渡",
+        "action",
+        {
+          "zero": 0,
+          "false": false,
+          "null": null,
+          "literal": "c0 e0 p0"
+        },
+        [
+          "e0"
+        ],
+        [
+          "c0"
+        ],
+        null,
+        "at_scope",
+        "p0",
+        [
+          [
+            "c0",
+            [
+              "e0"
+            ],
+            "p0",
+            null,
+            "at_scope"
+          ]
+        ]
+      ],
+      [
+        "ffffffffffffffffffffffffffffffff",
+        "c0",
+        "林渡",
+        "action",
+        {
+          "zero": 0,
+          "false": false,
+          "null": null,
+          "literal": "c0 e0 p0"
+        },
+        [
+          "e0"
+        ],
+        [
+          "c0"
+        ],
+        null,
+        "at_scope",
+        "p0",
+        [
+          [
+            "c0",
+            [
+              "e0"
+            ],
+            "p0",
+            null,
+            "at_scope"
+          ]
+        ]
+      ],
+      [
+        "ffffffffffffffffffffffffffffffff",
+        "c0",
+        "林渡",
+        "action",
+        {
+          "zero": 0,
+          "false": false,
+          "null": null,
+          "literal": "c0 e0 p0"
+        },
+        [
+          "e0"
+        ],
+        [
+          "c0"
+        ],
+        null,
+        "at_scope",
+        "p0",
+        [
+          [
+            "c0",
+            [
+              "e0"
+            ],
+            "p0",
+            null,
+            "at_scope"
+          ]
+        ]
+      ],
+      [
+        "ffffffffffffffffffffffffffffffff",
+        "c0",
+        "林渡",
+        "action",
+        {
+          "zero": 0,
+          "false": false,
+          "null": null,
+          "literal": "c0 e0 p0"
+        },
+        [
+          "e0"
+        ],
+        [
+          "c0"
+        ],
+        null,
+        "at_scope",
+        "p0",
+        [
+          [
+            "c0",
+            [
+              "e0"
+            ],
+            "p0",
+            null,
+            "at_scope"
+          ]
+        ]
+      ],
+      [
+        "ffffffffffffffffffffffffffffffff",
+        "c0",
+        "林渡",
+        "action",
+        {
+          "zero": 0,
+          "false": false,
+          "null": null,
+          "literal": "c0 e0 p0"
+        },
+        [
+          "e0"
+        ],
+        [
+          "c0"
+        ],
+        null,
+        "at_scope",
+        "p0",
+        [
+          [
+            "c0",
+            [
+              "e0"
+            ],
+            "p0",
+            null,
+            "at_scope"
+          ]
+        ]
+      ],
+      [
+        "ffffffffffffffffffffffffffffffff",
+        "c0",
+        "林渡",
+        "action",
+        {
+          "zero": 0,
+          "false": false,
+          "null": null,
+          "literal": "c0 e0 p0"
+        },
+        [
+          "e0"
+        ],
+        [
+          "c0"
+        ],
+        null,
+        "at_scope",
+        "p0",
+        [
+          [
+            "c0",
+            [
+              "e0"
+            ],
+            "p0",
+            null,
+            "at_scope"
+          ]
+        ]
+      ],
+      [
+        "ffffffffffffffffffffffffffffffff",
+        "c0",
+        "林渡",
+        "action",
+        {
+          "zero": 0,
+          "false": false,
+          "null": null,
+          "literal": "c0 e0 p0"
+        },
+        [
+          "e0"
+        ],
+        [
+          "c0"
+        ],
+        null,
+        "at_scope",
+        "p0",
+        [
+          [
+            "c0",
+            [
+              "e0"
+            ],
+            "p0",
+            null,
+            "at_scope"
+          ]
+        ]
+      ],
+      [
+        "ffffffffffffffffffffffffffffffff",
+        "c0",
+        "林渡",
+        "action",
+        {
+          "zero": 0,
+          "false": false,
+          "null": null,
+          "literal": "c0 e0 p0"
+        },
+        [
+          "e0"
+        ],
+        [
+          "c0"
+        ],
+        null,
+        "at_scope",
+        "p0",
+        [
+          [
+            "c0",
+            [
+              "e0"
+            ],
+            "p0",
+            null,
+            "at_scope"
+          ]
+        ]
+      ]
+    ],
+    "sourcePositions": {
+      "p-source": {
+        "chapterId": "11111111111111111111111111111111",
+        "blockId": "22222222222222222222222222222222",
+        "start": 0,
+        "end": 42
+      }
+    },
+    "evidence": [
+      {
+        "id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "quote": "e0 c0 p0 是原始引用"
+      }
+    ],
+    "output": "e0 是正文",
+    "scope": {
+      "end": 42
+    },
+    "contextEncoding": "context-rows-v1",
+    "factColumns": [
+      "id",
+      "subjectId",
+      "subject",
+      "predicate",
+      "value",
+      "evidenceIds",
+      "knownBy",
+      "occurredOrder",
+      "temporalRelation",
+      "readerRevealAnchor",
+      "knowledgeAt"
+    ],
+    "knowledgeColumns": [
+      "characterId",
+      "evidenceIds",
+      "learnedAt",
+      "learnedOrder",
+      "validity"
+    ],
+    "characterRefs": {
+      "c0": "cccccccccccccccccccccccccccccccc"
+    },
+    "evidenceRefs": {
+      "e0": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    },
+    "positionRefs": {
+      "p0": "p-source"
+    }
+  }
+}

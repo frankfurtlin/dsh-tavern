@@ -1,0 +1,1 @@
+<template><section class="reader-startup" role="status" aria-live="polite" aria-label="正在打开故事之间"><div class="reader-startup-mark" aria-hidden="true">阅</div><h1>故事之间</h1><p>正在打开你的故事…</p><div class="reader-startup-lines" aria-hidden="true"><span></span><span></span><span></span></div></section></template>

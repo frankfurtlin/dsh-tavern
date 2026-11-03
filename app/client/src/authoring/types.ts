@@ -1,0 +1,19 @@
+import type {WorldRules} from '../world/types'
+export interface CustomField{id:string;label:string;type:'text'|'longtext'|'number'|'select'|'multiselect'|'list'|'boolean'|'image'|'random';group?:string;presentation?:'default'|'radio'|'dropdown';minHeight?:number;width?:'full'|'half';required:boolean;defaultValue:string|number|boolean|string[]|null;options:string[];minimum:number|null;maximum:number|null;scope:'player'|'characters'}
+export interface Opening{id:string;title:string;description:string;text:string;characterId:string|null;locationId:string|null}
+export interface AuthorEntity{id:string;name:string;type:string;description:string;traits:string;hiddenGoal:string;source:string;knownBy:string[];knownFacts:string[];aliases:string[];evidence:{blockId:string;quote:string}[]}
+export interface AuthorLore{id:string;title:string;text:string;triggers:string[];knownBy:string[];entityIds:string[];source:string;evidence:{blockId:string;quote:string}[]}
+export interface AuthorValue{formTitle?:string;statusTitle?:string;statusTheme?:'paper'|'scroll'|'terminal'|'soft';suggestedModel?:string;fixedActions?:{id:string;label:string;message:string;kind:import('../world/types').ActionKind}[];plot?:AuthorPlot|null;title:string;summary:string;introduction:string;genre:string;tags:string[];coverTheme:string;coverDataUrl:string;authorInstructions:string;openings:Opening[];playerFields:CustomField[];statusFields:CustomField[];rules:WorldRules;definition:{title:string;description:string;timeLabel:string;location:string;entities:AuthorEntity[];lore:AuthorLore[];initial:Record<string,any>;unresolved:string[];narrativeStyle:string}}
+export interface PublicationStatus{id:string;version:number;state:string;live:boolean;note:string;submittedAuthorVersion:number;publishedAuthorVersion:number|null;updatedAt:string}
+export interface AuthorDraft{worldId:string;version:number;value:AuthorValue;hasSaves:boolean;publication:PublicationStatus|null}
+export interface PublicCard{id:string;title:string;summary:string;genre:string;tags:string[];coverTheme:string;hasCover:boolean;authorId:string;authorName:string;version:number;favorite:boolean;favorites:number;updatedAt:string}
+export interface PublicDetail extends PublicCard{formTitle?:string;introduction:string;attribution:string;openings:Opening[];playerFields:CustomField[];characters:{id:string;name:string;description:string;avatarUrl?:string;imageUrl?:string}[];isOwner:boolean}
+export interface PublicList{items:PublicCard[];total:number;offset:number;limit:number}
+export const fieldLabel=(fields:{id:string;label:string}[]|undefined,id:string)=>fields?.find(f=>f.id===id)?.label||id
+
+export interface PlotCheck{kind:string;entityId:string;placeId:string|null;itemId:string|null;quantity:number;loreId:string|null;toId:string|null;field:string|null;value:string|number|boolean|string[]|null}
+export interface PlotObjective{id:string;title:string;description:string;requires:string[];checks:PlotCheck[];sourceBlockIds:string[]}
+export interface PlotStep extends PlotObjective{origin:'source'|'adaptation';completionClaims:string[]}
+export interface PlotTransition{id:string;title:string;authorityId:string;placeId:string;actionTerms:string[];requires:string[];checks:PlotCheck[];effects:{entityId:string;field:string;value:string|number|boolean}[];minMinutes:number;origin:'source'|'adaptation';sourceBlockIds:string[]}
+export interface PlotEnding extends PlotObjective{selectionDescription:string;settlementSteps:PlotStep[];transitions:PlotTransition[]}
+export interface AuthorPlot{synopsis:string;scenes:{id:string;title:string;summary:string;placeId:string;characterIds:string[];sourceBlockIds:string[]}[];objectives:PlotObjective[];endings:PlotEnding[];recommendedCharacterId:string;opening:string;conservedItemIds:string[]}
