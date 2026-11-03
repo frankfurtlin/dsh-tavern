@@ -39,5 +39,5 @@ export function pageLocation(route:Pick<RouteLocationNormalizedLoaded,'path'|'pa
  if(/^\/stories\/[^/]+$/.test(route.path))return {title:'作品详情',area:works,parent:works,ownBack:true}
  if(/^\/worlds\/[^/]+\/lines$/.test(route.path))return {title:'故事线',area:works,parent:works,ownBack:true}
  if(/^\/books\/[^/]+\/(read|branches)$/.test(route.path))return {title:route.path.endsWith('/branches')?'故事时间线':'小说阅读',area:works,parent:works,ownBack:true}
- return {title:typeof route.meta.title==='string'?route.meta.title:'故事之间',area:explore,parent:explore}
+ return {title:typeof route.meta.title==='string'?route.meta.title:'酒馆',area:explore,parent:explore}
 }

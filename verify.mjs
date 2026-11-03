@@ -1,12 +1,12 @@
 /**
- * dsh-story-between 端到端验收脚本（真实浏览器行为，不是静态代码检查）。
+ * dsh-tavern 端到端验收脚本（真实浏览器行为，不是静态代码检查）。
  *
  * 用法：
  *   node verify.mjs --url "http://127.0.0.1:3080/?token=..." [--out dir] [--no-bridge] [--open-story]
  *
  * 检查分组（与 docs/contract.md v1 对应）：
- *   A. 鉴权与入口：未登录 GET /story/ 必须被 DSH 闸门挡住（401）；登录态 200。
- *   B. 侧栏入口「故事之间」存在；点击后 main 面板出现 iframe[data-dsh-story-frame]。
+ *   A. 鉴权与入口：未登录 GET /tavern/ 必须被 DSH 闸门挡住（401）；登录态 200。
+ *   B. 侧栏入口「酒馆」存在；点击后 main 面板出现 iframe[data-dsh-tavern-frame]。
  *   C. 内嵌应用处于可信登录态（出现 .app-shell / 侧栏内容，而不是应用自己的登录页），
  *      并渲染出稳定内容（品牌、导航）。
  *   D. 工具条按钮（让 DSH 续写 / 角色扮演）可见。
@@ -17,7 +17,7 @@
  *   G. 截图 + 输出目录下 report.json；无控制台 JS 报错。
  *
  * 设计原则：
- *   - 插件/应用尚未就绪时（/story 404、应用登录页、P2 桥没有响应）不崩：
+ *   - 插件/应用尚未就绪时（/tavern 404、应用登录页、P2 桥没有响应）不崩：
  *     能跑出「未就绪」报告，依赖项记为 SKIP 并写明 owner，退出码仍为非 0。
  *   - 默认不写应用数据：不打开作品、只开草稿、不点发送。
  *     --open-story 会在应用 explore 页点一部 live 作品进入故事页（会写阅读进度），
@@ -39,7 +39,7 @@ function arg(name, fallback) {
   return value
 }
 const url = arg('url', process.env.DSH_WEB_URL || '')
-const outDir = arg('out', '/root/workspace/plugins/dsh-story-between/verification')
+const outDir = arg('out', '/root/workspace/plugins/dsh-tavern/verification')
 const skipBridge = args.includes('--no-bridge')
 const headless = !args.includes('--headed')
 if (!url) {
@@ -48,7 +48,7 @@ if (!url) {
 }
 
 const report = {
-  plugin: 'dsh-story-between',
+  plugin: 'dsh-tavern',
   url: url.replace(/token=[^&]+/, 'token=***'),
   startedAt: new Date().toISOString(),
   checks: [],
@@ -83,16 +83,16 @@ let page = null
 try {
   await mkdir(outDir, { recursive: true })
 
-  // ── A. 未登录访问 /story/ 必须被 DSH 登录闸门挡住 ──────────────────────────
+  // ── A. 未登录访问 /tavern/ 必须被 DSH 登录闸门挡住 ──────────────────────────
   const anon = await browser.newContext({ ignoreHTTPSErrors: true })
-  const anonRes = await anon.request.get(new URL('story/', url).href)
+  const anonRes = await anon.request.get(new URL('tavern/', url).href)
   const anonStatus = anonRes.status()
   check(
-    '未登录访问 /story/ 被拒绝（期望 401）',
+    '未登录访问 /tavern/ 被拒绝（期望 401）',
     anonStatus === 401,
     `HTTP ${anonStatus}${
       anonStatus === 404
-        ? '（404 = 宿主半没加载 / 没注册 /story 路由，插件尚未就绪，owner: plugin-core）'
+        ? '（404 = 宿主半没加载 / 没注册 /tavern 路由，插件尚未就绪，owner: plugin-core）'
         : anonStatus === 200
           ? '（200 = 登录闸门没生效，任何人都能看到内嵌应用，owner: plugin-core）'
           : ''
@@ -114,16 +114,34 @@ try {
   page.on('pageerror', (error) => consoleErrors.push(String(error)))
 
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 })
-  // 收集应用主动上报的 dsh-story:state（P2 契约：appPath + hasContext）
+  // 收集应用主动上报的 dsh-tavern:state（P2 契约：appPath + hasContext）
   await page.evaluate(() => {
     window.__dshStoryStates = []
     window.addEventListener('message', (event) => {
       const data = event.data
-      if (data && data.type === 'dsh-story:state') {
+      if (data && data.type === 'dsh-tavern:state') {
         window.__dshStoryStates.push({ at: Date.now(), appPath: data.appPath, hasContext: data.hasContext })
       }
     })
   })
+  // A2. 旧 /story 兼容别名：登录态 GET 应 302 到 /tavern/（同后缀同 query）。
+  const legacyRes = await context.request
+    .get(new URL('story/?probe=1&x=2', url).href, { maxRedirects: 0 })
+    .catch(() => null)
+  if (legacyRes) {
+    const legacyStatus = legacyRes.status()
+    const legacyLocation = legacyRes.headers()['location'] || ''
+    check(
+      '旧 /story/ 302 跳到 /tavern/（兼容别名，保留 query）',
+      legacyStatus === 302 && /\/tavern\//.test(legacyLocation) && /probe=1/.test(legacyLocation),
+      `HTTP ${legacyStatus} Location=${clip(legacyLocation, 120) || '无'}${
+        legacyStatus === 404 ? '（旧路径没注册，owner: plugin-core）' : legacyStatus === 200 ? '（期望 302，实际直接 200）' : ''
+      }`,
+    )
+  } else {
+    check('旧 /story/ 302 跳到 /tavern/（兼容别名，保留 query）', false, '请求失败')
+  }
+
   // 全新 DSH_HOME 会弹 "Get started" 欢迎层，它的透明遮罩会拦截侧栏点击。
   async function dismissWelcome() {
     await page.keyboard.press('Escape').catch(() => {})
@@ -136,16 +154,16 @@ try {
   await dismissWelcome()
   await shot(page, '01-sidebar.png')
 
-  // ── B. 侧栏「故事之间」入口 ─────────────────────────────────────────────────
-  // 契约：sidebar.panellist、PANEL_ID="story"、label「故事之间」、order 24。
+  // ── B. 侧栏「酒馆」入口 ─────────────────────────────────────────────────
+  // 契约：sidebar.panellist、PANEL_ID="tavern"、label「酒馆」、order 24。
   // 宿主侧栏行通常渲染成 aria-label = 面板 label；插件也可能在图标上打
   // data-dsh-panel-entry（参考 ziwei）。两种都认，最后一个候选是按文字兜底。
   async function findEntry(timeoutMs) {
     const selectors = [
-      '[data-dsh-panel-entry="story"]',
-      'button[aria-label="故事之间"]',
-      'button[data-dsh-panel="story"]',
-      'button:has-text("故事之间")',
+      '[data-dsh-panel-entry="tavern"]',
+      'button[aria-label="酒馆"]',
+      'button[data-dsh-panel="tavern"]',
+      'button:has-text("酒馆")',
     ]
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
@@ -165,7 +183,7 @@ try {
     return null
   }
   const entry = await findEntry(20000)
-  check('侧栏出现「故事之间」入口', Boolean(entry), entry ? '已定位侧栏入口' : '20s 内没找到入口（插件未加载或 label/id 不符合契约，owner: plugin-core）')
+  check('侧栏出现「酒馆」入口', Boolean(entry), entry ? '已定位侧栏入口' : '20s 内没找到入口（插件未加载或 label/id 不符合契约，owner: plugin-core）')
   if (entry) {
     const box = await entry.boundingBox().catch(() => null)
     check('侧栏入口可见且可点击', Boolean(box && box.width > 0 && box.height > 0), box ? `${Math.round(box.width)}x${Math.round(box.height)} @${Math.round(box.x)},${Math.round(box.y)}` : '没有可见区域')
@@ -183,26 +201,26 @@ try {
         await entry.click({ force: true }).catch(() => {})
       }
       opened = await page
-        .locator('iframe[data-dsh-story-frame]')
+        .locator('iframe[data-dsh-tavern-frame]')
         .first()
         .waitFor({ state: 'visible', timeout: 6000 })
         .then(() => true)
         .catch(() => false)
     }
     panelReady = opened
-    check('点击侧栏入口打开「故事之间」主面板', opened, opened ? 'iframe[data-dsh-story-frame] 已可见' : '点击后没有出现 iframe[data-dsh-story-frame]（owner: plugin-core）')
+    check('点击侧栏入口打开「酒馆」主面板', opened, opened ? 'iframe[data-dsh-tavern-frame] 已可见' : '点击后没有出现 iframe[data-dsh-tavern-frame]（owner: plugin-core）')
   } else {
-    skip('点击侧栏入口打开「故事之间」主面板', '侧栏入口不存在')
+    skip('点击侧栏入口打开「酒馆」主面板', '侧栏入口不存在')
   }
 
-  const frameLocator = page.locator('iframe[data-dsh-story-frame]').first()
+  const frameLocator = page.locator('iframe[data-dsh-tavern-frame]').first()
   const panelVisible = () => frameLocator.isVisible().catch(() => false)
-  // 位置记忆（plugin-core：sessionStorage dsh-story:last-app-path + data-dsh-story-restored）
+  // 位置记忆（plugin-core：sessionStorage dsh-tavern:last-app-path + data-dsh-tavern-restored）
   const readMemory = () =>
     page
       .evaluate(() => {
         try {
-          return window.sessionStorage.getItem('dsh-story:last-app-path') || ''
+          return window.sessionStorage.getItem('dsh-tavern:last-app-path') || ''
         } catch {
           return ''
         }
@@ -211,14 +229,14 @@ try {
   const readRestored = () =>
     page
       .evaluate(() => {
-        const view = document.querySelector('[data-dsh-story-view]')
-        return view ? view.getAttribute('data-dsh-story-restored') : null
+        const view = document.querySelector('[data-dsh-tavern-view]')
+        return view ? view.getAttribute('data-dsh-tavern-restored') : null
       })
       .catch(() => null)
   async function waitForFrameUrl(pattern, timeoutMs = 20000) {
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
-      const frame = page.frames().find((candidate) => /\/story\//.test(candidate.url()) && pattern.test(candidate.url()))
+      const frame = page.frames().find((candidate) => /\/tavern\//.test(candidate.url()) && pattern.test(candidate.url()))
       if (frame) return frame.url()
       await page.waitForTimeout(400)
     }
@@ -281,40 +299,40 @@ try {
       Boolean(box && box.width > 500 && box.height > 300),
       box ? `${Math.round(box.width)}x${Math.round(box.height)}` : 'iframe 无尺寸',
     )
-    // 契约里的稳定锚点：主面板 data-dsh-story-view、状态 data-dsh-story-hint（idle/loading/waiting/ready/busy/sent/error）
-    const storyView = page.locator('[data-dsh-story-view]').first()
+    // 契约里的稳定锚点：主面板 data-dsh-tavern-view、状态 data-dsh-tavern-hint（idle/loading/waiting/ready/busy/sent/error）
+    const storyView = page.locator('[data-dsh-tavern-view]').first()
     const viewVisible = await storyView.isVisible().catch(() => false)
-    check('主面板有 data-dsh-story-view 锚点', viewVisible)
-    const hintState = await page.locator('[data-dsh-story-hint]').first().getAttribute('data-dsh-story-hint').catch(() => null)
+    check('主面板有 data-dsh-tavern-view 锚点', viewVisible)
+    const hintState = await page.locator('[data-dsh-tavern-hint]').first().getAttribute('data-dsh-tavern-hint').catch(() => null)
     check(
-      '面板状态锚点 data-dsh-story-hint 合法',
+      '面板状态锚点 data-dsh-tavern-hint 合法',
       ['idle', 'loading', 'waiting', 'ready', 'busy', 'sent', 'error'].includes(hintState || ''),
       `state=${hintState || '无'}`,
     )
     await shot(page, '02-panel.png')
 
-    // 等 iframe 导航到 /story/（同源 iframe 会在 page.frames() 里出现）
+    // 等 iframe 导航到 /tavern/（同源 iframe 会在 page.frames() 里出现）
     const deadline = Date.now() + 30000
     while (Date.now() < deadline) {
-      storyFrame = page.frames().find((candidate) => /\/story\//.test(candidate.url())) || null
+      storyFrame = page.frames().find((candidate) => /\/tavern\//.test(candidate.url())) || null
       if (storyFrame) break
       await page.waitForTimeout(300)
     }
     frameUrl = storyFrame ? storyFrame.url() : ''
-    check('内嵌 iframe 指向 /story/', Boolean(frameUrl && frameUrl.includes('/story/')), frameUrl || '没找到 /story/ 帧')
-    // 登录态 /story/ 必须 200（与匿名 401 成对）
-    const authedRes = await context.request.get(new URL('story/', url).href).catch(() => null)
-    check('登录态访问 /story/ 返回 200', authedRes ? authedRes.status() === 200 : false, authedRes ? `HTTP ${authedRes.status()}` : '请求失败')
+    check('内嵌 iframe 指向 /tavern/', Boolean(frameUrl && frameUrl.includes('/tavern/')), frameUrl || '没找到 /tavern/ 帧')
+    // 登录态 /tavern/ 必须 200（与匿名 401 成对）
+    const authedRes = await context.request.get(new URL('tavern/', url).href).catch(() => null)
+    check('登录态访问 /tavern/ 返回 200', authedRes ? authedRes.status() === 200 : false, authedRes ? `HTTP ${authedRes.status()}` : '请求失败')
     // 首次挂载（全新 browser context，sessionStorage 为空）：必须回应用首页。
     const initialSrc = await frameLocator.getAttribute('src').catch(() => null)
-    const initialRestored = await page.locator('[data-dsh-story-view]').first().getAttribute('data-dsh-story-restored').catch(() => null)
+    const initialRestored = await page.locator('[data-dsh-tavern-view]').first().getAttribute('data-dsh-tavern-restored').catch(() => null)
     const initialPath = initialSrc ? new URL(initialSrc, url).pathname : ''
-    check('首次挂载 iframe 指向应用首页 /story/（无位置记忆）', initialPath === '/story/' || initialPath === '/story', `src=${clip(initialSrc, 90) || '无'}`)
-    check('首次挂载 data-dsh-story-restored=0', initialRestored === '0', `restored=${initialRestored ?? '无'}`)
+    check('首次挂载 iframe 指向应用首页 /tavern/（无位置记忆）', initialPath === '/tavern/' || initialPath === '/tavern', `src=${clip(initialSrc, 90) || '无'}`)
+    check('首次挂载 data-dsh-tavern-restored=0', initialRestored === '0', `restored=${initialRestored ?? '无'}`)
   } else {
     skip('主面板 iframe 占据可用区域', '主面板未打开')
-    skip('内嵌 iframe 指向 /story/', '主面板未打开')
-    skip('登录态访问 /story/ 返回 200', '主面板未打开')
+    skip('内嵌 iframe 指向 /tavern/', '主面板未打开')
+    skip('登录态访问 /tavern/ 返回 200', '主面板未打开')
   }
 
   // ── C. 内嵌应用处于可信登录态，而不是应用自己的登录页 ─────────────────────
@@ -356,7 +374,7 @@ try {
     )
     check(
       '内嵌应用渲染出稳定内容（品牌 + 侧栏导航）',
-      Boolean(appState && appState.brand.includes('故事之间') && appState.nav.length >= 3),
+      Boolean(appState && appState.brand.includes('酒馆') && appState.nav.length >= 3),
       appState ? `brand=${clip(appState.brand, 20)} nav=${clip(appState.nav.join('/'), 80)}` : 'n/a',
     )
     check('内嵌应用正文不是空白', Boolean(appState && appState.bodyLength > 200), appState ? `bodyLength=${appState.bodyLength}` : 'n/a')
@@ -370,9 +388,9 @@ try {
 
   // 在应用里打开一部作品（explore 页点「继续游玩/开始游玩」），进入故事页后 P2 context 才有内容。
   async function tryOpenStory(timeoutMs = 45000) {
-    const storyFrameLocator = page.frameLocator('iframe[data-dsh-story-frame]')
+    const storyFrameLocator = page.frameLocator('iframe[data-dsh-tavern-frame]')
     const currentStoryUrl = () => {
-      const frame = page.frames().find((candidate) => /\/story\//.test(candidate.url()))
+      const frame = page.frames().find((candidate) => /\/tavern\//.test(candidate.url()))
       return frame ? frame.url() : ''
     }
     const deadline = Date.now() + timeoutMs
@@ -401,7 +419,7 @@ try {
         Boolean(openedUrl),
         openedUrl ? `url=${clip(openedUrl, 90)}` : '45s 内没有进入故事页（应用里没有可打开的精选作品，或选择器不匹配；此项非插件断言）',
       )
-      storyFrame = page.frames().find((candidate) => /\/story\//.test(candidate.url())) || storyFrame
+      storyFrame = page.frames().find((candidate) => /\/tavern\//.test(candidate.url())) || storyFrame
       appState = await readAppState()
       report.app.storyUrl = openedUrl || null
       if (openedUrl) {
@@ -417,8 +435,8 @@ try {
         await page.waitForTimeout(300)
       }
       report.app.memoryAfterOpen = rememberedAfterOpen || null
-      check('打开作品后位置记忆写入 sessionStorage（dsh-story:last-app-path）', /\/worlds\//.test(rememberedAfterOpen), rememberedAfterOpen ? `memory=${clip(rememberedAfterOpen, 100)}` : '8s 内 sessionStorage 里没有 /worlds/ 路径')
-      await shot(page, '03b-story-open.png')
+      check('打开作品后位置记忆写入 sessionStorage（dsh-tavern:last-app-path）', /\/worlds\//.test(rememberedAfterOpen), rememberedAfterOpen ? `memory=${clip(rememberedAfterOpen, 100)}` : '8s 内 sessionStorage 里没有 /worlds/ 路径')
+      await shot(page, '03b-tavern-open.png')
     } else {
       skip('（--open-story）应用内打开一部作品进入故事页', '应用未完成登录，无法进入故事页')
     }
@@ -428,7 +446,7 @@ try {
 
   // ── D. 工具条按钮 ──────────────────────────────────────────────────────────
   async function actionButton(action, text) {
-    const byAnchor = page.locator(`[data-dsh-story-action="${action}"]`).first()
+    const byAnchor = page.locator(`[data-dsh-tavern-action="${action}"]`).first()
     if (await byAnchor.count().catch(() => 0)) return byAnchor
     return page.locator('button', { hasText: text }).first()
   }
@@ -450,7 +468,7 @@ try {
       .evaluate(
         ({ message, expectType, timeout }) =>
           new Promise((resolve) => {
-            const iframe = document.querySelector('iframe[data-dsh-story-frame]')
+            const iframe = document.querySelector('iframe[data-dsh-tavern-frame]')
             if (!iframe || !iframe.contentWindow) return resolve({ error: 'no iframe' })
             const timer = setTimeout(() => {
               window.removeEventListener('message', onMessage)
@@ -479,7 +497,7 @@ try {
     let last = null
     while (Date.now() < deadline) {
       const id = `probe-${kind}-${Date.now()}`
-      last = await sendToFrame({ type: 'dsh-story:context-request', id, kind }, 'dsh-story:context', 6000)
+      last = await sendToFrame({ type: 'dsh-tavern:context-request', id, kind }, 'dsh-tavern:context', 6000)
       if (last && last.data && last.data.ok) return last.data
       await page.waitForTimeout(1000)
     }
@@ -487,11 +505,11 @@ try {
   }
 
   if (panelReady && storyFrame) {
-    const pong = await sendToFrame({ type: 'dsh-story:ping' }, 'dsh-story:pong', 8000)
+    const pong = await sendToFrame({ type: 'dsh-tavern:ping' }, 'dsh-tavern:pong', 8000)
     const pongData = pong && pong.data
     check(
       'P2 ping → pong（iframe 可达）',
-      Boolean(pongData && pongData.type === 'dsh-story:pong'),
+      Boolean(pongData && pongData.type === 'dsh-tavern:pong'),
       pong && pong.error ? `${pong.error}（应用侧 P2 桥未实现，owner: app-auth）` : `appPath=${clip(pongData?.appPath)}`,
     )
     const states = await page.evaluate(() => window.__dshStoryStates || []).catch(() => [])
@@ -499,13 +517,13 @@ try {
     check(
       'P2 应用主动上报 state（appPath + hasContext）',
       Boolean(latestState && typeof latestState.appPath === 'string'),
-      latestState ? `count=${states.length} last=${clip(JSON.stringify(latestState))}` : '25s 内没收到 dsh-story:state',
+      latestState ? `count=${states.length} last=${clip(JSON.stringify(latestState))}` : '25s 内没收到 dsh-tavern:state',
     )
     report.bridge.state = latestState ? { count: states.length, ...latestState } : null
     const requestId = `verify-${Date.now()}`
-    const contextReply = await sendToFrame({ type: 'dsh-story:context-request', id: requestId, kind: 'continue' }, 'dsh-story:context', 10000)
+    const contextReply = await sendToFrame({ type: 'dsh-tavern:context-request', id: requestId, kind: 'continue' }, 'dsh-tavern:context', 10000)
     const contextData = contextReply && contextReply.data
-    const arrived = Boolean(contextData && contextData.type === 'dsh-story:context' && contextData.id === requestId)
+    const arrived = Boolean(contextData && contextData.type === 'dsh-tavern:context' && contextData.id === requestId)
     check('P2 context-request → context（拿到回复）', arrived, contextReply && contextReply.error ? `${contextReply.error}（owner: app-auth）` : `ok=${contextData?.ok}`)
     if (arrived && contextData.ok) {
       const ctx = contextData.context || {}
@@ -547,14 +565,14 @@ try {
       .evaluate((selector) => {
         const drafts = [...document.querySelectorAll(selector)].map((node) => node.value ?? node.innerText ?? '')
         const text = document.body.innerText || ''
-        const view = document.querySelector('[data-dsh-story-view]')
-        const status = document.querySelector('[data-dsh-story-status]')
+        const view = document.querySelector('[data-dsh-tavern-view]')
+        const status = document.querySelector('[data-dsh-tavern-status]')
         return {
           draftCount: drafts.length,
           draft: drafts.join('\n').trim(),
           text,
-          hintState: view ? view.getAttribute('data-dsh-story-hint') : null,
-          connected: view ? view.getAttribute('data-dsh-story-connected') : null,
+          hintState: view ? view.getAttribute('data-dsh-tavern-hint') : null,
+          connected: view ? view.getAttribute('data-dsh-tavern-connected') : null,
           statusText: status ? (status.innerText || '').replace(/\s+/g, ' ').trim() : '',
         }
       }, DRAFT_SELECTOR)
@@ -585,7 +603,7 @@ try {
         result.clipboard = clipboard
         result.panelStillOpen = visible
         result.hintState = state.hintState || ''
-        // 稳定锚点优先：data-dsh-story-hint=error 即插件自己认定这次动作用了降级路径
+        // 稳定锚点优先：data-dsh-tavern-hint=error 即插件自己认定这次动作用了降级路径
         if (state.hintState === 'error' || state.hintState === 'sent') {
           result.hint = state.statusText || ''
           result.panelStatus = state.statusText || ''
@@ -639,9 +657,16 @@ try {
       check(`${name} 填充提示词（或剪贴板兜底）`, false, `draft=${result.draft.length}字 clipboard=${result.clipboard.length}字 panelStillOpen=${result.panelStillOpen} status=${clip(result.panelStatus, 80) || '无'}`)
     }
     // 提示词模板回归（拿到 prompt 时才断言；没拿到就跳过并写明原因）
-    const prompt = (result.draft || result.clipboard || '').trim()
+    // 角色扮演的 draft 可能夹着上一会话的续写文本，优先选真正命中 marker 的那份（clipboard 通常最干净）
+    const candidates = [result.clipboard, result.draft].filter((text) => text && marker.test(text))
+    const prompt = (candidates[0] || result.draft || result.clipboard || '').trim()
+    const promptSource = candidates[0] ? (candidates[0] === result.clipboard ? 'clipboard' : 'draft') : 'draft'
     if (template && prompt) {
-      check(`${name} 提示词符合契约模板`, template.test(prompt), `prompt=${clip(prompt, 140)}`)
+      check(
+        `${name} 提示词符合契约模板`,
+        template.test(prompt),
+        `source=${promptSource} prompt=${clip(prompt, 140)}`,
+      )
     } else if (template) {
       skip(`${name} 提示词符合契约模板`, '没有拿到提示词（上下文不可用/降级分支）')
     }
@@ -697,7 +722,7 @@ try {
     }
     if (panelReopened) {
       // iframe 重新挂载后 storyFrame 引用可能过期，重新定位
-      storyFrame = page.frames().find((candidate) => /\/story\//.test(candidate.url())) || storyFrame
+      storyFrame = page.frames().find((candidate) => /\/tavern\//.test(candidate.url())) || storyFrame
       const roleplayVisible = await roleplayButton.isVisible().catch(() => false)
       check('重新打开面板后「角色扮演」按钮可见', roleplayVisible)
       if (roleplayVisible) {
@@ -761,13 +786,13 @@ try {
   const restoreEvidence = {}
   const restoreChecks = [
     '切走面板再点回：iframe 恢复到最后的故事页',
-    '恢复后 data-dsh-story-restored=1',
+    '恢复后 data-dsh-tavern-restored=1',
     '恢复后 P2 state hasContext=true',
     '恢复后 P2 context 仍 ok=true',
     '整页刷新后重新进面板：用 sessionStorage 记忆恢复',
-    '整页刷新后 data-dsh-story-restored=1',
-    '点「刷新」：iframe 回到应用首页 /story/',
-    '点「刷新」：data-dsh-story-restored=0',
+    '整页刷新后 data-dsh-tavern-restored=1',
+    '点「刷新」：iframe 回到应用首页 /tavern/',
+    '点「刷新」：data-dsh-tavern-restored=0',
     '点「刷新」：位置记忆已清空',
     '点「刷新」：应用回到 /explore',
   ]
@@ -836,7 +861,7 @@ try {
       while (Date.now() < refreshDeadline) {
         const src = await frameLocator.getAttribute('src').catch(() => null)
         refreshedPath = src ? new URL(src, url).pathname : ''
-        if (refreshedPath === '/story/' || refreshedPath === '/story') {
+        if (refreshedPath === '/tavern/' || refreshedPath === '/tavern') {
           refreshRestored = await readRestored()
           memoryAfterRefresh = await readMemory()
           break
@@ -844,9 +869,9 @@ try {
         await page.waitForTimeout(400)
       }
       const exploreUrl = await waitForFrameUrl(/\/explore/, 20000)
-      check(restoreChecks[6], refreshedPath === '/story/' || refreshedPath === '/story', `src path=${refreshedPath || 'n/a'}`)
+      check(restoreChecks[6], refreshedPath === '/tavern/' || refreshedPath === '/tavern', `src path=${refreshedPath || 'n/a'}`)
       check(restoreChecks[7], refreshRestored === '0', `restored=${refreshRestored ?? 'n/a'}`)
-      check(restoreChecks[8], !memoryAfterRefresh, memoryAfterRefresh ? `仍有 memory=${clip(memoryAfterRefresh, 90)}` : 'sessionStorage 已清空 dsh-story:last-app-path')
+      check(restoreChecks[8], !memoryAfterRefresh, memoryAfterRefresh ? `仍有 memory=${clip(memoryAfterRefresh, 90)}` : 'sessionStorage 已清空 dsh-tavern:last-app-path')
       check(restoreChecks[9], Boolean(exploreUrl), exploreUrl || '20s 内应用没路由到 /explore')
       restoreEvidence.refresh = { srcPath: refreshedPath, restored: refreshRestored, memory: memoryAfterRefresh || null, exploreUrl: exploreUrl || null }
       await shot(page, '08-refresh-home.png')

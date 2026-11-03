@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# dsh-story-between 验收入口：静态检查 + 隔离 DSH 实例 + 真实浏览器 E2E。
+# dsh-tavern 验收入口：静态检查 + 隔离 DSH 实例 + 真实浏览器 E2E。
 #
 # 用法：
 #   scripts/check.sh                 # 静态 + 隔离实例 + verify.mjs（默认）
@@ -8,23 +8,23 @@
 #   scripts/check.sh --with-app-tests # 额外跑应用前端 typecheck + 单测（慢）
 #   scripts/check.sh --no-bridge     # E2E 跳过「交给 Agent」的端到端点击
 #   scripts/check.sh --open-story   # E2E 先在应用内打开一部作品（会写阅读进度，全链路验证用）
-#   scripts/check.sh --keep-home     # 保留 /tmp/dsh-story-check（排查用）
+#   scripts/check.sh --keep-home     # 保留 /tmp/dsh-tavern-check（排查用）
 #   scripts/check.sh --port 3199     # 换端口
 #
 # 产物：
 #   $OUT/report.json                   —— verify.mjs 的逐项结果（PASS/FAIL/SKIP）
 #   $OUT/logs/*.log                    —— 每个静态命令的输出
 #   $OUT/logs/dsh.log                  —— 隔离实例的 DSH 日志（启动失败时先看这个）
-#   截图 01-sidebar.png … 05-roleplay-draft.png
+#   截图 01-sidebar.png … 08-refresh-home.png（含 03b-tavern-open / 06-restore-panel / 07-reload-restore）
 #
 # 设计（参考同级插件 dsh-ziwei/scripts/check.sh）：
-#   - 在 /tmp/dsh-story-check 起一个完全隔离的 DSH_HOME，profile=check，端口默认 3099，
+#   - 在 /tmp/dsh-tavern-check 起一个完全隔离的 DSH_HOME，profile=check，端口默认 3099，
 #     绝不动生产实例（3080）。node_modules / package.json 复用生产 profile（符号链接），
 #     但 credentials / storages / 会话全部在临时目录里，退出时清掉。
-#   - 生产 profile 已安装 dsh-story-between 时直接镜像它的 package.json + node_modules；
+#   - 生产 profile 已安装 dsh-tavern 时直接镜像它的 package.json + node_modules；
 #     未安装（plugin-core 还没跑 install）时，生成一份 dev profile 把插件源目录
 #     link 进 node_modules，这样 checkout 也能验收。
-#   - 插件未就绪（/story 404、client.js 缺失、侧栏无入口）时脚本不崩，verify.mjs
+#   - 插件未就绪（/tavern 404、client.js 缺失、侧栏无入口）时脚本不崩，verify.mjs
 #     会输出「未就绪」报告并 exit 1。
 set -uo pipefail
 
@@ -32,9 +32,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REAL_HOME="${DSH_HOME:-$HOME/.dsh}"
 REAL_PROFILE="$REAL_HOME/profiles/web"
 PROFILE="check"
-PORT="${DSH_STORY_CHECK_PORT:-3099}"
-CHECK_HOME="${DSH_STORY_CHECK_HOME:-/tmp/dsh-story-check}"
-OUT="${DSH_STORY_VERIFY_OUT:-/tmp/dsh-story-verify/check}"
+PORT="${DSH_TAVERN_CHECK_PORT:-3099}"
+CHECK_HOME="${DSH_TAVERN_CHECK_HOME:-/tmp/dsh-tavern-check}"
+OUT="${DSH_TAVERN_VERIFY_OUT:-/tmp/dsh-tavern-verify/check}"
 LOGS="$OUT/logs"
 DSH_BIN="$(command -v dsh || true)"
 
@@ -137,9 +137,9 @@ static_checks() {
 }
 
 # ── 隔离实例 ────────────────────────────────────────────────────────────────
-STORY_INSTALLED=0
-if [[ -f "$REAL_PROFILE/package.json" ]] && grep -q '"dsh-story-between"' "$REAL_PROFILE/package.json" 2>/dev/null; then
-  STORY_INSTALLED=1
+TAVERN_INSTALLED=0
+if [[ -f "$REAL_PROFILE/package.json" ]] && grep -q '"dsh-tavern"' "$REAL_PROFILE/package.json" 2>/dev/null; then
+  TAVERN_INSTALLED=1
 fi
 
 cleanup() {
@@ -189,7 +189,7 @@ setup_profile() {
   mkdir -p "$CHECK_HOME/profiles/$PROFILE" "$CHECK_HOME/storages"
   local target="$CHECK_HOME/profiles/$PROFILE"
 
-  if [[ "$STORY_INSTALLED" -eq 1 ]]; then
+  if [[ "$TAVERN_INSTALLED" -eq 1 ]]; then
     # mirror：生产 profile 已经装了插件 → 直接复用它的依赖图（不改生产文件）
     for item in package.json node_modules; do
       ln -s "$REAL_PROFILE/$item" "$target/$item"
@@ -197,7 +197,7 @@ setup_profile() {
     for item in cordis.yml cordis.patch.yml; do
       [[ -f "$REAL_PROFILE/$item" ]] && cp "$REAL_PROFILE/$item" "$target/$item"
     done
-    echo "profile 模式：mirror（生产 profile 已安装 dsh-story-between）"
+    echo "profile 模式：mirror（生产 profile 已安装 dsh-tavern）"
   else
     # dev：生产 profile 还没装插件 → 生成一份包含插件源目录的依赖图
     local missing=0
@@ -210,18 +210,18 @@ setup_profile() {
     else
       missing=1
     fi
-    ln -sfn "$ROOT" "$target/node_modules/dsh-story-between"
+    ln -sfn "$ROOT" "$target/node_modules/dsh-tavern"
     node - "$REAL_PROFILE/package.json" "$target/package.json" "$ROOT" <<'NODE'
 const fs = require('node:fs')
 const [realPath, outPath, root] = process.argv.slice(2)
 let base = { name: 'dsh-profile-check', private: true, dependencies: {}, dsh: { profile: { bundles: [] } } }
 try { base = JSON.parse(fs.readFileSync(realPath, 'utf8')) } catch {}
 base.dependencies = base.dependencies || {}
-base.dependencies['dsh-story-between'] = `link:${root}`
+base.dependencies['dsh-tavern'] = `link:${root}`
 base.dsh = base.dsh || {}
 base.dsh.profile = base.dsh.profile || {}
 const bundles = Array.isArray(base.dsh.profile.bundles) ? base.dsh.profile.bundles : []
-if (!bundles.includes('dsh-story-between')) bundles.push('dsh-story-between')
+if (!bundles.includes('dsh-tavern')) bundles.push('dsh-tavern')
 base.dsh.profile.bundles = bundles
 fs.writeFileSync(outPath, JSON.stringify(base, null, 2) + '\n')
 NODE
@@ -298,13 +298,31 @@ instance_checks() {
   fi
   ok "隔离实例 HTTP 可访问（/ → $code，401 = 需要登录，符合预期）"
 
-  # 插件是否已挂载：匿名 /story/ 期望 401；404 = 路由没注册（插件未就绪）。
-  local story_code
-  story_code="$(curl -s -o /dev/null -m 5 -w '%{http_code}' "http://127.0.0.1:$PORT/story/" 2>/dev/null || true)"
-  case "$story_code" in
-    401) ok "匿名 /story/ 被登录闸门挡住（HTTP 401）" ;;
-    404) skip "匿名 /story/ 返回 404：宿主半还没挂载 /story（plugin-core 未完成，E2E 会输出未就绪报告）" ;;
-    *) bad "匿名 /story/ 期望 401，实际 HTTP ${story_code:-无响应}" ;;
+  # 插件是否已挂载：匿名 /tavern/ 期望 401；404 = 路由没注册（插件未就绪）。
+  local tavern_code
+  tavern_code="$(curl -s -o /dev/null -m 5 -w '%{http_code}' "http://127.0.0.1:$PORT/tavern/" 2>/dev/null || true)"
+  case "$tavern_code" in
+    401) ok "匿名 /tavern/ 被登录闸门挡住（HTTP 401）" ;;
+    404) skip "匿名 /tavern/ 返回 404：宿主半还没挂载 /tavern（plugin-core 未完成，E2E 会输出未就绪报告）" ;;
+    *) bad "匿名 /tavern/ 期望 401，实际 HTTP ${tavern_code:-无响应}" ;;
+  esac
+
+  # 旧 /story 别名：GET/HEAD 应 302 到 /tavern（匿名可能先被闸门拦成 401，都算已注册）。
+  local legacy_headers legacy_code legacy_location
+  legacy_headers="$(curl -s -o /dev/null -D - -m 5 "http://127.0.0.1:$PORT/story/?probe=1" 2>/dev/null || true)"
+  legacy_code="$(printf '%s\n' "$legacy_headers" | awk 'NR==1{print $2}' | tr -d '\r')"
+  legacy_location="$(printf '%s\n' "$legacy_headers" | grep -i '^location:' | head -1 | tr -d '\r' | sed 's/^[Ll]ocation: *//')"
+  case "$legacy_code" in
+    302)
+      if [[ "$legacy_location" == *"/tavern/"* ]]; then
+        ok "旧 /story/ 302 → $legacy_location"
+      else
+        bad "旧 /story/ 302 但 Location 不是 /tavern/：${legacy_location:-无}（owner: plugin-core）"
+      fi
+      ;;
+    401) ok "旧 /story/ 被登录闸门挡住（401；登录态 302 由 verify.mjs 断言）" ;;
+    404) bad "旧 /story/ 404：宿主半没注册兼容别名（owner: plugin-core）" ;;
+    *) bad "旧 /story/ 期望 302/401，实际 HTTP ${legacy_code:-无响应}" ;;
   esac
 
   say "真实浏览器 E2E（verify.mjs）"

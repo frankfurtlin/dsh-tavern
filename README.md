@@ -1,28 +1,28 @@
-# dsh-story-between · 故事之间（DSH 插件）
+# dsh-tavern · 酒馆（DSH 插件）
 
-把一个本地写作应用「故事之间」装进 DSH：侧栏「插件」组里多一行 **故事之间**，
+把一个本地写作应用「酒馆」装进 DSH：侧栏「插件」组里多一行 **酒馆**，
 点开不用等跳转，就是写作页本身；看中的正文可以一键交给 DSH 的 Agent
 **续写下一段**，或者让 Agent 以某个角色做**第一人称角色扮演**。
 
-- 侧栏顺序：紫微斗数(20) → **故事之间(24)** → Skill Center(30)
-- 插件目录：`/root/workspace/plugins/dsh-story-between`，已在
+- 侧栏顺序：紫微斗数(20) → **酒馆(24)** → Skill Center(30)
+- 插件目录：`/root/workspace/plugins/dsh-tavern`，已在
   `/root/.dsh/profiles/web/package.json` 里以 `link:` 依赖注册进 `dsh.profile.bundles`
 - 应用目录：本仓库 `app/`，由四个 systemd 单元跑在回环地址上：
-  - `dsh-story-between-api.service` → `127.0.0.1:8001`（FastAPI / uvicorn）
-  - `dsh-story-between-web.service` → `127.0.0.1:8810`（`app/client/dist` 静态站）
-  - `dsh-story-between-worker.service` → 生成任务 worker
-  - `dsh-story-between-world-worker.service` → 世界观任务 worker
-- 公开入口只有 `https://dsh.frankfurtlin.top/story/`（受 DSH 登录保护）；
-  `hermes.frankfurtlin.top/story` 的旧路由已退休。插件内部只连 `127.0.0.1`，不额外开端口
+  - `dsh-tavern-api.service` → `127.0.0.1:8001`（FastAPI / uvicorn）
+  - `dsh-tavern-web.service` → `127.0.0.1:8810`（`app/client/dist` 静态站）
+  - `dsh-tavern-worker.service` → 生成任务 worker
+  - `dsh-tavern-world-worker.service` → 世界观任务 worker
+- 公开入口只有 `https://dsh.frankfurtlin.top/tavern/`（受 DSH 登录保护）；
+  旧的外站入口 `hermes.frankfurtlin.top/story` 已退休。插件内部只连 `127.0.0.1`，不额外开端口
 
 ## 它由哪几块组成
 
 | 文件 | 作用 |
 | --- | --- |
 | `package.json` | 声明 `dsh.bundle.patch`（cordis patch）、`dsh.client.platform=web`、`exports["./client"]`；`npm run check` 做语法检查 |
-| `cordis.patch.yml` | `- insert: [{id: dsh-story-between, name: dsh-story-between}]`，`id` 必须等于包名 |
-| `lib/index.js` | host 半：注册 `prefix /story` 反向代理；先过 DSH 登录闸门；`/api/**`、`/health/**` → 8001 并附加可信头，其余 → 8810 静态站 |
-| `client.js` | client 半：注册侧栏行（`sidebar.panellist` 座位）+ 主面板（`main` 座位，`key=story`）；工具条 + 同源 iframe + P2 `postMessage` 桥 |
+| `cordis.patch.yml` | `- insert: [{id: dsh-tavern, name: dsh-tavern}]`，`id` 必须等于包名 |
+| `lib/index.js` | host 半：注册 `prefix /tavern` 反向代理（旧 `/story` 为 302 兼容别名）；先过 DSH 登录闸门；`/api/**`、`/health/**` → 8001 并附加可信头，其余 → 8810 静态站 |
+| `client.js` | client 半：注册侧栏行（`sidebar.panellist` 座位）+ 主面板（`main` 座位，`key=tavern`）；工具条 + 同源 iframe + P2 `postMessage` 桥 |
 | `app/` | 写作应用本体（Vue 前端 + FastAPI 后端）。应用侧为插件做的改动（可信登录、P2 桥）也在这个目录里，随本仓库 git 管理 |
 | `docs/contract.md` | 与应用侧的集成契约（路由分流、可信头、P2 协议、UI 座位）——**先读它再改代码** |
 | `docs/architecture.md` | 本插件的实现架构：请求链路、鉴权、面板结构、P2 协议、prompt 规则、风险 |
@@ -30,7 +30,7 @@
 | `scripts/check.sh`、`verify.mjs` | 验收工具：静态检查 + 隔离实例端到端 |
 
 > 应用本体（`app/`）需要先在 host 上跑起来，插件才有内容可代理。四个 systemd
-> 单元已安装在 `/etc/systemd/system/dsh-story-between-*.service`，属于 host 运维，
+> 单元已安装在 `/etc/systemd/system/dsh-tavern-*.service`，属于 host 运维，
 > **不随本插件仓库分发**；本仓库只含插件两半 + 应用源码。
 
 ## 安装 / 启用
@@ -38,8 +38,8 @@
 插件以 `link:` 方式注册在 Web profile（不在本仓库内执行这一步）：
 
 ```json
-"dependencies": { "dsh-story-between": "link:/root/workspace/plugins/dsh-story-between" },
-"dsh": { "profile": { "bundles": [ "...", "dsh-story-between" ] } }
+"dependencies": { "dsh-tavern": "link:/root/workspace/plugins/dsh-tavern" },
+"dsh": { "profile": { "bundles": [ "...", "dsh-tavern" ] } }
 ```
 
 应用以 host 侧 systemd 单元运行（单元文件在 `/etc/systemd/system/`，不在本仓库内）；
@@ -49,22 +49,22 @@
 
 ## 请求链路一句话
 
-浏览器 → DSH Web `:3080` → 登录闸门（`requestRejection`）→ `prefix /story`
+浏览器 → DSH Web `:3080` → 登录闸门（`requestRejection`）→ `prefix /tavern`（旧 `/story` 302 兼容）
 → 剥前缀分两路：API 请求带 `x-dsh-trusted` 去 `:8001`，静态资源去 `:8810`。
 详细分流表、头处理、超时策略见 [docs/architecture.md](docs/architecture.md)。
 
 ## P2 桥：页面怎么把「当前故事」交给 DSH
 
-面板与 iframe 同源（`/story/`），用 `postMessage` 通信，协议见
+面板与 iframe 同源（`/tavern/`），用 `postMessage` 通信，协议见
 `docs/contract.md` §3：
 
 | 方向 | 消息 | 用途 |
 | --- | --- | --- |
-| 父 → iframe | `dsh-story:ping` | 握手，应用回 `pong` |
-| iframe → 父 | `dsh-story:pong` | 带上 `appPath`，面板显示「当前：…」 |
-| iframe → 父 | `dsh-story:state` | 应用主动上报 `appPath` / `hasContext` |
-| 父 → iframe | `dsh-story:context-request` | `kind: "continue" | "roleplay"`，带请求 id |
-| iframe → 父 | `dsh-story:context` | 作品/章节/模式/角色/最近正文/`activeCharacter` |
+| 父 → iframe | `dsh-tavern:ping` | 握手，应用回 `pong` |
+| iframe → 父 | `dsh-tavern:pong` | 带上 `appPath`，面板显示「当前：…」 |
+| iframe → 父 | `dsh-tavern:state` | 应用主动上报 `appPath` / `hasContext` |
+| 父 → iframe | `dsh-tavern:context-request` | `kind: "continue" | "roleplay"`，带请求 id |
+| iframe → 父 | `dsh-tavern:context` | 作品/章节/模式/角色/最近正文/`activeCharacter` |
 
 拿到上下文后插件组装 prompt，通过宿主的 `uiWorkspace.startSession()` 新开一个
 DSH 会话，并尝试把 prompt 预填进新会话编辑器（写不进去就退化为复制到剪贴板）。
@@ -73,7 +73,7 @@ DSH 会话，并尝试把 prompt 预填进新会话编辑器（写不进去就�
 
 **位置记忆**：DSH 切走面板会卸载 iframe，应用回来时默认停在 `/explore`。
 插件会记住应用上报的最后一次有效路由（`state.hasContext=true` 或 `/worlds/`
-路径；模块内存 + `sessionStorage` 镜像，key `dsh-story:last-app-path`），
+路径；模块内存 + `sessionStorage` 镜像，key `dsh-tavern:last-app-path`），
 重新挂载面板时把 iframe 恢复到那里；点「刷新」清空记忆并回应用首页，
 用于恢复失败时兜底。详见 [docs/architecture.md](docs/architecture.md)。
 
@@ -82,9 +82,9 @@ DSH 会话，并尝试把 prompt 预填进新会话编辑器（写不进去就�
 | 位置 | 键 | 说明 |
 | --- | --- | --- |
 | `app/.env` | `DSH_TRUSTED_SECRET` | 应用侧校验可信登录头的 secret，插件转发 API 请求时附加 |
-| 宿主环境 | `DSH_STORY_TRUSTED_SECRET` | 覆盖上面的 secret（隔离测试 / 应急时用） |
-| 宿主环境 | `DSH_STORY_API_PORT` | 覆盖 API 上游端口（默认 8001） |
-| 宿主环境 | `DSH_STORY_STATIC_PORT` | 覆盖静态上游端口（默认 8810） |
+| 宿主环境 | `DSH_TAVERN_TRUSTED_SECRET` | 覆盖上面的 secret（隔离测试 / 应急时用） |
+| 宿主环境 | `DSH_TAVERN_API_PORT` | 覆盖 API 上游端口（默认 8001） |
+| 宿主环境 | `DSH_TAVERN_STATIC_PORT` | 覆盖静态上游端口（默认 8810） |
 
 secret 在插件启动（`apply`）时读入；读不到会打印告警，但不会让宿主崩溃，
 此时 API 请求不带可信头，应用侧按未登录处理（401）。
@@ -92,13 +92,13 @@ secret 在插件启动（`apply`）时读入；读不到会打印告警，但不
 ## 改完代码先自检
 
 ```bash
-cd /root/workspace/plugins/dsh-story-between
+cd /root/workspace/plugins/dsh-tavern
 
 node --check lib/index.js && node --check client.js   # 同 npm run check
 npm run check
 ```
 
-涉及 `/story` 反代或面板行为的改动，请再跑 verifier 的端到端验收
+涉及 `/tavern` 反代或面板行为的改动，请再跑 verifier 的端到端验收
 （`scripts/check.sh` / `verify.mjs`，以它们的文档为准）。UI 改动必须用真实
 浏览器验证过工具条与 iframe 交互，不能只看构建通过。
 
@@ -110,7 +110,7 @@ npm run check
 - **编辑器预填依赖 DOM**：宿主没有「往会话草稿写文本」的公开 API，插件用
   Lexical 编辑器的原生插入命令模拟粘贴；宿主改编辑器实现时需要复核
   `client.js` 里的 `COMPOSER_SELECTOR`。
-- **主题同步是附加消息**：`dsh-story:theme` 不在契约里，应用侧可选实现；
+- **主题同步是附加消息**：`dsh-tavern:theme` 不在契约里，应用侧可选实现；
   不实现时 iframe 维持自己的主题，不影响功能。
 - **P2 超时 8 秒**：应用侧读 store 较慢时会提示「应用没有响应」，可重试；
   不会卡死界面。

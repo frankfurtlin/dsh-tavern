@@ -77,7 +77,7 @@ def publish_curated(request: Request, user=Depends(current_user), db=Depends(get
             db.add(draft)
             frozen = {'value': deepcopy(value), 'definition': compile_definition(world, value), 'authorVersion': 1,
                       'attribution': ('柯南·道尔《蓝宝石案》公版原作；产品改编善后。' if key == 'blue-carbuncle' else
-                                      '《斗罗大陆》设定的原创互动支线；场景与对话为独立创作。' if key == 'douluo-forest-v1' else '故事之间原创互动模板。')}
+                                      '《斗罗大陆》设定的原创互动支线；场景与对话为独立创作。' if key == 'douluo-forest-v1' else '酒馆原创互动模板。')}
             row = Publication(id=uid(), owner_id=user.id, world_id=world.id, submitted=frozen,
                               approved=deepcopy(frozen), state='published', live=True, reviewer_id=user.id,
                               note='已校对案例与原创模板；通过内置版本检查。')

@@ -35,16 +35,16 @@ afterEach(()=>{vi.useRealTimers()})
 describe('dsh bridge message validation',()=>{
   it('answers ping with pong and the current app path',()=>{
     const {posted,bridge,event}=setup()
-    bridge.handle(event({type:'dsh-story:ping'}))
+    bridge.handle(event({type:'dsh-tavern:ping'}))
     expect(posted).toHaveLength(1)
-    expect(posted[0]!.data).toEqual({type:'dsh-story:pong',appPath:'/worlds/w1/play'})
+    expect(posted[0]!.data).toEqual({type:'dsh-tavern:pong',appPath:'/worlds/w1/play'})
     expect(posted[0]!.targetOrigin).toBe(ORIGIN)
   })
 
   it('ignores messages from another origin, another source or malformed data',()=>{
     const {posted,bridge,event}=setup()
-    bridge.handle(event({type:'dsh-story:ping'},'http://evil.example'))
-    bridge.handle(event({type:'dsh-story:ping'},ORIGIN,{}))
+    bridge.handle(event({type:'dsh-tavern:ping'},'http://evil.example'))
+    bridge.handle(event({type:'dsh-tavern:ping'},ORIGIN,{}))
     expect(posted).toHaveLength(0)
     bridge.handle(event(null))
     bridge.handle(event('ping'))
@@ -55,14 +55,14 @@ describe('dsh bridge message validation',()=>{
   it('does not answer anything before install',()=>{
     const {posted,event}=setup()
     const inert=createDshBridge({...minimalEnv(posted),listen:()=>()=>{}})
-    inert.handle(event({type:'dsh-story:ping'}))
+    inert.handle(event({type:'dsh-tavern:ping'}))
     expect(posted).toHaveLength(0)
   })
 
   it('stops answering after uninstall',()=>{
     const {posted,bridge,event,uninstall}=setup()
     uninstall()
-    bridge.handle(event({type:'dsh-story:ping'}))
+    bridge.handle(event({type:'dsh-tavern:ping'}))
     expect(posted).toHaveLength(0)
   })
 })
@@ -81,43 +81,43 @@ function minimalEnv(posted:{data:unknown}[]):DshBridgeEnv{
 describe('dsh bridge context requests',()=>{
   it('returns the story context for a valid continue request',async()=>{
     const {posted,bridge,event}=setup()
-    bridge.handle(event({type:'dsh-story:context-request',id:'r1',kind:'continue'}))
+    bridge.handle(event({type:'dsh-tavern:context-request',id:'r1',kind:'continue'}))
     await flush()
     expect(posted).toHaveLength(1)
-    expect(posted[0]!.data).toEqual({type:'dsh-story:context',id:'r1',ok:true,context:{...CONTEXT,appPath:'/worlds/w1/play'}})
+    expect(posted[0]!.data).toEqual({type:'dsh-tavern:context',id:'r1',ok:true,context:{...CONTEXT,appPath:'/worlds/w1/play'}})
   })
 
   it('passes the roleplay target through to the context reader',async()=>{
     const {bridge,event,env,posted}=setup()
-    bridge.handle(event({type:'dsh-story:context-request',id:7,kind:'roleplay',target:' 阿岚 '}))
+    bridge.handle(event({type:'dsh-tavern:context-request',id:7,kind:'roleplay',target:' 阿岚 '}))
     await flush()
     expect(env.readContext).toHaveBeenCalledWith('roleplay','阿岚')
     expect(posted).toHaveLength(1)
-    expect(posted[0]!.data).toMatchObject({type:'dsh-story:context',id:7,ok:true})
+    expect(posted[0]!.data).toMatchObject({type:'dsh-tavern:context',id:7,ok:true})
   })
 
   it('reports a failure when the page has no context',async()=>{
     const {posted,bridge,event}=setup({readContext:vi.fn(async()=>null)})
-    bridge.handle(event({type:'dsh-story:context-request',id:'r2',kind:'continue'}))
+    bridge.handle(event({type:'dsh-tavern:context-request',id:'r2',kind:'continue'}))
     await flush()
-    expect(posted[0]!.data).toEqual({type:'dsh-story:context',id:'r2',ok:false,error:'当前页面没有可用的故事上下文'})
+    expect(posted[0]!.data).toEqual({type:'dsh-tavern:context',id:'r2',ok:false,error:'当前页面没有可用的故事上下文'})
   })
 
   it('reports an error when reading the context throws',async()=>{
     const {posted,bridge,event}=setup({readContext:vi.fn(async()=>{throw new Error('读取失败：网络错误')})})
-    bridge.handle(event({type:'dsh-story:context-request',id:'r3',kind:'roleplay'}))
+    bridge.handle(event({type:'dsh-tavern:context-request',id:'r3',kind:'roleplay'}))
     await flush()
-    expect(posted[0]!.data).toEqual({type:'dsh-story:context',id:'r3',ok:false,error:'读取失败：网络错误'})
+    expect(posted[0]!.data).toEqual({type:'dsh-tavern:context',id:'r3',ok:false,error:'读取失败：网络错误'})
   })
 
   it('rejects unknown kinds and missing ids',async()=>{
     const {posted,bridge,event}=setup()
-    bridge.handle(event({type:'dsh-story:context-request',id:'r4',kind:'summarise'}))
-    bridge.handle(event({type:'dsh-story:context-request',kind:'continue'}))
-    bridge.handle(event({type:'dsh-story:context-request',id:null,kind:'continue'}))
+    bridge.handle(event({type:'dsh-tavern:context-request',id:'r4',kind:'summarise'}))
+    bridge.handle(event({type:'dsh-tavern:context-request',kind:'continue'}))
+    bridge.handle(event({type:'dsh-tavern:context-request',id:null,kind:'continue'}))
     await flush()
     expect(posted).toHaveLength(1)
-    expect(posted[0]!.data).toEqual({type:'dsh-story:context',id:'r4',ok:false,error:'不支持的故事上下文类型'})
+    expect(posted[0]!.data).toEqual({type:'dsh-tavern:context',id:'r4',ok:false,error:'不支持的故事上下文类型'})
   })
 })
 
@@ -130,7 +130,7 @@ describe('dsh bridge state notifications',()=>{
     expect(posted).toHaveLength(0)
     vi.advanceTimersByTime(1)
     expect(posted).toHaveLength(1)
-    expect(posted[0]!.data).toEqual({type:'dsh-story:state',appPath:'/worlds/w1/play',hasContext:true})
+    expect(posted[0]!.data).toEqual({type:'dsh-tavern:state',appPath:'/worlds/w1/play',hasContext:true})
     notify();notify();notify()
     vi.advanceTimersByTime(BRIDGE_STATE_DELAY_MS)
     expect(posted).toHaveLength(2)
