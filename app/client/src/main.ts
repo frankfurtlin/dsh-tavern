@@ -29,6 +29,7 @@ export const router=createRouter({history:createWebHistory(APP_BASE),scrollBehav
   {path:'/recent',component:()=>import('./workspace/CollectionPage.vue'),meta:{title:'最近游玩'}},
   {path:'/bookmarks',redirect:'/works?favorites=1'},
   {path:'/my-prompts',component:()=>import('./workspace/PromptsPage.vue'),meta:{title:'我的提示词'}},
+  {path:'/characters',component:()=>import('./characters/CharactersPage.vue'),meta:{title:'角色卡库'}},
   {path:'/multiplayer',component:()=>import('./workspace/UnavailablePage.vue'),meta:{catalog:true,title:'多人世界'}},
   {path:'/community',component:()=>import('./workspace/UnavailablePage.vue'),meta:{catalog:true,title:'故事论坛'}},
   {path:'/rankings',component:()=>import('./workspace/UnavailablePage.vue'),meta:{catalog:true,title:'排行榜'}},

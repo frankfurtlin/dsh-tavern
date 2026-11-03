@@ -4,6 +4,8 @@ app/venv/
 app/client/dist/
 app/**/__pycache__/
 app/**/.pytest_cache/
+**/__pycache__/
+*.pyc
 app/data/
 app/.env
 app/.env.bak-*

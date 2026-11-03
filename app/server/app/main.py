@@ -28,6 +28,7 @@ from .authoring.api import router as authoring
 from .play_controls.api import router as play_controls
 from .foundation.upload_limit import ProductUploadLimit
 from .experience.api import router as experience
+from .cards.api import router as cards
 from .experience import curated as reviewed_library
 from .experience import usage as action_usage
 from .experience import beta as beta_operations
@@ -58,7 +59,7 @@ async def request_id(request: Request, call_next):
 
 
 register_errors(app)
-for router in (auth, books, ai, reading, story, stories, characters, playback, comparison, prose, assets, portable, product, analytics, author_prompts, authoring, vision_models, play_controls, experience):
+for router in (auth, books, ai, reading, story, stories, characters, playback, comparison, prose, assets, portable, product, analytics, author_prompts, authoring, vision_models, play_controls, experience, cards):
     app.include_router(router, prefix="/api/reader/v1")
 app.include_router(world_config, prefix="/api/world/v1")
 app.include_router(worlds, prefix="/api/world/v1")

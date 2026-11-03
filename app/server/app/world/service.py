@@ -182,6 +182,25 @@ def line_result(db, line):
         "head": checkpoint_result(checkpoint, db=db), "createdAt": line.created_at.isoformat()}
 
 
+def start_line(db, owner, world, definition, state, *, line_name="我的故事", title="故事从这里开始", summary=None):
+    """Create a fresh line with its root checkpoint and make it active."""
+    line_id, checkpoint_id = uid(), uid()
+    line = WorldLine(id=line_id, owner_id=owner, world_id=world.id, name=line_name, head_checkpoint_id=checkpoint_id)
+    root_text = ""
+    if summary is None:
+        summary = "进入原创世界的初始时点" if source_kind(world) == "standalone" else "进入来源故事的当前时点"
+    root = WorldCheckpoint(id=checkpoint_id, owner_id=owner, world_id=world.id, line_id=line_id, sequence=0,
+        parent_checkpoint_id=None, title=title, text=root_text, action="", state=state, definition=definition,
+        options=[], changes=[], summary=summary, memory={"layers": []},
+        content_hash=checkpoint_hash(state, definition, root_text, None), kind="start")
+    db.add(line)
+    db.flush()
+    db.add(root)
+    db.flush()
+    world.active_line_id, world.updated_at = line.id, now()
+    return line, root
+
+
 def begin_world(db, owner, world, data, *, profile_id=None):
     if world.status != "active" or not world.definition.get("entities"):
         raise Problem("WORLD_NOT_READY", "世界还在准备，可以稍后继续", 409)
@@ -192,18 +211,7 @@ def begin_world(db, owner, world, data, *, profile_id=None):
     definition, state = initial_state(effective, character, data.customName, data.customIdentity)
     initialize_fields(definition,state)
     suggested=definition.get('authoring',{}).get('suggestedModel','') if data.useSuggestedModel else ''
-    line_id, checkpoint_id = uid(), uid()
-    line = WorldLine(id=line_id, owner_id=owner, world_id=world.id, name=data.lineName, head_checkpoint_id=checkpoint_id)
-    root_text = ""
-    root = WorldCheckpoint(id=checkpoint_id, owner_id=owner, world_id=world.id, line_id=line_id, sequence=0,
-        parent_checkpoint_id=None, title="故事从这里开始", text=root_text, action="", state=state, definition=definition,
-        options=[], changes=[], summary="进入原创世界的初始时点" if source_kind(world) == "standalone" else "进入来源故事的当前时点", memory={"layers": []},
-        content_hash=checkpoint_hash(state, definition, root_text, None), kind="start")
-    db.add(line)
-    db.flush()
-    db.add(root)
-    db.flush()
-    world.active_line_id, world.updated_at = line.id, now()
+    line, root = start_line(db, owner, world, definition, state, line_name=data.lineName)
     if suggested or profile_id:
         from ..models import ModelProfile
         from ..play_controls.models import PlayControl

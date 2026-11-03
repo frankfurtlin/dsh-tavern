@@ -2,6 +2,7 @@
 from sqlalchemy import text
 from ..db import engine
 from .models import WorldBase
+from ..cards.models import CharacterCard  # noqa: F401  (registers world.character_cards)
 
 SCHEMA_VERSION = 1
 

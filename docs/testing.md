@@ -21,6 +21,7 @@ scripts/check.sh --instance       # 只跑隔离实例 + E2E
 scripts/check.sh --with-app-tests # 额外跑应用前端 typecheck + 单测（慢）
 scripts/check.sh --no-bridge      # 跳过「交给 Agent」的端到端点击
 scripts/check.sh --open-story     # 先在应用内打开一部作品再点续写（会写阅读进度，验证提示词模板全链路）
+scripts/check.sh --cards          # 额外跑角色卡导入 + 单卡聊天（生成 fixture，会向测试库写/删测试卡）
 scripts/check.sh --keep-home      # 保留 /tmp/dsh-tavern-check 供排查
 scripts/check.sh --port 3199      # 3099 被占用时换端口
 ```
@@ -38,14 +39,18 @@ scripts/check.sh --port 3199      # 3099 被占用时换端口
 | 清理 | `trap cleanup EXIT INT TERM`：先杀 PID 再 `pkill -f` 兜底，复制 `dsh.log` 到 `$OUT/logs/dsh.log` |
 
 产物默认写在 `/tmp/dsh-tavern-verify/check/`（`report.json`、截图、`logs/`），可用
-`DSH_TAVERN_VERIFY_OUT` 覆盖。`/tavern/` 还没挂载（404）时脚本不会崩：E2E 会输出
+`DSH_TAVERN_VERIFY_OUT` 覆盖。`--cards` 会先跑 `scripts/fixtures/make-cards.py` 生成
+`/tmp/tavern-verify/cards/`（v2 PNG / v2 JSON / v1 JSON + `manifest.json`）。
+`/tavern/` 还没挂载（404）时脚本不会崩：E2E 会输出
 「未就绪」报告并 exit 1。
 
 ## `verify.mjs` 断言清单
 
 产物：`report.json` + 截图 `01-sidebar.png`、`02-panel.png`、`03-app-iframe.png`、
 `03b-tavern-open.png`、`04-continue-draft.png`、`05-roleplay-draft.png`、
-`06-restore-panel.png`、`07-reload-restore.png`、`08-refresh-home.png`。
+`06-restore-panel.png`、`07-reload-restore.png`、`08-refresh-home.png`；
+`--cards` 时另有 `09-cards-page.png`、`10-cards-imported.png`、`11-chat-open.png`、
+`12-chat-reply.png`、`13-chat-after-reload.png`、`14-cards-deleted.png`。
 
 | 组 | 检查项 | 期望 | 失败归属 |
 | --- | --- | --- | --- |
@@ -69,7 +74,16 @@ scripts/check.sh --port 3199      # 3099 被占用时换端口
 | G1 | 切到其它面板（紫微斗数）再点回「酒馆」 | iframe 深链回 `/tavern/worlds/…/play`、`data-dsh-tavern-restored=1`、P2 `state.hasContext=true`、context 仍 `ok:true` | plugin-core |
 | G2 | 整页 reload DSH 后重新进面板 | 仍从 `sessionStorage` 恢复（`restored=1`，路径仍是故事页） | plugin-core |
 | G3 | 点「刷新」 | iframe 回 `/tavern/`、`restored=0`、`sessionStorage` 键被删、应用自路由到 `/explore` | plugin-core |
-| H | 页面无控制台 JS 报错 | 0 条（资源加载失败不算） | plugin-core |
+| H1 | `--cards`：导航「角色卡库」→ `/characters` 页面可进入 | 出现「角色卡库」导航且路由存在 | cards-client |
+| H1 | 角色卡库有导入入口 | `input[type=file]`（`accept=.png,.json`）存在 | cards-client |
+| H2 | 逐张导入 PNG / v2 JSON / v1 JSON 卡 | 每次列表出现对应卡名（25s 内） | cards-client + app-auth |
+| H2 | 卡头像渲染 | 页面 `img.naturalWidth > 0` ≥ 1（PNG 卡带 `blob:` 头像） | cards-client |
+| H3 | 点「开聊」 | 进入 `/conversations/world/<sessionId>`，页面显示角色名 | cards-client + app-auth |
+| H4 | 发「你好」 | 出现 `.world-chat-message.user` 消息，120s 内出现 `.world-chat-message.assistant` mock 回复 | app-auth（AI_MODE=mock）/ cards-client |
+| H5 | 刷新聊天页（同源 iframe 内 reload） | 用户消息与回复仍在（`report.cards.reload`） | app-auth 持久化 + cards-client |
+| H6 | 回角色卡库点「删除」 | 卡名数量回落到导入前基线（应用无确认弹层，点击即删；断言 `DELETE /character-cards/<id>` 返回 204 且列表刷新） | cards-client |
+| H6 | 删除只删一张 | 其余 fixture 卡仍在列表 | cards-client |
+| H7 | 页面无控制台 JS 报错 | 0 条（资源加载失败不算） | plugin-core |
 
 ### 自动化锚点（契约约定）
 
@@ -87,6 +101,13 @@ scripts/check.sh --port 3199      # 3099 被占用时换端口
 | `data-dsh-tavern-action="continue\|roleplay\|reload\|open"` | 工具条按钮/链接 | 点击目标 |
 | `data-dsh-tavern-frame` | iframe | 内嵌应用 |
 | `data-dsh-tavern-extra` | 续写要求输入框 | 可选输入 |
+| 导航「角色卡库」/ `a[href="/characters"]` | 应用 shell | `--cards` 入口（文本与 href 双候选） |
+| `input[type="file"]` | 角色卡库 | 导入 PNG/JSON（`setInputFiles`） |
+| `article.character-card[data-card-id]` | 角色卡列表 | 首选卡片容器；`filter({ has: getByText(name,{exact}) })` 找卡，再点其中「开聊」「删除」；找不到再退 xpath ancestor |
+| `#world-chat-message` | 聊天页 | 输入框（`textarea`） |
+| `form.world-chat-compose button[type="submit"]` | 聊天页 | 发送按钮 |
+| `.world-chat-message.user p` / `.world-chat-message.assistant p` | 聊天页 | 用户消息 / 回复 |
+| `[role="alert"]` | 聊天页 | 发送失败/超时提示，原样写进失败详情 |
 
 ### 关键判定细节（踩过的坑）
 
@@ -117,6 +138,20 @@ scripts/check.sh --port 3199      # 3099 被占用时换端口
   提示词；`clipboard` 是干净的单条扮演提示词，报告里两个都记。模板断言会优先选**命中
   marker 的那份**（实测 `source=clipboard`：`请以角色扮演的方式，接着下面的故事即兴演绎。`），
   避免拿混合 `draft` 里的旧续写文本蒙混过关。
+- **`--cards` 的 mock 回复**：应用 `AI_MODE=mock`，发送「你好」后由应用 mock worker
+  生成确定性回复，不走真实模型；但仍要轮询任务完成（最长 120s），不能只等 DOM 变化。
+  刷新验证用 iframe 内 `location.reload()`（同源），不要整页 reload DSH——那会走 G2 的记忆恢复路径。
+- **发送按钮是异步 disabled 的**：`textarea#world-chat-message` fill 之后 Vue 还没把 Draft 落进
+  DOM，此时提交按钮 `disabled`；直接 `click({force:true})` 会命中 disabled 按钮、浏览器静默不派发
+  click，表现为「没有报错但消息没发出去」。脚本先轮询 `isDisabled()===false`（8s）再普通 click，
+  仍不可用则 `press('Control+Enter')` 兜底（app 的 textarea 有 Ctrl/Cmd+Enter 发送）。
+- **角色卡删除没有确认弹层**：`CharactersPage.remove()` 直接调 `DELETE`，成功后 toast
+  「已删除…」并 `load()` 刷列表；失败时 `p.error[role=alert]` 显示「删除失败：…」。脚本用
+  `page.on('response')` 记录 DELETE 的 `{pathname,status}`，「消失」以基线计数回落判断；
+  删除是软删（卡从列表消失、chatTarget 的 world/聊天保留）。
+- **角色卡 E2E 会写应用数据**：导入会建 World/WorldLine/root Checkpoint，删除是**软删**
+  （卡从列表消失、world 保留）。仅用于本地单用户验收库；生产冒烟不要加 `--cards`
+  除非确认允许写入。
 - **P2 命名空间是 `dsh-tavern:*`**（不是 `dsh-story:*`）；脚本注入的 `message` 监听和
   `report.bridge.protocol` 都按这个断言，用错命名空间会表现为「应用没有响应」超时。
 
@@ -161,7 +196,8 @@ curl -s -o /dev/null -w 'trusted refresh=%{http_code}\n' \
 ## 已知缺口（随进度更新）
 
 - [x] **app-auth**：trusted 登录 + P2 桥（`dsh-tavern:ping/pong/state/context`）已部署；
-  隔离实例 E2E **43 PASS / 0 FAIL / 0 SKIP**（`--open-story`，含位置记忆 G1–G3）。
+  隔离实例 E2E **43 PASS / 0 FAIL / 0 SKIP**（`--open-story`，含位置记忆 G1–G3）；
+  加 `--cards` 后 **55 PASS / 0 FAIL / 0 SKIP**（含 H 组角色卡导入 + 单卡聊天）。
 - [x] **应用内要有「当前故事」**：`--open-story` 会在 explore 点「继续游玩」进入
   `/worlds/:id/play`；context 实测 `mode=world-play world=蓝宝石案 line=福尔摩斯的故事
   chars=12 recent=286字`。应用里当前有 4 部 published/live 作品（DB `product_publications`）。
@@ -175,5 +211,17 @@ curl -s -o /dev/null -w 'trusted refresh=%{http_code}\n' \
 - [x] **app/deploy 里的旧 unit 模板已删除**（连同 Caddyfile.new）；实际运行的 unit 是
   `/etc/systemd/system/dsh-tavern-api/web/worker/world-worker.service`，`app/deploy/` 仅保留
   `static_server.py`（静态站实现，host unit 直接调用）。
+- [x] **角色卡导入 + 单卡聊天（task-9）**：`dsh-tavern-api` 于 02:13 重启后
+  `/character-cards` 路由已生效，dist 02:14 重建（含 `/characters`）；`--open-story --cards`
+  实测 **55 PASS / 0 FAIL / 0 SKIP**。证据：PNG/v2 JSON/v1 JSON 三张卡都出现在列表、PNG 卡
+  头像为 `blob:` 渲染；开聊进 `/tavern/conversations/world/<sessionId>`；发「你好」后 mock
+  回复（`我是林小满…这段对话不会替你交接宝石…`）；iframe 内 reload 后
+  `user=1 assistant=1`；删除返回 `DELETE 204`、卡名回落到基线、其余卡仍在（`report.cards`
+  里 `chat/reload/deleted/deleteDiagnostics` 全部留证）。fixture 的 DB 写入是预期的，结束后由
+  Lead 清理测试卡（多轮调试会累积同名卡；脚本已用「基线计数」而非绝对数量断言）。
 - [ ] 默认 `check.sh` 会 SKIP「应用前端 typecheck/单测」（`--with-app-tests` 才跑）；本轮静态
-  阶段 SKIP 1 项即此项，浏览器 E2E 0 SKIP。
+  阶段 SKIP 1 项即此项，浏览器 E2E 0 SKIP；`--cards` 时新增 1 项 fixture 生成 + 12 项 H 组。
+- [ ] **生产冒烟**：等生产 3080 重启加载新插件后，用带 token 的 URL 跑
+  `node verify.mjs --url ... --open-story`（生产默认不加 `--cards`，避免往生产库写卡）。
+- [ ] **`--with-app-tests`**：应用侧 typecheck/单测归 app-auth/cards-client 自己跑，验收脚本
+  默认不跑；需要时可 `scripts/check.sh --static --with-app-tests`。
