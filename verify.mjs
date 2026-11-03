@@ -14,7 +14,7 @@
  *      appPath/worldTitle/lineTitle/mode/characters/recentText）。
  *   F. 点「让 DSH 续写」：期望新会话打开 + 编辑器草稿被填充，或剪贴板兜底；
  *      上下文不可用时插件应优雅降级（面板内出现错误提示、不误开空会话）。如实记录分支。
- *   G. 截图 + verification/report.json；无控制台 JS 报错。
+ *   G. 截图 + 输出目录下 report.json；无控制台 JS 报错。
  *
  * 设计原则：
  *   - 插件/应用尚未就绪时（/story 404、应用登录页、P2 桥没有响应）不崩：

@@ -89,9 +89,8 @@ iframe → 父（主动，节流）：
 | 范围 | owner |
 | --- | --- |
 | `app/**`（server + client 源码、dist 构建） | app-auth |
-| `package.json`、`cordis.patch.yml`、`lib/**`、`client.js`、`deploy/**`、`README.md` | plugin-core |
-| `scripts/**`、`verify.mjs`、`restart-and-verify.sh`、`verification/**`、`docs/testing.md` | verifier |
-| `docs/operations.md`、`finalize-prod.sh`、`deploy/Caddyfile.story-retired` | Lead |
-| `/etc/systemd/system`、Caddy、`/root/.dsh/profiles/web`、生产重启 | Lead |
+| `package.json`、`cordis.patch.yml`、`lib/**`、`client.js`、`README.md` | plugin-core |
+| `scripts/**`、`verify.mjs`、`docs/testing.md` | verifier |
+| `/etc/systemd/system`、Caddy、`/root/.dsh/profiles/web`（host 级，不在本仓库） | Lead |
 
 任何人不改别人范围的文件；发现 bug 用 send_message 报给 owner 或 Lead。

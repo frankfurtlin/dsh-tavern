@@ -12,9 +12,9 @@
 #   scripts/check.sh --port 3199     # 换端口
 #
 # 产物：
-#   verification/check/report.json     —— verify.mjs 的逐项结果（PASS/FAIL/SKIP）
-#   verification/check/logs/*.log      —— 每个静态命令的输出
-#   verification/check/logs/dsh.log    —— 隔离实例的 DSH 日志（启动失败时先看这个）
+#   $OUT/report.json                   —— verify.mjs 的逐项结果（PASS/FAIL/SKIP）
+#   $OUT/logs/*.log                    —— 每个静态命令的输出
+#   $OUT/logs/dsh.log                  —— 隔离实例的 DSH 日志（启动失败时先看这个）
 #   截图 01-sidebar.png … 05-roleplay-draft.png
 #
 # 设计（参考同级插件 dsh-ziwei/scripts/check.sh）：
@@ -34,7 +34,7 @@ REAL_PROFILE="$REAL_HOME/profiles/web"
 PROFILE="check"
 PORT="${DSH_STORY_CHECK_PORT:-3099}"
 CHECK_HOME="${DSH_STORY_CHECK_HOME:-/tmp/dsh-story-check}"
-OUT="$ROOT/verification/check"
+OUT="${DSH_STORY_VERIFY_OUT:-/tmp/dsh-story-verify/check}"
 LOGS="$OUT/logs"
 DSH_BIN="$(command -v dsh || true)"
 
@@ -94,7 +94,7 @@ static_checks() {
   fi
 
   local scripts
-  for scripts in "$ROOT"/scripts/*.sh "$ROOT/restart-and-verify.sh"; do
+  for scripts in "$ROOT"/scripts/*.sh; do
     [[ -f "$scripts" ]] || continue
     run "bash -n ${scripts#"$ROOT"/}" bash -n "$scripts"
   done

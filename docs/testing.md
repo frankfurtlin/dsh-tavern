@@ -7,7 +7,7 @@
 
 契约见 [contract.md](./contract.md)；本文只讲怎么验、怎么读结果、有哪些坑。
 
-## 两套入口
+## 验收入口
 
 ### 1. `scripts/check.sh` —— 隔离验收（日常用，绝不动生产 3080）
 
@@ -34,31 +34,13 @@ scripts/check.sh --port 3199      # 3099 被占用时换端口
 | 依赖 | 生产 profile 已安装 `dsh-story-between` 时 **mirror**：符号链接其 `package.json` / `node_modules`，复制 `cordis*.yml`；未安装时 **dev**：生成 profile `package.json` 把插件源目录 link 进 `node_modules` |
 | 登录态 | 复制 `~/.dsh/.credentials.yaml`（chmod 600）和 `storages/workspace.json`，避免首次启动弹 Get started / Choose a workspace |
 | 启动 | `DSH_HOME=$CHECK_HOME dsh --profile check --no-open --host 127.0.0.1 --port 3099`，从日志里取 `?token=...` |
-| 清理 | `trap cleanup EXIT INT TERM`：先杀 PID 再 `pkill -f` 兜底，复制 `dsh.log` 到 `verification/check/logs/dsh.log` |
+| 清理 | `trap cleanup EXIT INT TERM`：先杀 PID 再 `pkill -f` 兜底，复制 `dsh.log` 到 `$OUT/logs/dsh.log` |
 
 `/story/` 还没挂载（404）时脚本不会崩：E2E 会输出「未就绪」报告并 exit 1。
 
-### 2. `restart-and-verify.sh` —— 生产重启后冒烟（Lead 执行）
-
-**不能在 DSH 会话里直接跑**（`systemctl restart` 会把自己杀掉），用 systemd-run：
-
-```bash
-systemd-run --on-active=10s --unit=dsh-story-verify \
-  /root/workspace/plugins/dsh-story-between/restart-and-verify.sh
-
-# 已重启过、只想复跑验收：
-scripts/restart-and-verify.sh --no-restart
-```
-
-它做四件事：重启 `deepseek-harness.service` → 等 3080 → 从 journalctl 取 token →
-本地/公网 `/story/` 状态码检查（本地期望 401；公网期望 302/401，**404 即未接通**）→
-跑 `verify.mjs --out verification/prod`。报告和截图写在 `verification/prod/`。
-默认**不**打开作品（不写生产阅读进度），F 组只验「优雅降级」；要跑提示词填充全链路加
-`DSH_OPEN_STORY=1`（会写一条阅读进度，确认可接受后再开）。
-
 ## `verify.mjs` 断言清单
 
-产物：`verification/{check,prod}/report.json` + 截图
+产物：默认写在 `/tmp/dsh-story-verify/check/`（`report.json` + 截图，可用 `DSH_STORY_VERIFY_OUT` 覆盖）
 `01-sidebar.png`、`02-panel.png`、`03-app-iframe.png`、`03b-story-open.png`、
 `04-continue-draft.png`、`05-roleplay-draft.png`、`06-restore-panel.png`、
 `07-reload-restore.png`、`08-refresh-home.png`。
@@ -156,7 +138,7 @@ curl -s -o /dev/null -w 'trusted refresh=%{http_code}\n' \
 | 现象 | 原因 / 处理 |
 | --- | --- |
 | `EADDRINUSE :3099` | 上次实例没清掉：`pkill -f 'dsh --profile check'`，或 `--port 3199` |
-| 120s 内没等到 token | 看 `verification/check/logs/dsh.log` 尾部；常见是 profile `package.json`/`node_modules` 不可用、bundle 解析失败 |
+| 120s 内没等到 token | 看 `$OUT/logs/dsh.log` 尾部（默认 `/tmp/dsh-story-verify/check/logs/`）；常见是 profile `package.json`/`node_modules` 不可用、bundle 解析失败 |
 | 隔离实例登录/quota 异常 | 检查 `~/.dsh/.credentials.yaml` 是否复制成功（600） |
 | 截图中文豆腐块 | 脚本必须 `export HOME=/root XDG_CACHE_HOME=/root/.cache`（systemd 单元里 HOME 为空会跳过 `/root/.fonts`） |
 | Welcome/Get started 遮罩挡住侧栏点击 | verify 里 `dismissWelcome()` 关 `div[role="presentation"] button[aria-label="Close"]`；新 HOME 需要先复制 `workspace.json` |
@@ -173,10 +155,10 @@ curl -s -o /dev/null -w 'trusted refresh=%{http_code}\n' \
 - [x] **应用内要有「当前故事」**：`--open-story` 会在 explore 点「继续游玩」进入
   `/worlds/:id/play`；context 实测 `mode=world-play world=蓝宝石案 line=福尔摩斯的故事
   chars=12 recent=286字`。应用里当前有 4 部 published/live 作品（DB `product_publications`）。
-- [ ] **生产 3080 还是旧进程**：`/story/` 仍 404（profile 已安装插件，21:10 起）。需要
-  Lead 用 `restart-and-verify.sh` 重启 `deepseek-harness.service` 后才算生产验收。
+- [x] **生产 3080 已加载插件**：DSH 已重启，本地 `/story/` 401、公网
+  `https://dsh.frankfurtlin.top/story/` 302（DSH 登录网关）。
 - [x] **面板切换丢应用路由**：plugin-core 已实现位置记忆（`sessionStorage` 深链 +
   `data-dsh-story-restored`）；G1 切到紫微斗数再点回、G2 整页 reload、G3「刷新」清记忆
   全部 PASS。恢复只带 pathname，`?line=` 不保留（应用靠 store 选章，context 仍 ok）。
-- [ ] **生产冒烟默认不覆盖 F 全链路**：生产默认不写阅读进度，F 只验降级；要覆盖就
-  `DSH_OPEN_STORY=1`（写一条阅读进度）。
+- [ ] **生产冒烟默认不覆盖 F 全链路**：生产验收默认不写阅读进度，F 组只验降级；
+  要覆盖提示词填充全链路，需要带 token 手动跑 `verify.mjs --open-story`。

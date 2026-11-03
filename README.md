@@ -24,12 +24,14 @@
 | `lib/index.js` | host 半：注册 `prefix /story` 反向代理；先过 DSH 登录闸门；`/api/**`、`/health/**` → 8001 并附加可信头，其余 → 8810 静态站 |
 | `client.js` | client 半：注册侧栏行（`sidebar.panellist` 座位）+ 主面板（`main` 座位，`key=story`）；工具条 + 同源 iframe + P2 `postMessage` 桥 |
 | `app/` | 写作应用本体（Vue 前端 + FastAPI 后端）。应用侧为插件做的改动（可信登录、P2 桥）也在这个目录里，随本仓库 git 管理 |
-| `deploy/*.service` | 四个 systemd 单元的模板（正式单元已安装到 `/etc/systemd/system/`）；`deploy/Caddyfile.story-retired` 是退休公网 /story 后的 Caddy 配置 |
 | `docs/contract.md` | 与应用侧的集成契约（路由分流、可信头、P2 协议、UI 座位）——**先读它再改代码** |
 | `docs/architecture.md` | 本插件的实现架构：请求链路、鉴权、面板结构、P2 协议、prompt 规则、风险 |
-| `docs/operations.md` | 运维手册：组件/端口、改代码后怎么重启、生产重启（systemd-run）、回滚、排障 |
-| `scripts/check.sh`、`verify.mjs` | 验收工具（由 verifier 维护）：静态检查 + 隔离实例端到端 |
-| `finalize-prod.sh` | 生产收尾：分离重启 DSH → 真浏览器验收 → 退休旧公网路由 → 写报告 |
+| `docs/testing.md` | 验收方法：静态检查 + 隔离实例真实浏览器 E2E |
+| `scripts/check.sh`、`verify.mjs` | 验收工具：静态检查 + 隔离实例端到端 |
+
+> 应用本体（`app/`）需要先在 host 上跑起来，插件才有内容可代理。四个 systemd
+> 单元已安装在 `/etc/systemd/system/dsh-story-between-*.service`，属于 host 运维，
+> **不随本插件仓库分发**；本仓库只含插件两半 + 应用源码。
 
 ## 安装 / 启用
 
@@ -40,9 +42,9 @@
 "dsh": { "profile": { "bundles": [ "...", "dsh-story-between" ] } }
 ```
 
-应用服务用 `deploy/*.service` 安装并启动；插件本身由 `dsh web` 进程加载，
-改完 `lib/` 或 `client.js` 后需要**重启 DSH Web 服务**并刷新页面（详见
-[docs/architecture.md](docs/architecture.md#配置与运维)）。本仓库的插件代码
+应用以 host 侧 systemd 单元运行（单元文件在 `/etc/systemd/system/`，不在本仓库内）；
+插件本身由 `dsh web` 进程加载，改完 `lib/` 或 `client.js` 后需要**重启 DSH Web 服务**
+并刷新页面（详见 [docs/architecture.md](docs/architecture.md#配置)）。本仓库的插件代码
 不存在独立构建步骤：`cordis.patch.yml` + 手写 `client.js` 由宿主直接加载。
 
 ## 请求链路一句话
@@ -102,8 +104,9 @@ npm run check
 
 ## 已知限制 / 待验证
 
-- **应用侧可信登录**：`x-dsh-trusted` 的后端校验由 app-auth 负责，在它落地前，
-  面板里的 API 请求会被应用按未登录处理。插件侧按契约发头，不需要跟着改。
+- **应用侧可信登录**：`x-dsh-trusted` 由应用 `app/server/app/security.py` 做常量时间
+  校验；应用进程需带 `DSH_TRUSTED_AUTH=1` + `DSH_TRUSTED_SECRET` 重启后才生效，
+  否则面板里的 API 请求会被应用按未登录处理（401）。
 - **编辑器预填依赖 DOM**：宿主没有「往会话草稿写文本」的公开 API，插件用
   Lexical 编辑器的原生插入命令模拟粘贴；宿主改编辑器实现时需要复核
   `client.js` 里的 `COMPOSER_SELECTOR`。
@@ -120,4 +123,4 @@ npm run check
 | 文档 | 内容 |
 | --- | --- |
 | [docs/contract.md](docs/contract.md) | 与应用侧的集成契约（Lead 定稿）：分流、可信头、P2 协议、UI 座位 |
-| [docs/architecture.md](docs/architecture.md) | 本插件实现：两层结构、请求链路、面板结构、P2 细节、prompt 规则、运维与风险 |
+| [docs/architecture.md](docs/architecture.md) | 本插件实现：两层结构、请求链路、面板结构、P2 细节、prompt 规则、风险 |
