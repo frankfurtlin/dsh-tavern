@@ -1,0 +1,142 @@
+{
+	admin off
+	log {
+		output stdout
+		format console
+	}
+}
+
+# ===== 通用：目录型路径「不带尾斜杠」自动补斜杠 =====
+# Vite dev 配了 base '/threeui/'，访问 /threeui（无尾斜杠）它会直接 404：
+#   "The server is configured with a public base URL of /threeui/"
+# 用户地址栏几乎不会手打尾斜杠，故统一在 Caddy 层 308 补上（308 保留方法与 body）。
+# 只补「恰好等于前缀」的那一层，不碰 /threeui/xxx 这类带后缀的路径。
+(slash_redirect) {
+	@bare path /mine /threeui /terraria /earth /pixel /floorplan
+	# 注意：{path} 自带前导斜杠，写成 /{path}/ 会变成 //threeui/（协议相对 URL，
+	# 浏览器会跳到 https://threeui/ 这个假主机）。必须直接用 {path}/。
+	redir @bare {path}/ 308
+}
+
+# ===== BetterLife 主站 =====
+# 约定：/mine/* 全部交给 BetterLife（Caddy 原样转发路径，后端路由自带 /mine 前缀）；
+#       /threeui/* 交给 ThreeUI Gallery（vite dev 5180）；
+#       其余任何路径一律 404 —— 报告站不再从根路径服务，改走 /mine/reports。
+hermes.frankfurtlin.top {
+	log {
+		output file /var/log/caddy/hermes-access.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+		format json
+	}
+
+	header -Server
+	encode zstd gzip
+	import slash_redirect
+
+	handle /mine* {
+		reverse_proxy 127.0.0.1:8080
+	}
+
+	# ===== The Earth Migration Project（流浪地球 · 地球迁移计划）=====
+	# 纯静态 three.js 站点（GitHub: oxomkbk/earth-migration）。项目目录
+	# /root/workspace/earth 即 git clone 与站点根；deploy/server.py 监听
+	# 127.0.0.1:8090 并自行剥掉 /earth 前缀，故 Caddy 原样转发 /earth/*
+	# （不 strip_prefix），页面内全部用相对路径。
+	# /earth/ 直接进入第二部（主体验 Beyond the Wandering Earth）；
+	# 第一部经典版在 /earth/index.html（页面上也有通往第二部的入口）。
+	handle /earth* {
+		@earth_root path /earth/
+		redir @earth_root /earth/beyond.html 308
+		reverse_proxy 127.0.0.1:8090
+	}
+
+	# ===== ThreeUI 全组件 Gallery（103 个）=====
+	# vite dev 服务跑在 5180（HMR），vite base 已设为 /threeui/，
+	# 故 Caddy 原样转发完整路径（不 strip_prefix）。
+	handle /threeui* {
+		# srcDoc/sandbox iframe 的 origin 是 null，内部字体与图片需放宽 CORS
+		header Access-Control-Allow-Origin *
+		reverse_proxy 127.0.0.1:5180
+	}
+
+	# ===== Open-Terraria（SandboxWorld）=====
+	# 开源沙盒游戏，vite dev 跑在 5199（--strictPort），vite base 已设为 /terraria/，
+	# 故 Caddy 原样转发完整路径（不 strip_prefix）。
+	# 注意：SW 注册用相对路径 'sw.js' → 自动解析成 /terraria/sw.js，scope 也自动
+	# 是 /terraria/，无需额外改写。
+	handle /terraria* {
+		reverse_proxy 127.0.0.1:5199
+	}
+
+	# ===== Floorplan 3D（单文件户型/装修编辑器，GitHub: wy51ai/floorplan-3d）=====
+	# 目录 /root/workspace/floorplan-3d：纯静态，仅 index.html + vendor/three（three@0.160 已本地化，
+	# 不走 CDN）。index.html 的 importmap 用绝对路径 /floorplan/vendor/...，故这里用 handle_path
+	# 剥掉 /floorplan 前缀后由 file_server 直接出静态文件。
+	handle /floorplan* {
+		reverse_proxy 127.0.0.1:8092
+	}
+
+	# ===== Pixel Logo Lab（Web3 Odyssey 像素/矢量 Logo 编辑器）=====
+	# 项目目录 /root/workspace/pixel-logo-lab，systemd 服务 pixel-logo-lab.service
+	# 运行 server.py 于 127.0.0.1:4173（静态文件 + JSON 持久化 API）。
+	# 后端不感知 /pixel 前缀，故用 handle_path 剥掉前缀再转发；
+	# 前端资源与 api/ 请求均为相对路径（app.js 已由 "/api/..." 改为 "api/..."），
+	# 配合上方 slash_redirect 把 /pixel 308 到 /pixel/，所有请求都落在 /pixel/ 下。
+	handle_path /pixel/* {
+		reverse_proxy 127.0.0.1:4173
+	}
+
+	# ===== 故事之间 Story Between：已迁移为 DSH 插件 dsh-story-between =====
+	# 2026-11-03：不再从公网 hermes 域名暴露。应用改由 DSH 插件内嵌
+	# （插件前缀 /story，同源反代 127.0.0.1:8001 API / 8810 静态，走 DSH 登录态），
+	# 公开入口只剩 https://dsh.frankfurtlin.top/story/。此处 /story 路由已删除。
+
+	# ===== 紫微斗数 =====
+	# 2026-11-03：不再公网暴露。应用改由 DSH 插件 dsh-ziwei 内嵌
+	# （同源反代 127.0.0.1:8815，走 DSH 登录态），此处的 /ziwei 路由已删除。
+
+	# ===== Hermes 主页（站点根）=====
+	# 手写静态入口页：源码 /root/workspace/hermes-site，部署到 /srv/hermes。
+	# caddy 以 caddy 用户运行且 ProtectHome=true，不能直接读 /root。
+	# 放在兜底 handler 之前；/earth /terraria 等更具体的 handle 已先行匹配。
+	handle {
+		header /assets/* Cache-Control "public, max-age=31536000, immutable"
+		root * /srv/hermes
+		try_files {path} {path}/
+		file_server
+	}
+
+	# ===== 旧登录页兜底 =====
+	# 十月初报告站时代的 /login.html 已不存在（鉴权已迁移到 /mine）。
+	# 浏览器里可能残留旧的 / -> /login.html 跳转；这里 302 回主页，避免 404。
+	handle /login.html {
+		redir * /?from=legacy-login 302
+	}
+
+	# 兜底：其余请求一律 404。
+	# 这里刻意不放 file_server：Caddy 的 file_server 找不到文件时会「穿透」到下一个
+	# handler，最终变成 200 + 空响应。旧配置让 caddy 用户去读 /root/workspace/.../reports
+	# （/root 是 0750，读不到），表现就是 /assets/* 403、其它路径 200 空。
+	handle {
+		respond 404
+	}
+}
+
+# ===== dsh 服务（独立域名，仅供 DeepSeek Harness 使用）=====
+# 注意：dsh.frankfurtlin.top 整个域名归属 DeepSeek Harness，
+# 不得挂载报告站 /threeui 等无关路径。
+dsh.frankfurtlin.top {
+	header -Server
+
+	# DSH Mobile 手机桥：只公开 /bridge/*（手机端 WebSocket），其余一切仍走 dsh-passwords 网关。
+	# bridge 自身只监听 127.0.0.1:3082，鉴权在 bridge 内用网关 cookie 回环核验。
+	handle /bridge/* {
+		reverse_proxy 127.0.0.1:3082
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:3081
+	}
+}
