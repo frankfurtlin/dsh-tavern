@@ -1,0 +1,3700 @@
+{
+  "version": 1,
+  "status": "in_progress",
+  "assets": [
+    {
+      "id": "final-cover-fog-v1",
+      "purpose": "cover",
+      "story": "雾港的最后一封信",
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/fog-harbor-cover-v1.png",
+      "version": 1,
+      "references": [],
+      "rights": "Original generated asset; no copied reference artwork; human consistency review pending",
+      "sha256": "70bc70602a1a6e7cb6679c4f5367280011026d4cd8bdcfe7db30dcb8d2d28d59",
+      "width": 1024,
+      "height": 1536,
+      "derivatives": [
+        {
+          "role": "400",
+          "path": "client/public/assets/original/final-product/fog-harbor-cover-400.webp",
+          "width": 400,
+          "height": 600,
+          "bytes": 62216,
+          "sha256": "7bc799287bcdbe6cc04639b2f701468a7f7311c7148e08a603e67831d6fe8998",
+          "process": "Lanczos cover display resize from immutable generated master"
+        },
+        {
+          "role": "800",
+          "path": "client/public/assets/original/final-product/fog-harbor-cover-800.webp",
+          "width": 800,
+          "height": 1200,
+          "bytes": 211086,
+          "sha256": "18440a0c5ab66ed668e835cc8a78910040f145b517fe479ea3c83b9f5902484a",
+          "process": "Lanczos cover display resize from immutable generated master"
+        }
+      ],
+      "review": "visually inspected; suitable composition; full ART-02 pack blind review not performed",
+      "prompt": "Original 1930s Chinese misty river harbor, ferry, lighthouse, letter and brass lantern. Portrait 2:3; warm paper, ink green, terracotta gouache; no text or copyright characters.",
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "70bc70602a1a6e7cb6679c4f5367280011026d4cd8bdcfe7db30dcb8d2d28d59",
+        "sizes": [
+          [
+            400,
+            600
+          ],
+          [
+            800,
+            1200
+          ]
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-bg-harbor-dawn-v1",
+      "purpose": "stage-background",
+      "story": "雾港的最后一封信",
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/harbor-dawn-background-v1.png",
+      "version": 1,
+      "references": [
+        "final-cover-fog-v1"
+      ],
+      "rights": "Original generated scene using own generated cover as art-direction reference",
+      "sha256": "2869344322bae750af6dce24c6423e50c79eb88634196a58d1e582123a48d195",
+      "width": 1672,
+      "height": 941,
+      "derivatives": [
+        {
+          "path": "client/public/assets/original/final-product/harbor-dawn-1280.webp",
+          "width": 1280,
+          "height": 720,
+          "bytes": 190450,
+          "sha256": "a3bd5f4463f0e6974ecf5f84f89942128d31314933cddfedeb2ea1aad0bb9e59",
+          "process": "landscape crop and Lanczos resize from generated master"
+        },
+        {
+          "path": "client/public/assets/original/final-product/harbor-dawn-1920.webp",
+          "width": 1920,
+          "height": 1080,
+          "bytes": 329704,
+          "sha256": "f1b24e0244254abea1c2f37cab9b563268f9d7aa9c53bc86d3ab0145ae55ff06",
+          "process": "landscape crop and Lanczos resize from generated master"
+        }
+      ],
+      "review": "visually inspected; full pack review pending",
+      "prompt": "Original Chinese riverside ferry landing at dawn. Gouache warm ivory, ink green, terracotta. Match own cover palette. No people, text or logos. Quiet lower quarter for dialogue.",
+      "requiredNativeSize": [
+        1920,
+        1080
+      ],
+      "nativeResolutionPassed": false
+    },
+    {
+      "id": "final-person-lin-du-neutral-v1",
+      "purpose": "stage-portrait",
+      "character": "林渡",
+      "characterId": "original:林渡",
+      "styleId": "harbor-ink-portrait-v1",
+      "expression": "neutral",
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/lin-du-neutral-v1.png",
+      "version": 1,
+      "references": [],
+      "rights": "Original generated adult character; own generated reference only; no third-party artwork. Blind review pending.",
+      "sha256": "8f5067e686002aa2abb4543ed96273dfc9d7d347f46e5ae56c394d49f68ba361",
+      "width": 1024,
+      "height": 1536,
+      "alpha": true,
+      "selected": false,
+      "derivatives": [],
+      "review": "Inspected as transparent source and composited on own warm-paper QA background; full twelve-character consistency blind review pending",
+      "prompt": "Adult harbor courier aged32, dark brown short hair, gray-blue wool jacket, cream shirt, brass compass, charcoal trousers, boots. Full body neutral; delicate ink narrative painting, transparent alpha."
+    },
+    {
+      "id": "final-person-lin-du-neutral-v2",
+      "purpose": "stage-portrait",
+      "character": "林渡",
+      "characterId": "original:林渡",
+      "styleId": "harbor-ink-portrait-v1",
+      "expression": "neutral",
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/lin-du-neutral-v2.png",
+      "version": 2,
+      "references": [
+        "final-person-lin-du-neutral-v1"
+      ],
+      "rights": "Original generated adult character; own generated reference only; no third-party artwork. Blind review pending.",
+      "sha256": "6180b480558e47ca2a2c6bafb0e3e488b30777b3a3cb0ce6b5b5b97c44632f36",
+      "width": 1024,
+      "height": 1536,
+      "alpha": true,
+      "selected": true,
+      "derivatives": [
+        {
+          "role": "standing-1536",
+          "path": "client/public/assets/original/final-product/lin-du-neutral-v2-standing-1536.webp",
+          "width": 1024,
+          "height": 1536,
+          "bytes": 136904,
+          "sha256": "06e85451bbf7b014f098b49733b3aab7e533fca098979e7066adeb29e8ca989c",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "standing-960",
+          "path": "client/public/assets/original/final-product/lin-du-neutral-v2-standing-960.webp",
+          "width": 640,
+          "height": 960,
+          "bytes": 73246,
+          "sha256": "49fcacc4fec22600bd5d8f133795a554b9c2f7e1a85ca69c8ebedb308b3d25bd",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "avatar-256",
+          "path": "client/public/assets/original/final-product/lin-du-neutral-v2-avatar-256.webp",
+          "width": 256,
+          "height": 256,
+          "bytes": 17534,
+          "sha256": "7dc1c99f7e547b677176dff56b34e036d16a9c1309d99cd4815e90b0a52056fe",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "avatar-512",
+          "path": "client/public/assets/original/final-product/lin-du-neutral-v2-avatar-512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 46596,
+          "sha256": "57e537b98ab5b90d0551e509180bc1657adff58279835f85b74386a4cb56a949",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-480",
+          "path": "client/public/assets/original/final-product/lin-du-neutral-v2-half-480.webp",
+          "width": 480,
+          "height": 640,
+          "bytes": 61832,
+          "sha256": "a8bf1576f86230def6fae3fbe3803f39fcc07c06c02eabbd2b2fee49989a3991",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-768",
+          "path": "client/public/assets/original/final-product/lin-du-neutral-v2-half-768.webp",
+          "width": 768,
+          "height": 1024,
+          "bytes": 116328,
+          "sha256": "c17436c0d569e3eb533fa63e4b293552b82d78e60cbdae2c5cf353c646606bff",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        }
+      ],
+      "review": "Inspected as transparent source and composited on own warm-paper QA background; full twelve-character consistency blind review pending",
+      "prompt": "Identity-preserving transparent background cleanup of own Lin Du baseline: preserve exact adult face/hair/costume/pose, remove haze, complete head and boots with transparent margins; 1024x1536.",
+      "avatarCrop": [
+        320,
+        0,
+        704,
+        384
+      ],
+      "halfBodyCrop": [
+        224,
+        0,
+        800,
+        768
+      ],
+      "focalPoint": {
+        "portrait": [
+          0.5,
+          0.14
+        ],
+        "avatar": [
+          0.5,
+          0.5
+        ],
+        "mobile": [
+          0.5,
+          0.14
+        ],
+        "landscape": [
+          0.5,
+          0.14
+        ]
+      },
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "6180b480558e47ca2a2c6bafb0e3e488b30777b3a3cb0ce6b5b5b97c44632f36",
+        "avatarCrop": [
+          320,
+          0,
+          704,
+          384
+        ],
+        "halfBodyCrop": [
+          224,
+          0,
+          800,
+          768
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-person-mei-zhou-neutral-v1",
+      "purpose": "stage-portrait",
+      "character": "梅舟",
+      "characterId": "original:梅舟",
+      "styleId": "harbor-ink-portrait-v1",
+      "expression": "neutral",
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/mei-zhou-neutral-v1.png",
+      "version": 1,
+      "references": [],
+      "rights": "Original generated adult character; own generated reference only; no third-party artwork. Blind review pending.",
+      "sha256": "9b1b5e136554f6016b1ce5f6418781ad4e1bfb22318e79280acf492867a8df19",
+      "width": 1024,
+      "height": 1536,
+      "alpha": true,
+      "selected": true,
+      "derivatives": [
+        {
+          "role": "standing-1536",
+          "path": "client/public/assets/original/final-product/mei-zhou-neutral-v1-standing-1536.webp",
+          "width": 1024,
+          "height": 1536,
+          "bytes": 121370,
+          "sha256": "4012d03492929513021d640eb27fb996daa0251227ddcc5c8db169fb2777554d",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "standing-960",
+          "path": "client/public/assets/original/final-product/mei-zhou-neutral-v1-standing-960.webp",
+          "width": 640,
+          "height": 960,
+          "bytes": 64208,
+          "sha256": "9d546460e724faa80682bc181da3814c97c90b4b193b737d1301bf1b0e4ce889",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "avatar-256",
+          "path": "client/public/assets/original/final-product/mei-zhou-neutral-v1-avatar-256.webp",
+          "width": 256,
+          "height": 256,
+          "bytes": 16440,
+          "sha256": "bec98e4ac0a61dffccee340fcd72850e3f7e97d90d8e2df3affc42b2e12c4137",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "avatar-512",
+          "path": "client/public/assets/original/final-product/mei-zhou-neutral-v1-avatar-512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 45254,
+          "sha256": "42f3965a3fffdaacd1dd67b0fb1e4d565a150e4650eed99de261358436c841ac",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-480",
+          "path": "client/public/assets/original/final-product/mei-zhou-neutral-v1-half-480.webp",
+          "width": 480,
+          "height": 640,
+          "bytes": 57672,
+          "sha256": "bc0a0f7e73096679fcb8383608ea9306ee434f2c00e5e2631c87577e8d1137ff",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-768",
+          "path": "client/public/assets/original/final-product/mei-zhou-neutral-v1-half-768.webp",
+          "width": 768,
+          "height": 1024,
+          "bytes": 112056,
+          "sha256": "581fcb64458deeca1099763457ffe17875ffed8d4455cf12e26221f3316d0fe2",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        }
+      ],
+      "review": "Inspected as transparent source and composited on own warm-paper QA background; full twelve-character consistency blind review pending",
+      "prompt": "Adult Chinese harbor archivist aged30, oval face, black low bun and small brass clip, terracotta blouse, ivory skirt, dark flats, cream satchel. Single neutral full body 1024x1536, soft ink narrative painting, clean transparent alpha; no story spoilers.",
+      "avatarCrop": [
+        320,
+        0,
+        704,
+        384
+      ],
+      "halfBodyCrop": [
+        224,
+        0,
+        800,
+        768
+      ],
+      "focalPoint": {
+        "portrait": [
+          0.5,
+          0.14
+        ],
+        "avatar": [
+          0.5,
+          0.5
+        ],
+        "mobile": [
+          0.5,
+          0.14
+        ],
+        "landscape": [
+          0.5,
+          0.14
+        ]
+      },
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "9b1b5e136554f6016b1ce5f6418781ad4e1bfb22318e79280acf492867a8df19",
+        "avatarCrop": [
+          320,
+          0,
+          704,
+          384
+        ],
+        "halfBodyCrop": [
+          224,
+          0,
+          800,
+          768
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-person-lin-du-joy-v1",
+      "purpose": "stage-portrait",
+      "character": "林渡",
+      "characterId": "original:林渡",
+      "styleId": "harbor-ink-portrait-v1",
+      "expression": "joy",
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/lin-du-joy-v1.png",
+      "version": 1,
+      "references": [
+        "final-person-lin-du-neutral-v2"
+      ],
+      "rights": "Original generated adult character using own generated baseline only; no copied artwork. Blind review pending.",
+      "sha256": "634d4becd36e2b17560c548067e94843c5b67cd885c5346f3e88269c63b17421",
+      "width": 1024,
+      "height": 1536,
+      "alpha": true,
+      "selected": true,
+      "derivatives": [
+        {
+          "role": "standing-1536",
+          "path": "client/public/assets/original/final-product/lin-du-joy-v1-standing-1536.webp",
+          "width": 1024,
+          "height": 1536,
+          "bytes": 133316,
+          "sha256": "4f82370435a73fb2230ab32693225d3c9aeedaba8e1c89a3b2808d77cb7f4d74",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "standing-960",
+          "path": "client/public/assets/original/final-product/lin-du-joy-v1-standing-960.webp",
+          "width": 640,
+          "height": 960,
+          "bytes": 74926,
+          "sha256": "6fff63cec82bab115a4f50375216a359861eb790d08d81d05e3503779d462a6f",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "avatar-256",
+          "path": "client/public/assets/original/final-product/lin-du-joy-v1-avatar-256.webp",
+          "width": 256,
+          "height": 256,
+          "bytes": 17828,
+          "sha256": "4e03742ea10bee584508efc7687890d49afee41b84d0a9fa4db254671ad13708",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "avatar-512",
+          "path": "client/public/assets/original/final-product/lin-du-joy-v1-avatar-512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 45922,
+          "sha256": "cd01bde5aefea2a5d655317bc01865917d659cc13cc5559f54fd7c15991ca55f",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-480",
+          "path": "client/public/assets/original/final-product/lin-du-joy-v1-half-480.webp",
+          "width": 480,
+          "height": 640,
+          "bytes": 62064,
+          "sha256": "246dfff2524685c32256d93b51de3f9fa8d7133cd90d5e21d780bfbbb675287d",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-768",
+          "path": "client/public/assets/original/final-product/lin-du-joy-v1-half-768.webp",
+          "width": 768,
+          "height": 1024,
+          "bytes": 113550,
+          "sha256": "4081582882431287c944e8904ade529b56e07aae79b70497cedeb6d74635ad2d",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        }
+      ],
+      "review": "Visible generation inspected; expressions/identity pack blind review pending",
+      "prompt": "Edit the attached ORIGINAL adult Lin Du character baseline. Keep the identical adult face, eye/nose/jaw shape, short tousled brown hair, body, full standing pose, both relaxed hands, gray-blue jacket, cream shirt, charcoal trousers, brown boots and small brass compass. Keep painted ink narrative style and lighting. Change ONLY facial expression. Vertical 1024x1536 or larger, complete head and feet with transparent margins. Genuinely transparent alpha cutout, no backdrop, no halo, no text or logo. Expression: quiet warm joy, a small natural closed-mouth smile, eyes gently brightened; no exaggerated cartoon grin.",
+      "avatarCrop": [
+        320,
+        0,
+        704,
+        384
+      ],
+      "halfBodyCrop": [
+        224,
+        0,
+        800,
+        768
+      ],
+      "focalPoint": {
+        "portrait": [
+          0.5,
+          0.14
+        ],
+        "avatar": [
+          0.5,
+          0.5
+        ],
+        "mobile": [
+          0.5,
+          0.14
+        ],
+        "landscape": [
+          0.5,
+          0.14
+        ]
+      },
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "634d4becd36e2b17560c548067e94843c5b67cd885c5346f3e88269c63b17421",
+        "avatarCrop": [
+          320,
+          0,
+          704,
+          384
+        ],
+        "halfBodyCrop": [
+          224,
+          0,
+          800,
+          768
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-person-lin-du-worry-v1",
+      "purpose": "stage-portrait",
+      "character": "林渡",
+      "characterId": "original:林渡",
+      "styleId": "harbor-ink-portrait-v1",
+      "expression": "worry",
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/lin-du-worry-v1.png",
+      "version": 1,
+      "references": [
+        "final-person-lin-du-neutral-v2"
+      ],
+      "rights": "Original generated adult character using own generated baseline only; no copied artwork. Blind review pending.",
+      "sha256": "7507b900ede5bc6ebf313f828b15a99c323bd57c345bd6732a52bb7c0750f263",
+      "width": 1024,
+      "height": 1536,
+      "alpha": true,
+      "selected": true,
+      "derivatives": [
+        {
+          "role": "standing-1536",
+          "path": "client/public/assets/original/final-product/lin-du-worry-v1-standing-1536.webp",
+          "width": 1024,
+          "height": 1536,
+          "bytes": 136912,
+          "sha256": "0a3081c3473324051dc79c6dc247a598a5b15ae57c85ce68f67726bce7174d4f",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "standing-960",
+          "path": "client/public/assets/original/final-product/lin-du-worry-v1-standing-960.webp",
+          "width": 640,
+          "height": 960,
+          "bytes": 76576,
+          "sha256": "4e6f2863a2cd3986c6d2a4e72cf74b8e8758a41e9a80ebd805b54bf6b39354c5",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "avatar-256",
+          "path": "client/public/assets/original/final-product/lin-du-worry-v1-avatar-256.webp",
+          "width": 256,
+          "height": 256,
+          "bytes": 18266,
+          "sha256": "db6fe7f9032c86184540a0256525d76a89cf2279f6abc708f0ad3ebfda8c89da",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "avatar-512",
+          "path": "client/public/assets/original/final-product/lin-du-worry-v1-avatar-512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 47004,
+          "sha256": "6d005daa497292877fbc7c273e7b5ace9600e54ff8c2c59dc204cd10823dd6a9",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-480",
+          "path": "client/public/assets/original/final-product/lin-du-worry-v1-half-480.webp",
+          "width": 480,
+          "height": 640,
+          "bytes": 63392,
+          "sha256": "1e5bc9934080c4a32f1c1205afe432ca1892fb4a6e458aeab250999077ab1f55",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-768",
+          "path": "client/public/assets/original/final-product/lin-du-worry-v1-half-768.webp",
+          "width": 768,
+          "height": 1024,
+          "bytes": 116318,
+          "sha256": "b47dd22347bc55124f072935f21e0b79e7ec41338080fcb2cd09217f6d67c942",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        }
+      ],
+      "review": "Visible generation inspected; expressions/identity pack blind review pending",
+      "prompt": "Edit the attached ORIGINAL adult Lin Du character baseline. Keep the identical adult face, eye/nose/jaw shape, short tousled brown hair, body, full standing pose, both relaxed hands, gray-blue jacket, cream shirt, charcoal trousers, brown boots and small brass compass. Keep painted ink narrative style and lighting. Change ONLY facial expression. Vertical 1024x1536 or larger, complete head and feet with transparent margins. Genuinely transparent alpha cutout, no backdrop, no halo, no text or logo. Expression: subdued worry, slightly drawn brows and thoughtful lips, no tears or injury, calm adult concern.",
+      "avatarCrop": [
+        320,
+        0,
+        704,
+        384
+      ],
+      "halfBodyCrop": [
+        224,
+        0,
+        800,
+        768
+      ],
+      "focalPoint": {
+        "portrait": [
+          0.5,
+          0.14
+        ],
+        "avatar": [
+          0.5,
+          0.5
+        ],
+        "mobile": [
+          0.5,
+          0.14
+        ],
+        "landscape": [
+          0.5,
+          0.14
+        ]
+      },
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "7507b900ede5bc6ebf313f828b15a99c323bd57c345bd6732a52bb7c0750f263",
+        "avatarCrop": [
+          320,
+          0,
+          704,
+          384
+        ],
+        "halfBodyCrop": [
+          224,
+          0,
+          800,
+          768
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-person-a-cen-neutral-v1",
+      "purpose": "stage-portrait",
+      "character": "阿岑",
+      "characterId": "original:阿岑",
+      "styleId": "harbor-ink-portrait-v1",
+      "expression": "neutral",
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/a-cen-neutral-v1.png",
+      "version": 1,
+      "references": [],
+      "rights": "Original generated adult character using own generated baseline only; no copied artwork. Blind review pending.",
+      "sha256": "4df133186d512bb21cd5105390ff9f2a707ffd7f19f31b53e73554631c90d32a",
+      "width": 1024,
+      "height": 1536,
+      "alpha": true,
+      "selected": true,
+      "derivatives": [
+        {
+          "role": "standing-1536",
+          "path": "client/public/assets/original/final-product/a-cen-neutral-v1-standing-1536.webp",
+          "width": 1024,
+          "height": 1536,
+          "bytes": 121360,
+          "sha256": "349996cb4f4fd46ad046e6a5f0b10f940bbe362c75ccc3bbbab5cba2a0f06f2f",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "standing-960",
+          "path": "client/public/assets/original/final-product/a-cen-neutral-v1-standing-960.webp",
+          "width": 640,
+          "height": 960,
+          "bytes": 64588,
+          "sha256": "227740a305bf69cfa9c9e5a4836e79efc7b8477946f121b89a186b57fd3960cf",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "avatar-256",
+          "path": "client/public/assets/original/final-product/a-cen-neutral-v1-avatar-256.webp",
+          "width": 256,
+          "height": 256,
+          "bytes": 16754,
+          "sha256": "28a84bfd62d2f9107c28221ffd6cad3b34d81d61cc2262fbd02abb75513c40c5",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "avatar-512",
+          "path": "client/public/assets/original/final-product/a-cen-neutral-v1-avatar-512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 45678,
+          "sha256": "1b91436f4b7e84befabe4f67cd5d50a319ea2cf9563179dbbdfcc72cb5ecbcf1",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-480",
+          "path": "client/public/assets/original/final-product/a-cen-neutral-v1-half-480.webp",
+          "width": 480,
+          "height": 640,
+          "bytes": 58514,
+          "sha256": "54f0bb23f72d46f04f24abb039ddbd14372df9473a0ea612edad8070be9b18f9",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-768",
+          "path": "client/public/assets/original/final-product/a-cen-neutral-v1-half-768.webp",
+          "width": 768,
+          "height": 1024,
+          "bytes": 111288,
+          "sha256": "8d9d89e5413b9b33ab5ba4ec5667a3329362092f0659f9731eda10f91a6f5b82",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        }
+      ],
+      "review": "Visible generation inspected; expressions/identity pack blind review pending",
+      "prompt": "Use case: illustration-story. ORIGINAL one adult Chinese woman aged 35, A Cen, an experienced harbor boat captain. Single full-body standing character, vertical 1024x1536 or higher, complete head and shoes with generous transparent margins. Strong angular face, clear dark eyes, short straight black bob to jaw, a practical muted burgundy vest over an ivory long-sleeved shirt, deep charcoal wide-leg trousers, brown work boots, plain dark leather belt. Neutral steady expression, confident relaxed standing pose, both hands anatomically accurate at sides. Soft narrative ink and painted illustration, warm paper palette, subdued teal and terracotta, gently diffuse light. Clearly distinct identity from Mei Zhou, no borrowed characters. Genuinely transparent alpha, no haze, no floor, no background or props, no text/logo/watermark. Outfit and neutral face are the baseline for subsequent expression edits.",
+      "avatarCrop": [
+        320,
+        0,
+        704,
+        384
+      ],
+      "halfBodyCrop": [
+        224,
+        0,
+        800,
+        768
+      ],
+      "focalPoint": {
+        "portrait": [
+          0.5,
+          0.14
+        ],
+        "avatar": [
+          0.5,
+          0.5
+        ],
+        "mobile": [
+          0.5,
+          0.14
+        ],
+        "landscape": [
+          0.5,
+          0.14
+        ]
+      },
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "4df133186d512bb21cd5105390ff9f2a707ffd7f19f31b53e73554631c90d32a",
+        "avatarCrop": [
+          320,
+          0,
+          704,
+          384
+        ],
+        "halfBodyCrop": [
+          224,
+          0,
+          800,
+          768
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-person-mei-zhou-worry-v1",
+      "purpose": "stage-portrait",
+      "character": "梅舟",
+      "characterId": "original:梅舟",
+      "styleId": "harbor-ink-portrait-v1",
+      "story": "原创角色素材",
+      "expression": "worry",
+      "mainCharacter": true,
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/mei-zhou-worry-v1.png",
+      "version": 1,
+      "references": [
+        "final-person-mei-zhou-neutral-v1"
+      ],
+      "rights": "Original generated adult character; exact own identity reference used for expression edits; no third-party artwork. Human blind consistency review pending.",
+      "sha256": "c572926f6d836e5d5786912c1575cb37f991fe11b39e156c7c4423cca8108435",
+      "width": 1024,
+      "height": 1536,
+      "bytes": 1664134,
+      "selected": true,
+      "prompt": "Use case: identity-preserve. Asset: original visual-novel transparent full-body standing sprite for the paper-and-ink story app. Image 1 is the edit target and exact identity reference: Mei Zhou, an adult woman aged 30. Keep her exact face structure, black low bun, small brass hair clip, terracotta collared blouse, ivory long skirt, canvas shoulder bag, black flat shoes, body proportion, stance, costume, framing, and painted texture. Change facial expression ONLY. Preserve full head and both complete shoes inside the canvas with clear transparent margin. Actual transparent RGBA background, no floor, no oval shadow, no backdrop, no halo, no vignette, no text, no symbols, no watermarks. Portrait 1024 by 1536 or larger, keep current composition. Expression: quiet clear concern, subtly knitted brows, narrowed worried eyes, relaxed closed mouth. No tears or extra props. Retain identity and all other pixels as closely as possible.",
+      "derivatives": [
+        {
+          "role": "standing-1536",
+          "path": "client/public/assets/original/final-product/mei-zhou-worry-v1-standing-1536.webp",
+          "width": 1024,
+          "height": 1536,
+          "bytes": 112612,
+          "sha256": "473225efbfa145fbab44eb2d47d773e77627be07f2ee07c054427aa9c1549b78",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "standing-960",
+          "path": "client/public/assets/original/final-product/mei-zhou-worry-v1-standing-960.webp",
+          "width": 640,
+          "height": 960,
+          "bytes": 63294,
+          "sha256": "0e7ab369eca67dd0ffe192fb23030b761004a3bed062cbf63720ac1ddfc2dfd2",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "avatar-256",
+          "path": "client/public/assets/original/final-product/mei-zhou-worry-v1-avatar-256.webp",
+          "width": 256,
+          "height": 256,
+          "bytes": 16220,
+          "sha256": "c0ac84379c98cd11e75d48fc94c7ea8cb4e8ab5efeec4d1784c67452df5beed9",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "avatar-512",
+          "path": "client/public/assets/original/final-product/mei-zhou-worry-v1-avatar-512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 42700,
+          "sha256": "aca3a77df9e74e7a7f13dc70dc8542774d5d62f3231cb7e9b3f98ff06c10f1b2",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-480",
+          "path": "client/public/assets/original/final-product/mei-zhou-worry-v1-half-480.webp",
+          "width": 480,
+          "height": 640,
+          "bytes": 55044,
+          "sha256": "e7902df1c141703d8d9c94da40669370a5beab7954bddd0a2a63c9ec351585d9",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-768",
+          "path": "client/public/assets/original/final-product/mei-zhou-worry-v1-half-768.webp",
+          "width": 768,
+          "height": 1024,
+          "bytes": 104434,
+          "sha256": "45f2a263e79aa8e299dcb09d6a1c8b5abaa9ce153d5856770b3566beec261888",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        }
+      ],
+      "review": "Full head and feet visually inspected on paper composite; RGBA alpha verified; human blind review not performed.",
+      "avatarCrop": [
+        320,
+        0,
+        704,
+        384
+      ],
+      "halfBodyCrop": [
+        224,
+        0,
+        800,
+        768
+      ],
+      "focalPoint": {
+        "portrait": [
+          0.5,
+          0.14
+        ],
+        "avatar": [
+          0.5,
+          0.5
+        ],
+        "mobile": [
+          0.5,
+          0.14
+        ],
+        "landscape": [
+          0.5,
+          0.14
+        ]
+      },
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "c572926f6d836e5d5786912c1575cb37f991fe11b39e156c7c4423cca8108435",
+        "avatarCrop": [
+          320,
+          0,
+          704,
+          384
+        ],
+        "halfBodyCrop": [
+          224,
+          0,
+          800,
+          768
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-person-shen-yan-neutral-v1",
+      "purpose": "stage-portrait",
+      "character": "沈砚",
+      "characterId": "original:沈砚",
+      "styleId": "harbor-ink-portrait-v1",
+      "story": "原创角色素材",
+      "expression": "neutral",
+      "mainCharacter": false,
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/shen-yan-neutral-v1.png",
+      "version": 1,
+      "references": [],
+      "rights": "Original generated adult character; exact own identity reference used for expression edits; no third-party artwork. Human blind consistency review pending.",
+      "sha256": "c478f2442508517bd27b397c1350815bb68b76da847bde2eee104747b2cb4c55",
+      "width": 1024,
+      "height": 1536,
+      "bytes": 2007466,
+      "selected": true,
+      "prompt": "Use case: illustration-story. Asset: original main-character full-body visual novel standing sprite, adult cast in an original gentle fantasy city. Soft narrative gouache and fine ink brush illustration, warm paper-inspired ivory, desaturated sage and teal, restrained terracotta accents, painterly fabric, believable adult anatomy and face, subtle detail without glossy game rendering. FRONT THREE-QUARTER FULL BODY, head and both feet fully visible with transparent margin around all edges; center figure, head near upper third, natural quiet standing pose, hands simple and anatomically correct. Real transparent RGBA background, NO floor, backdrop, aura, oval shadow, vignette, typography, labels, logo, watermark, copyrighted character. At least 1024x1536 portrait. Neutral composed facial expression. Subject: Shen Yan, adult Chinese man aged 29, lean tall scholar with angular cheekbones, almond dark eyes, long black hair neatly tied with a plain jade hairpin; layered sage-green and ivory cross-collar robe, understated brown sash, cloth boots. Original distinct facial identity, practical robes, no weapons or writing. Friendly but thoughtful.",
+      "derivatives": [
+        {
+          "role": "standing-1536",
+          "path": "client/public/assets/original/final-product/shen-yan-neutral-v1-standing-1536.webp",
+          "width": 1024,
+          "height": 1536,
+          "bytes": 150956,
+          "sha256": "81e2440535d4de00d4048128f5997adc8f6aa3a605620bbd3d87ec16846b1ee8",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "standing-960",
+          "path": "client/public/assets/original/final-product/shen-yan-neutral-v1-standing-960.webp",
+          "width": 640,
+          "height": 960,
+          "bytes": 81938,
+          "sha256": "bf6e6833aaa3e7234fa752a0a380e09b7e122b3b844b55085fe3b17d81b4acfa",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "avatar-256",
+          "path": "client/public/assets/original/final-product/shen-yan-neutral-v1-avatar-256.webp",
+          "width": 256,
+          "height": 256,
+          "bytes": 18068,
+          "sha256": "c894365991960c77b53a51687995c3390dae05f88a7e671910cdf0dfefefead5",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "avatar-512",
+          "path": "client/public/assets/original/final-product/shen-yan-neutral-v1-avatar-512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 49554,
+          "sha256": "360d4b88903149024e4eb6da417c59eb25008763e857336b9964e2221a407fae",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-480",
+          "path": "client/public/assets/original/final-product/shen-yan-neutral-v1-half-480.webp",
+          "width": 480,
+          "height": 640,
+          "bytes": 62946,
+          "sha256": "b626d962feb92b76f9651cf3dfd0e1e5a8f1968b9d7674bd808806cfba757845",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-768",
+          "path": "client/public/assets/original/final-product/shen-yan-neutral-v1-half-768.webp",
+          "width": 768,
+          "height": 1024,
+          "bytes": 119112,
+          "sha256": "72d84a73caee72598d5a76a228072a3eb7178b1fcd52174372f5f622cb3f01e6",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        }
+      ],
+      "review": "Full head and feet visually inspected on paper composite; RGBA alpha verified; human blind review not performed.",
+      "avatarCrop": [
+        320,
+        0,
+        704,
+        384
+      ],
+      "halfBodyCrop": [
+        224,
+        0,
+        800,
+        768
+      ],
+      "focalPoint": {
+        "portrait": [
+          0.5,
+          0.14
+        ],
+        "avatar": [
+          0.5,
+          0.5
+        ],
+        "mobile": [
+          0.5,
+          0.14
+        ],
+        "landscape": [
+          0.5,
+          0.14
+        ]
+      },
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "c478f2442508517bd27b397c1350815bb68b76da847bde2eee104747b2cb4c55",
+        "avatarCrop": [
+          320,
+          0,
+          704,
+          384
+        ],
+        "halfBodyCrop": [
+          224,
+          0,
+          800,
+          768
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-person-ye-lan-neutral-v1",
+      "purpose": "stage-portrait",
+      "character": "叶澜",
+      "characterId": "original:叶澜",
+      "styleId": "harbor-ink-portrait-v1",
+      "story": "原创角色素材",
+      "expression": "neutral",
+      "mainCharacter": false,
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/ye-lan-neutral-v1.png",
+      "version": 1,
+      "references": [],
+      "rights": "Original generated adult character; exact own identity reference used for expression edits; no third-party artwork. Human blind consistency review pending.",
+      "sha256": "dbe40b95714fe1ef59ec7af13ce394f9aace2da82bb4c2b6829ad22229501625",
+      "width": 1024,
+      "height": 1536,
+      "bytes": 1666276,
+      "selected": true,
+      "prompt": "Use case: illustration-story. Asset: original main-character full-body visual novel standing sprite, adult cast in an original gentle fantasy city. Soft narrative gouache and fine ink brush illustration, warm paper-inspired ivory, desaturated sage and teal, restrained terracotta accents, painterly fabric, believable adult anatomy and face, subtle detail without glossy game rendering. FRONT THREE-QUARTER FULL BODY, head and both feet fully visible with transparent margin around all edges; center figure, head near upper third, natural quiet standing pose, hands simple and anatomically correct. Real transparent RGBA background, NO floor, backdrop, aura, oval shadow, vignette, typography, labels, logo, watermark, copyrighted character. At least 1024x1536 portrait. Neutral composed facial expression. Subject: Ye Lan, adult East Asian woman aged 28, distinct oval face and steady dark eyes, one long silver braid, indigo tunic with muted ivory collar, practical dark trousers and brown soft boots, slim brass cuff on wrist, small unmarked leather pouch at belt. Athletic but relaxed posture, elegant practical city traveler, no weapons.",
+      "derivatives": [
+        {
+          "role": "standing-1536",
+          "path": "client/public/assets/original/final-product/ye-lan-neutral-v1-standing-1536.webp",
+          "width": 1024,
+          "height": 1536,
+          "bytes": 126158,
+          "sha256": "080da634f951fdd2205a3892e9da6f0cb7b37c85cfb24fdf51767b3c617640e9",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "standing-960",
+          "path": "client/public/assets/original/final-product/ye-lan-neutral-v1-standing-960.webp",
+          "width": 640,
+          "height": 960,
+          "bytes": 68550,
+          "sha256": "2c8b1f80ab2d63efbab284918f6c92d98b91facc3b15c066a614152259db6cf6",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "avatar-256",
+          "path": "client/public/assets/original/final-product/ye-lan-neutral-v1-avatar-256.webp",
+          "width": 256,
+          "height": 256,
+          "bytes": 17998,
+          "sha256": "27d763665407643c573d1a63ba9755bd8b6c74b970825e6b35bfd28ff9d23b3d",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "avatar-512",
+          "path": "client/public/assets/original/final-product/ye-lan-neutral-v1-avatar-512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 49156,
+          "sha256": "56cab67dc88bafd970237ba634abe2ae1d767392505e573564e17a54e2688151",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-480",
+          "path": "client/public/assets/original/final-product/ye-lan-neutral-v1-half-480.webp",
+          "width": 480,
+          "height": 640,
+          "bytes": 61064,
+          "sha256": "35bdd2d4a910f6bbe68ff1ed154c623fcea54a967436489a0845a8526574e10f",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-768",
+          "path": "client/public/assets/original/final-product/ye-lan-neutral-v1-half-768.webp",
+          "width": 768,
+          "height": 1024,
+          "bytes": 115754,
+          "sha256": "d3d9ce935ed7080dec25d881bb4994ca52263f993f73739fbb6e2b38e3673099",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        }
+      ],
+      "review": "Full head and feet visually inspected on paper composite; RGBA alpha verified; human blind review not performed.",
+      "avatarCrop": [
+        320,
+        0,
+        704,
+        384
+      ],
+      "halfBodyCrop": [
+        224,
+        0,
+        800,
+        768
+      ],
+      "focalPoint": {
+        "portrait": [
+          0.5,
+          0.14
+        ],
+        "avatar": [
+          0.5,
+          0.5
+        ],
+        "mobile": [
+          0.5,
+          0.14
+        ],
+        "landscape": [
+          0.5,
+          0.14
+        ]
+      },
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "dbe40b95714fe1ef59ec7af13ce394f9aace2da82bb4c2b6829ad22229501625",
+        "avatarCrop": [
+          320,
+          0,
+          704,
+          384
+        ],
+        "halfBodyCrop": [
+          224,
+          0,
+          800,
+          768
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-person-qing-que-neutral-v1",
+      "purpose": "stage-portrait",
+      "character": "青雀",
+      "characterId": "original:青雀",
+      "styleId": "harbor-ink-portrait-v1",
+      "story": "原创角色素材",
+      "expression": "neutral",
+      "mainCharacter": true,
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/qing-que-neutral-v1.png",
+      "version": 1,
+      "references": [],
+      "rights": "Original generated adult character; exact own identity reference used for expression edits; no third-party artwork. Human blind consistency review pending.",
+      "sha256": "5995e0f3c89a8cfd9c14cc9eb976d3c315d1d40b471c2934b31e695c63c06a6c",
+      "width": 1024,
+      "height": 1536,
+      "bytes": 1771589,
+      "selected": true,
+      "prompt": "Use case: illustration-story. Asset: original main-character full-body visual novel standing sprite, adult cast in an original gentle fantasy city. Soft narrative gouache and fine ink brush illustration, warm paper-inspired ivory, desaturated sage and teal, restrained terracotta accents, painterly fabric, believable adult anatomy and face, subtle detail without glossy game rendering. FRONT THREE-QUARTER FULL BODY, head and both feet fully visible with transparent margin around all edges; center figure, head near upper third, natural quiet standing pose, hands simple and anatomically correct. Real transparent RGBA background, NO floor, backdrop, aura, oval shadow, vignette, typography, labels, logo, watermark, copyrighted character. At least 1024x1536 portrait. Neutral composed facial expression. Subject: Qing Que, adult woman aged 33, warm brown skin, round lively face with dark brown eyes, short wavy dark hair with a small simple bronze feather-shaped hair brooch. Muted teal long coat over cream blouse and warm brown straight trousers, sturdy ankle boots, simple belt. Quiet practical fantasy-city artisan, no magical aura, no weapons.",
+      "derivatives": [
+        {
+          "role": "standing-1536",
+          "path": "client/public/assets/original/final-product/qing-que-neutral-v1-standing-1536.webp",
+          "width": 1024,
+          "height": 1536,
+          "bytes": 137428,
+          "sha256": "e32a10ab38b6c267d070a9d85a557f2c818444be9326a75401e3b582ed0b6408",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "standing-960",
+          "path": "client/public/assets/original/final-product/qing-que-neutral-v1-standing-960.webp",
+          "width": 640,
+          "height": 960,
+          "bytes": 70336,
+          "sha256": "a97fd2b38cf4d05839d959d61d2a98982b0d00e617aa9a3e8a2f8d01685cd7d8",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "avatar-256",
+          "path": "client/public/assets/original/final-product/qing-que-neutral-v1-avatar-256.webp",
+          "width": 256,
+          "height": 256,
+          "bytes": 18396,
+          "sha256": "7fc3df4543e523eabb466809c66683c55ca0dc5a74f024bc14bff503fbd139e7",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "avatar-512",
+          "path": "client/public/assets/original/final-product/qing-que-neutral-v1-avatar-512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 49374,
+          "sha256": "1d7f57f4625c55ac3ecb37122f8d7eb751ba440e8ab9e3b5550ae164dfe6c5ad",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-480",
+          "path": "client/public/assets/original/final-product/qing-que-neutral-v1-half-480.webp",
+          "width": 480,
+          "height": 640,
+          "bytes": 57734,
+          "sha256": "b4e6918ce6cb6a634e1093175a61e1d33f76c605a4546e10d878b58f73b9028e",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-768",
+          "path": "client/public/assets/original/final-product/qing-que-neutral-v1-half-768.webp",
+          "width": 768,
+          "height": 1024,
+          "bytes": 106824,
+          "sha256": "3e1c4b21cc6344493817014905cc1d031c41283da44593c2365acdb3dfdc51d6",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        }
+      ],
+      "review": "Full head and feet visually inspected on paper composite; RGBA alpha verified; human blind review not performed.",
+      "avatarCrop": [
+        320,
+        0,
+        704,
+        384
+      ],
+      "halfBodyCrop": [
+        224,
+        0,
+        800,
+        768
+      ],
+      "focalPoint": {
+        "portrait": [
+          0.5,
+          0.14
+        ],
+        "avatar": [
+          0.5,
+          0.5
+        ],
+        "mobile": [
+          0.5,
+          0.14
+        ],
+        "landscape": [
+          0.5,
+          0.14
+        ]
+      },
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "5995e0f3c89a8cfd9c14cc9eb976d3c315d1d40b471c2934b31e695c63c06a6c",
+        "avatarCrop": [
+          320,
+          0,
+          704,
+          384
+        ],
+        "halfBodyCrop": [
+          224,
+          0,
+          800,
+          768
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-person-mei-zhou-joy-v1",
+      "purpose": "stage-portrait",
+      "character": "梅舟",
+      "characterId": "original:梅舟",
+      "styleId": "harbor-ink-portrait-v1",
+      "story": "原创角色素材",
+      "expression": "joy",
+      "mainCharacter": true,
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/mei-zhou-joy-v1.png",
+      "version": 1,
+      "references": [
+        "final-person-mei-zhou-neutral-v1"
+      ],
+      "rights": "Original generated adult character; exact own identity reference used for expression edits; no third-party artwork. Human blind consistency review pending.",
+      "sha256": "fcbf5e7fb1512e55704a8636e01f9c98d4a71bab845dd04315de59269b61c401",
+      "width": 1024,
+      "height": 1536,
+      "bytes": 1660582,
+      "selected": true,
+      "prompt": "Use case: identity-preserve. Asset: original visual-novel transparent full-body standing sprite for the paper-and-ink story app. Image 1 is the edit target and exact identity reference: Mei Zhou, an adult woman aged 30. Keep her exact face structure, black low bun, small brass hair clip, terracotta collared blouse, ivory long skirt, canvas shoulder bag, black flat shoes, body proportion, stance, costume, framing, and painted texture. Change facial expression ONLY. Preserve full head and both complete shoes inside the canvas with clear transparent margin. Actual transparent RGBA background, no floor, no oval shadow, no backdrop, no halo, no vignette, no text, no symbols, no watermarks. Portrait 1024 by 1536 or larger, keep current composition. Expression: gentle unmistakable joy, warm smile lifting cheeks and softened happy eyes. Retain identity and all other pixels as closely as possible.",
+      "derivatives": [
+        {
+          "role": "standing-1536",
+          "path": "client/public/assets/original/final-product/mei-zhou-joy-v1-standing-1536.webp",
+          "width": 1024,
+          "height": 1536,
+          "bytes": 111176,
+          "sha256": "7bcd8b6a1551cde0168d7ac02216b8404a8943e096bdfe7e5d23f494eed2df01",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "standing-960",
+          "path": "client/public/assets/original/final-product/mei-zhou-joy-v1-standing-960.webp",
+          "width": 640,
+          "height": 960,
+          "bytes": 62888,
+          "sha256": "f5438bee3f5efdc8698958815fcfe507a47ed40ec8d609f81e16dc89d4fca15d",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "avatar-256",
+          "path": "client/public/assets/original/final-product/mei-zhou-joy-v1-avatar-256.webp",
+          "width": 256,
+          "height": 256,
+          "bytes": 16290,
+          "sha256": "f8509b45f88b68a52112569e8db6ee1dcaba3e121be811648a2850e8e6fc5b6e",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "avatar-512",
+          "path": "client/public/assets/original/final-product/mei-zhou-joy-v1-avatar-512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 42884,
+          "sha256": "9dc06c4718328cebc15451fc7d4384904b0e326487995d278ee901292c3f767f",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-480",
+          "path": "client/public/assets/original/final-product/mei-zhou-joy-v1-half-480.webp",
+          "width": 480,
+          "height": 640,
+          "bytes": 55436,
+          "sha256": "36234483266857fa079416174787c486196a28aee3e12737e8651a006e27b9ad",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-768",
+          "path": "client/public/assets/original/final-product/mei-zhou-joy-v1-half-768.webp",
+          "width": 768,
+          "height": 1024,
+          "bytes": 104490,
+          "sha256": "5b4d7a425116a50864c2c29bb00c21ab981bfa20c761b9deabe897ad6ccb942a",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        }
+      ],
+      "review": "Full head and feet visually inspected on paper composite; RGBA alpha verified; human blind review not performed.",
+      "avatarCrop": [
+        320,
+        0,
+        704,
+        384
+      ],
+      "halfBodyCrop": [
+        224,
+        0,
+        800,
+        768
+      ],
+      "focalPoint": {
+        "portrait": [
+          0.5,
+          0.14
+        ],
+        "avatar": [
+          0.5,
+          0.5
+        ],
+        "mobile": [
+          0.5,
+          0.14
+        ],
+        "landscape": [
+          0.5,
+          0.14
+        ]
+      },
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "fcbf5e7fb1512e55704a8636e01f9c98d4a71bab845dd04315de59269b61c401",
+        "avatarCrop": [
+          320,
+          0,
+          704,
+          384
+        ],
+        "halfBodyCrop": [
+          224,
+          0,
+          800,
+          768
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-person-a-cen-joy-v1",
+      "purpose": "stage-portrait",
+      "character": "阿岑",
+      "characterId": "original:阿岑",
+      "styleId": "harbor-ink-portrait-v1",
+      "story": "原创角色素材",
+      "expression": "joy",
+      "mainCharacter": true,
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/a-cen-joy-v1.png",
+      "version": 1,
+      "references": [
+        "final-person-a-cen-neutral-v1"
+      ],
+      "rights": "Original generated adult character; exact own identity reference used for expression edits; no third-party artwork. Human blind consistency review pending.",
+      "sha256": "c5bbea1d9342ea3feb260f21c74297707045ef810fe5f8a8f48ccf189b961f28",
+      "width": 1024,
+      "height": 1536,
+      "bytes": 1702989,
+      "selected": true,
+      "prompt": "Use case: identity-preserve. Image 1 is the exact edit target and identity reference for an original adult visual-novel character. Preserve the exact adult identity, face structure, skin tone, hair, accessories, clothing, colors, body, standing pose, and soft narrative gouache/ink texture. Change ONLY the facial expression described below. Full-body original sprite with head and both shoes entirely visible, real transparent RGBA background and clear transparent margin on all edges. No scenery, floor, shadow oval, vignette, halo, aura, caption, text, logo, or watermark. Output 1024x1536 or larger portrait. Expression: warm clear joy, lifted cheeks and soft happy eyes, modest genuine smile.",
+      "derivatives": [
+        {
+          "role": "standing-1536",
+          "path": "client/public/assets/original/final-product/a-cen-joy-v1-standing-1536.webp",
+          "width": 1024,
+          "height": 1536,
+          "bytes": 115460,
+          "sha256": "be3416c0abb0a9b020765c7904bb911672deb834b31a3261ec44a099ef166225",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "standing-960",
+          "path": "client/public/assets/original/final-product/a-cen-joy-v1-standing-960.webp",
+          "width": 640,
+          "height": 960,
+          "bytes": 64030,
+          "sha256": "0db41447bf30b248c4d0792ddd66e10530bb189c07e5e05a258bd0ca84deff86",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "avatar-256",
+          "path": "client/public/assets/original/final-product/a-cen-joy-v1-avatar-256.webp",
+          "width": 256,
+          "height": 256,
+          "bytes": 17300,
+          "sha256": "b5f9038722a9b786e3e5e48c2481bf2b3956cf6dd17cb74c1a53cb66d90d7b48",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "avatar-512",
+          "path": "client/public/assets/original/final-product/a-cen-joy-v1-avatar-512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 45044,
+          "sha256": "d6d357d739b7bb80085520302ab4c52f76201b848ff06f22874139b93e737f24",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-480",
+          "path": "client/public/assets/original/final-product/a-cen-joy-v1-half-480.webp",
+          "width": 480,
+          "height": 640,
+          "bytes": 56426,
+          "sha256": "9fd3499913a40aef750fe432adfa36944a00b87028493c2caa7c6c95a218a490",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-768",
+          "path": "client/public/assets/original/final-product/a-cen-joy-v1-half-768.webp",
+          "width": 768,
+          "height": 1024,
+          "bytes": 106894,
+          "sha256": "603f30d7bc53f336ca25b960825f68160b5b34091f03394dc0c186454edd0ff4",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        }
+      ],
+      "review": "Full head and feet visually inspected on paper composite; RGBA alpha verified; human blind review not performed.",
+      "avatarCrop": [
+        320,
+        0,
+        704,
+        384
+      ],
+      "halfBodyCrop": [
+        224,
+        0,
+        800,
+        768
+      ],
+      "focalPoint": {
+        "portrait": [
+          0.5,
+          0.14
+        ],
+        "avatar": [
+          0.5,
+          0.5
+        ],
+        "mobile": [
+          0.5,
+          0.14
+        ],
+        "landscape": [
+          0.5,
+          0.14
+        ]
+      },
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "c5bbea1d9342ea3feb260f21c74297707045ef810fe5f8a8f48ccf189b961f28",
+        "avatarCrop": [
+          320,
+          0,
+          704,
+          384
+        ],
+        "halfBodyCrop": [
+          224,
+          0,
+          800,
+          768
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-person-a-cen-worry-v1",
+      "purpose": "stage-portrait",
+      "character": "阿岑",
+      "characterId": "original:阿岑",
+      "styleId": "harbor-ink-portrait-v1",
+      "story": "原创角色素材",
+      "expression": "worry",
+      "mainCharacter": true,
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/a-cen-worry-v1.png",
+      "version": 1,
+      "references": [
+        "final-person-a-cen-neutral-v1"
+      ],
+      "rights": "Original generated adult character; exact own identity reference used for expression edits; no third-party artwork. Human blind consistency review pending.",
+      "sha256": "b9d935e7347105bba3d3a0ca363b903df06b6eeba844de8f1d60f76bd961e279",
+      "width": 1024,
+      "height": 1536,
+      "bytes": 1679777,
+      "selected": true,
+      "prompt": "Use case: identity-preserve. Image 1 is the exact edit target and identity reference for an original adult visual-novel character. Preserve the exact adult identity, face structure, skin tone, hair, accessories, clothing, colors, body, standing pose, and soft narrative gouache/ink texture. Change ONLY the facial expression described below. Full-body original sprite with head and both shoes entirely visible, real transparent RGBA background and clear transparent margin on all edges. No scenery, floor, shadow oval, vignette, halo, aura, caption, text, logo, or watermark. Output 1024x1536 or larger portrait. Expression: clearly worried and thoughtful, subtly furrowed brows and tightened concerned eyes, closed mouth, no tears.",
+      "derivatives": [
+        {
+          "role": "standing-1536",
+          "path": "client/public/assets/original/final-product/a-cen-worry-v1-standing-1536.webp",
+          "width": 1024,
+          "height": 1536,
+          "bytes": 111464,
+          "sha256": "784dbd6459d181dbc826aefacdfb91e82a395b1132e0df8daa29dfc07818f74c",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "standing-960",
+          "path": "client/public/assets/original/final-product/a-cen-worry-v1-standing-960.webp",
+          "width": 640,
+          "height": 960,
+          "bytes": 62490,
+          "sha256": "7336f2ba7978bb1ebe19421f522b8e5604f0c3e19bea70cd46422ade3d3679f7",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "avatar-256",
+          "path": "client/public/assets/original/final-product/a-cen-worry-v1-avatar-256.webp",
+          "width": 256,
+          "height": 256,
+          "bytes": 16836,
+          "sha256": "b4438e7092653246807c5d5f4cc41a7c60446dfe7dcba144c92fc0d95ca15933",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "avatar-512",
+          "path": "client/public/assets/original/final-product/a-cen-worry-v1-avatar-512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 44612,
+          "sha256": "1861bb295c07d1657c6b9a1e13cb1d0674645659ab46712abdacd8396b666653",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-480",
+          "path": "client/public/assets/original/final-product/a-cen-worry-v1-half-480.webp",
+          "width": 480,
+          "height": 640,
+          "bytes": 55486,
+          "sha256": "06b3db6aec45e469f1b71bb6e4afb7e587aa0d7cc96f99d65442e37b35586177",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-768",
+          "path": "client/public/assets/original/final-product/a-cen-worry-v1-half-768.webp",
+          "width": 768,
+          "height": 1024,
+          "bytes": 104722,
+          "sha256": "08a9af4cce6a712dda14af9ec97c0bd29954a99f7d078e3c27d40162de49ad11",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        }
+      ],
+      "review": "Full head and feet visually inspected on paper composite; RGBA alpha verified; human blind review not performed.",
+      "avatarCrop": [
+        320,
+        0,
+        704,
+        384
+      ],
+      "halfBodyCrop": [
+        224,
+        0,
+        800,
+        768
+      ],
+      "focalPoint": {
+        "portrait": [
+          0.5,
+          0.14
+        ],
+        "avatar": [
+          0.5,
+          0.5
+        ],
+        "mobile": [
+          0.5,
+          0.14
+        ],
+        "landscape": [
+          0.5,
+          0.14
+        ]
+      },
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "b9d935e7347105bba3d3a0ca363b903df06b6eeba844de8f1d60f76bd961e279",
+        "avatarCrop": [
+          320,
+          0,
+          704,
+          384
+        ],
+        "halfBodyCrop": [
+          224,
+          0,
+          800,
+          768
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-person-qing-que-joy-v1",
+      "purpose": "stage-portrait",
+      "character": "青雀",
+      "characterId": "original:青雀",
+      "styleId": "harbor-ink-portrait-v1",
+      "story": "原创角色素材",
+      "expression": "joy",
+      "mainCharacter": true,
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/qing-que-joy-v1.png",
+      "version": 1,
+      "references": [
+        "final-person-qing-que-neutral-v1"
+      ],
+      "rights": "Original generated adult character; exact own identity reference used for expression edits; no third-party artwork. Human blind consistency review pending.",
+      "sha256": "6caf6b29a7763a1d01516a1aa06b1f21c1cfbe750838ab038663068b20afcc87",
+      "width": 1024,
+      "height": 1536,
+      "bytes": 1828025,
+      "selected": true,
+      "prompt": "Use case: identity-preserve. Image 1 is the exact edit target and identity reference for an original adult visual-novel character. Preserve the exact adult identity, face structure, skin tone, hair, accessories, clothing, colors, body, standing pose, and soft narrative gouache/ink texture. Change ONLY the facial expression described below. Full-body original sprite with head and both shoes entirely visible, real transparent RGBA background and clear transparent margin on all edges. No scenery, floor, shadow oval, vignette, halo, aura, caption, text, logo, or watermark. Output 1024x1536 or larger portrait. Expression: warm clear joy, lifted cheeks and soft happy eyes, modest genuine smile.",
+      "derivatives": [
+        {
+          "role": "standing-1536",
+          "path": "client/public/assets/original/final-product/qing-que-joy-v1-standing-1536.webp",
+          "width": 1024,
+          "height": 1536,
+          "bytes": 140794,
+          "sha256": "39e162e6d322c7cf8dd4e2004abc4fec349c50cd50eb4f165f6e4b8f9eb936f4",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "standing-960",
+          "path": "client/public/assets/original/final-product/qing-que-joy-v1-standing-960.webp",
+          "width": 640,
+          "height": 960,
+          "bytes": 76342,
+          "sha256": "804f9cc6bbb74683a66865bad775c134217c42b34f1b10573baf259643670f34",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "avatar-256",
+          "path": "client/public/assets/original/final-product/qing-que-joy-v1-avatar-256.webp",
+          "width": 256,
+          "height": 256,
+          "bytes": 19550,
+          "sha256": "55d9e3acd9f423bd93e9ff1b1b37788983b589f5b42a3c18e5c3a25860012016",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "avatar-512",
+          "path": "client/public/assets/original/final-product/qing-que-joy-v1-avatar-512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 51586,
+          "sha256": "ba6dae4107014a1d7e1a48131544bbc8402c8e394ccd44498fde121a982854f4",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-480",
+          "path": "client/public/assets/original/final-product/qing-que-joy-v1-half-480.webp",
+          "width": 480,
+          "height": 640,
+          "bytes": 60262,
+          "sha256": "8b5fda622361bdf2932a07cc46894d4713df05dc93bb4d8112a9938a5ad38143",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-768",
+          "path": "client/public/assets/original/final-product/qing-que-joy-v1-half-768.webp",
+          "width": 768,
+          "height": 1024,
+          "bytes": 110972,
+          "sha256": "673b402d4ef9584bf79edff65e6c7508c0467442200b442453a43cf59dfad074",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        }
+      ],
+      "review": "Full head and feet visually inspected on paper composite; RGBA alpha verified; human blind review not performed.",
+      "avatarCrop": [
+        320,
+        0,
+        704,
+        384
+      ],
+      "halfBodyCrop": [
+        224,
+        0,
+        800,
+        768
+      ],
+      "focalPoint": {
+        "portrait": [
+          0.5,
+          0.14
+        ],
+        "avatar": [
+          0.5,
+          0.5
+        ],
+        "mobile": [
+          0.5,
+          0.14
+        ],
+        "landscape": [
+          0.5,
+          0.14
+        ]
+      },
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "6caf6b29a7763a1d01516a1aa06b1f21c1cfbe750838ab038663068b20afcc87",
+        "avatarCrop": [
+          320,
+          0,
+          704,
+          384
+        ],
+        "halfBodyCrop": [
+          224,
+          0,
+          800,
+          768
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-person-qing-que-worry-v1",
+      "purpose": "stage-portrait",
+      "character": "青雀",
+      "characterId": "original:青雀",
+      "styleId": "harbor-ink-portrait-v1",
+      "story": "原创角色素材",
+      "expression": "worry",
+      "mainCharacter": true,
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/qing-que-worry-v1.png",
+      "version": 1,
+      "references": [
+        "final-person-qing-que-neutral-v1"
+      ],
+      "rights": "Original generated adult character; exact own identity reference used for expression edits; no third-party artwork. Human blind consistency review pending.",
+      "sha256": "d0e531978d684c40ebd5bdeef1516f47c2cbf76c6e89a6a488539308bd9bc270",
+      "width": 1024,
+      "height": 1536,
+      "bytes": 1850297,
+      "selected": true,
+      "prompt": "Use case: identity-preserve. Image 1 is the exact edit target and identity reference for an original adult visual-novel character. Preserve the exact adult identity, face structure, skin tone, hair, accessories, clothing, colors, body, standing pose, and soft narrative gouache/ink texture. Change ONLY the facial expression described below. Full-body original sprite with head and both shoes entirely visible, real transparent RGBA background and clear transparent margin on all edges. No scenery, floor, shadow oval, vignette, halo, aura, caption, text, logo, or watermark. Output 1024x1536 or larger portrait. Expression: clearly worried and thoughtful, subtly furrowed brows and tightened concerned eyes, closed mouth, no tears.",
+      "derivatives": [
+        {
+          "role": "standing-1536",
+          "path": "client/public/assets/original/final-product/qing-que-worry-v1-standing-1536.webp",
+          "width": 1024,
+          "height": 1536,
+          "bytes": 144130,
+          "sha256": "7c79e327b5934c91e36270f3345d1bbc1e99c040ce4acdf1103fa8d350b1299d",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "standing-960",
+          "path": "client/public/assets/original/final-product/qing-que-worry-v1-standing-960.webp",
+          "width": 640,
+          "height": 960,
+          "bytes": 76660,
+          "sha256": "c4a58223d63d8654f89903af26db0c31416a764251d731e04894455020963e5f",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "avatar-256",
+          "path": "client/public/assets/original/final-product/qing-que-worry-v1-avatar-256.webp",
+          "width": 256,
+          "height": 256,
+          "bytes": 19542,
+          "sha256": "4f3e21c1d0ade4ed900fb2f3d4c74bdcd7e04f730a2c7f1fca2c871bf9501c44",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "avatar-512",
+          "path": "client/public/assets/original/final-product/qing-que-worry-v1-avatar-512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 51780,
+          "sha256": "a48954f75d87fda3d121abee6c36ba2faca192bd4b0ac8227e46fc9f0ad42edd",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-480",
+          "path": "client/public/assets/original/final-product/qing-que-worry-v1-half-480.webp",
+          "width": 480,
+          "height": 640,
+          "bytes": 61054,
+          "sha256": "503bf9f327eb353272735636e957aacb0058be5f5b4be4729555b6761fdf4dc7",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-768",
+          "path": "client/public/assets/original/final-product/qing-que-worry-v1-half-768.webp",
+          "width": 768,
+          "height": 1024,
+          "bytes": 113116,
+          "sha256": "90dc44de155d21a3be0a8d29397e3aff77ba240e102268ab345fab5f4158e8d8",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        }
+      ],
+      "review": "Full head and feet visually inspected on paper composite; RGBA alpha verified; human blind review not performed.",
+      "avatarCrop": [
+        320,
+        0,
+        704,
+        384
+      ],
+      "halfBodyCrop": [
+        224,
+        0,
+        800,
+        768
+      ],
+      "focalPoint": {
+        "portrait": [
+          0.5,
+          0.14
+        ],
+        "avatar": [
+          0.5,
+          0.5
+        ],
+        "mobile": [
+          0.5,
+          0.14
+        ],
+        "landscape": [
+          0.5,
+          0.14
+        ]
+      },
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "d0e531978d684c40ebd5bdeef1516f47c2cbf76c6e89a6a488539308bd9bc270",
+        "avatarCrop": [
+          320,
+          0,
+          704,
+          384
+        ],
+        "halfBodyCrop": [
+          224,
+          0,
+          800,
+          768
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-person-lu-yu-neutral-v1",
+      "purpose": "stage-portrait",
+      "character": "陆予",
+      "characterId": "original:陆予",
+      "styleId": "harbor-ink-portrait-v1",
+      "story": "慢邮的春天",
+      "expression": "neutral",
+      "mainCharacter": false,
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/lu-yu-neutral-v1.png",
+      "version": 1,
+      "references": [],
+      "rights": "Original generated adult character; exact own identity reference used for expression edits; no third-party artwork. Human blind consistency review pending.",
+      "sha256": "787cbfb75d48205f060139fc621de09b07ff1b3a99e65b41aafc151911300d34",
+      "width": 1024,
+      "height": 1536,
+      "bytes": 1597657,
+      "selected": true,
+      "prompt": "Use case: illustration-story. Asset: original adult story character, for avatar and half-body presentation crops plus full-body visual novel stage. Soft narrative gouache illustration with delicate fine ink linework, restrained warm paper-inspired ivory, muted sage, teal, charcoal and terracotta, painterly cloth textures, believable adult anatomy and hands, calm neutral expression. Whole adult figure in quiet natural three-quarter standing pose, centered in portrait 1024x1536 or larger. Complete head and both shoes inside the image, with generous transparent margin on all sides. Actual transparent RGBA background, NO floor, backdrop, shadow oval, halo, aura, vignette, text, labels, logo, watermarks, existing franchise characters. Subject: Chinese man aged 31, narrow gentle face and dark almond eyes, short wavy black hair, muted sage overshirt over an ivory tee, charcoal straight trousers, plain brown shoes, small tan canvas crossbody satchel, original town postman. No labels or insignia.",
+      "derivatives": [
+        {
+          "role": "standing-1536",
+          "path": "client/public/assets/original/final-product/lu-yu-neutral-v1-standing-1536.webp",
+          "width": 1024,
+          "height": 1536,
+          "bytes": 97734,
+          "sha256": "5d6976e5bc4a81ca0045888164a17c75b26380cc7a38531362400ed15b0dfd4f",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "standing-960",
+          "path": "client/public/assets/original/final-product/lu-yu-neutral-v1-standing-960.webp",
+          "width": 640,
+          "height": 960,
+          "bytes": 55888,
+          "sha256": "6c822fef317b183a695c3bdc20fbf3125065c1c37a5179589d82a76977df68d1",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "avatar-256",
+          "path": "client/public/assets/original/final-product/lu-yu-neutral-v1-avatar-256.webp",
+          "width": 256,
+          "height": 256,
+          "bytes": 14902,
+          "sha256": "663e48a19ef0d76a80f8f220c4d1bf0e4a980ff751d425d674df35867c664dc6",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "avatar-512",
+          "path": "client/public/assets/original/final-product/lu-yu-neutral-v1-avatar-512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 38876,
+          "sha256": "62f5b1b43f0a7d373cd0279934f61590db6d8aef5af4f30d5577845a31e4b5c5",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-480",
+          "path": "client/public/assets/original/final-product/lu-yu-neutral-v1-half-480.webp",
+          "width": 480,
+          "height": 640,
+          "bytes": 49854,
+          "sha256": "45abfd251f2a72b3f3e53dc9bf271c93991507a6825311a811c3004c3bcc24b2",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-768",
+          "path": "client/public/assets/original/final-product/lu-yu-neutral-v1-half-768.webp",
+          "width": 768,
+          "height": 1024,
+          "bytes": 93750,
+          "sha256": "52c8a319f9b7056f93f1980c2449117001c75638c6095d3730feaafb8abd43f6",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        }
+      ],
+      "review": "Full head and feet visually inspected on paper composite; RGBA alpha verified; human blind review not performed.",
+      "avatarCrop": [
+        320,
+        0,
+        704,
+        384
+      ],
+      "halfBodyCrop": [
+        224,
+        0,
+        800,
+        768
+      ],
+      "focalPoint": {
+        "portrait": [
+          0.5,
+          0.14
+        ],
+        "avatar": [
+          0.5,
+          0.5
+        ],
+        "mobile": [
+          0.5,
+          0.14
+        ],
+        "landscape": [
+          0.5,
+          0.14
+        ]
+      },
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "787cbfb75d48205f060139fc621de09b07ff1b3a99e65b41aafc151911300d34",
+        "avatarCrop": [
+          320,
+          0,
+          704,
+          384
+        ],
+        "halfBodyCrop": [
+          224,
+          0,
+          800,
+          768
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-person-ye-lan-joy-v1",
+      "purpose": "stage-portrait",
+      "character": "叶澜",
+      "characterId": "original:叶澜",
+      "styleId": "harbor-ink-portrait-v1",
+      "story": "原创角色素材",
+      "expression": "joy",
+      "mainCharacter": false,
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/ye-lan-joy-v1.png",
+      "version": 1,
+      "references": [
+        "final-person-ye-lan-neutral-v1"
+      ],
+      "rights": "Original generated adult character; exact own identity reference used for expression edits; no third-party artwork. Human blind consistency review pending.",
+      "sha256": "676181d295fce9c50975af108ff809e515f0c897a34a44c27251e25f32aaf77a",
+      "width": 1024,
+      "height": 1536,
+      "bytes": 1696147,
+      "selected": true,
+      "prompt": "Use case: identity-preserve. Image 1 is the exact original adult character identity and edit target. Keep face structure, ethnicity, adult age, skin tone, hair style/color, exact garments, accessories, stance, proportions, and the soft narrative gouache and fine ink illustration. Modify only the facial expression described below. Full body with complete head and both shoes visible; leave at least 24 pixels of real transparent space at top and bottom and all sides of the silhouette; remove any stray non-character background pixels. True transparent RGBA background, no scenery, floor, shadow, vignette, halo, aura, captions, lettering, logos or watermark. At least 1024x1536 portrait. Expression: a clear warm modest smile with lifted cheeks and happy softened eyes.",
+      "derivatives": [
+        {
+          "role": "standing-1536",
+          "path": "client/public/assets/original/final-product/ye-lan-joy-v1-standing-1536.webp",
+          "width": 1024,
+          "height": 1536,
+          "bytes": 131426,
+          "sha256": "252df802bbaf88852375cca9b4e8c0d09e3d89c09d8adc2734f1b658807bbf4c",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "standing-960",
+          "path": "client/public/assets/original/final-product/ye-lan-joy-v1-standing-960.webp",
+          "width": 640,
+          "height": 960,
+          "bytes": 74196,
+          "sha256": "d4c288dcef1bd1090b0c6067d95ebbbb45c0d91e54575e4986707f02678a46b9",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "avatar-256",
+          "path": "client/public/assets/original/final-product/ye-lan-joy-v1-avatar-256.webp",
+          "width": 256,
+          "height": 256,
+          "bytes": 19514,
+          "sha256": "2d378fa34aef1546e10ce5bf587fbcd8ea4dbd826cdfff7e9f4ef1eb290dd408",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "avatar-512",
+          "path": "client/public/assets/original/final-product/ye-lan-joy-v1-avatar-512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 52330,
+          "sha256": "a6be14780f9a7ad7b770134040c2c8010cd846059bbc6afaf93e4e3ecbd29dba",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-480",
+          "path": "client/public/assets/original/final-product/ye-lan-joy-v1-half-480.webp",
+          "width": 480,
+          "height": 640,
+          "bytes": 64234,
+          "sha256": "c8ef0b01e6c3bf95747033c6b3c9346b3386702237f42b1744ce00c05090fdb8",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-768",
+          "path": "client/public/assets/original/final-product/ye-lan-joy-v1-half-768.webp",
+          "width": 768,
+          "height": 1024,
+          "bytes": 122540,
+          "sha256": "9072410f9a857cfaa756a79a9522766ee4df5086d76d005595efe94ca4383128",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        }
+      ],
+      "review": "Full head and feet visually inspected on paper composite; RGBA alpha verified; human blind review not performed.",
+      "avatarCrop": [
+        320,
+        0,
+        704,
+        384
+      ],
+      "halfBodyCrop": [
+        224,
+        0,
+        800,
+        768
+      ],
+      "focalPoint": {
+        "portrait": [
+          0.5,
+          0.14
+        ],
+        "avatar": [
+          0.5,
+          0.5
+        ],
+        "mobile": [
+          0.5,
+          0.14
+        ],
+        "landscape": [
+          0.5,
+          0.14
+        ]
+      },
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "676181d295fce9c50975af108ff809e515f0c897a34a44c27251e25f32aaf77a",
+        "avatarCrop": [
+          320,
+          0,
+          704,
+          384
+        ],
+        "halfBodyCrop": [
+          224,
+          0,
+          800,
+          768
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-person-ye-lan-worry-v1",
+      "purpose": "stage-portrait",
+      "character": "叶澜",
+      "characterId": "original:叶澜",
+      "styleId": "harbor-ink-portrait-v1",
+      "story": "原创角色素材",
+      "expression": "worry",
+      "mainCharacter": false,
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/ye-lan-worry-v1.png",
+      "version": 1,
+      "references": [
+        "final-person-ye-lan-neutral-v1"
+      ],
+      "rights": "Original generated adult character; exact own identity reference used for expression edits; no third-party artwork. Human blind consistency review pending.",
+      "sha256": "8a1b7263eb0636996e520a14c624f7ad8bfa3a21b70209a9ac9b48d6ed3a2a45",
+      "width": 1024,
+      "height": 1536,
+      "bytes": 1698820,
+      "selected": true,
+      "prompt": "Use case: identity-preserve. Image 1 is the exact original adult character identity and edit target. Keep face structure, ethnicity, adult age, skin tone, hair style/color, exact garments, accessories, stance, proportions, and the soft narrative gouache and fine ink illustration. Modify only the facial expression described below. Full body with complete head and both shoes visible; leave at least 24 pixels of real transparent space at top and bottom and all sides of the silhouette; remove any stray non-character background pixels. True transparent RGBA background, no scenery, floor, shadow, vignette, halo, aura, captions, lettering, logos or watermark. At least 1024x1536 portrait. Expression: clearly concerned eyes, knitted brow, thoughtful closed mouth, no tears.",
+      "derivatives": [
+        {
+          "role": "standing-1536",
+          "path": "client/public/assets/original/final-product/ye-lan-worry-v1-standing-1536.webp",
+          "width": 1024,
+          "height": 1536,
+          "bytes": 128226,
+          "sha256": "e88b6fdba488b2cb99cd2ccb89a89ca85988304d7a33a803696d17caed521d23",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "standing-960",
+          "path": "client/public/assets/original/final-product/ye-lan-worry-v1-standing-960.webp",
+          "width": 640,
+          "height": 960,
+          "bytes": 72048,
+          "sha256": "149e31bca9b5b45dc0df3b87b80d96170ad3244dad3b768bb1c99a75f2d89e2c",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "avatar-256",
+          "path": "client/public/assets/original/final-product/ye-lan-worry-v1-avatar-256.webp",
+          "width": 256,
+          "height": 256,
+          "bytes": 19066,
+          "sha256": "e009e31e440a6931b50f4783fcd37d13b4b6f9ac2cfdbb4b584cfe5fec502fbf",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "avatar-512",
+          "path": "client/public/assets/original/final-product/ye-lan-worry-v1-avatar-512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 51198,
+          "sha256": "2929257316b3da88894f25b9cb34f94cf11dd5bf00283f57aab5ff787d05b270",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-480",
+          "path": "client/public/assets/original/final-product/ye-lan-worry-v1-half-480.webp",
+          "width": 480,
+          "height": 640,
+          "bytes": 62758,
+          "sha256": "7ea0915a88f4f853a4199700086b168f10fe2739f10be5eea1d40d992be01c8d",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-768",
+          "path": "client/public/assets/original/final-product/ye-lan-worry-v1-half-768.webp",
+          "width": 768,
+          "height": 1024,
+          "bytes": 118832,
+          "sha256": "3be68f3169f5d15b45c4cf346b65fd85133a139116cdfb85fd4c4d667eefca75",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        }
+      ],
+      "review": "Full head and feet visually inspected on paper composite; RGBA alpha verified; human blind review not performed.",
+      "avatarCrop": [
+        320,
+        0,
+        704,
+        384
+      ],
+      "halfBodyCrop": [
+        224,
+        0,
+        800,
+        768
+      ],
+      "focalPoint": {
+        "portrait": [
+          0.5,
+          0.14
+        ],
+        "avatar": [
+          0.5,
+          0.5
+        ],
+        "mobile": [
+          0.5,
+          0.14
+        ],
+        "landscape": [
+          0.5,
+          0.14
+        ]
+      },
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "8a1b7263eb0636996e520a14c624f7ad8bfa3a21b70209a9ac9b48d6ed3a2a45",
+        "avatarCrop": [
+          320,
+          0,
+          704,
+          384
+        ],
+        "halfBodyCrop": [
+          224,
+          0,
+          800,
+          768
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-person-chen-yan-neutral-v1",
+      "purpose": "stage-portrait",
+      "character": "陈砚",
+      "characterId": "original:陈砚",
+      "styleId": "harbor-ink-portrait-v1",
+      "story": "旧书店的第七页",
+      "expression": "neutral",
+      "mainCharacter": false,
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/chen-yan-neutral-v1.png",
+      "version": 1,
+      "references": [],
+      "rights": "Original generated adult character; exact own identity reference used for expression edits; no third-party artwork. Human blind consistency review pending.",
+      "sha256": "cf3ebd6bc5b1b4d3fcac2623fcd2cbdaf9199fd1b4d074bfd366bd612adc745c",
+      "width": 1024,
+      "height": 1536,
+      "bytes": 1646431,
+      "selected": true,
+      "prompt": "Use case: illustration-story. Asset: original adult story character, for avatar and half-body presentation crops plus full-body visual novel stage. Soft narrative gouache illustration with delicate fine ink linework, restrained warm paper-inspired ivory, muted sage, teal, charcoal and terracotta, painterly cloth textures, believable adult anatomy and hands, calm neutral expression. Whole adult figure in quiet natural three-quarter standing pose, centered in portrait 1024x1536 or larger. Complete head and both shoes inside the image, with generous transparent margin on all sides. Actual transparent RGBA background, NO floor, backdrop, shadow oval, halo, aura, vignette, text, labels, logo, watermarks, existing franchise characters. Subject: Chinese man aged 40, mature square face, short neatly swept dark hair with a hint of grey at temples, thin round brass glasses, navy cardigan over ivory shirt, warm brown trousers and simple leather shoes, an original old-bookshop keeper. Hands relaxed; no books with text.",
+      "derivatives": [
+        {
+          "role": "standing-1536",
+          "path": "client/public/assets/original/final-product/chen-yan-neutral-v1-standing-1536.webp",
+          "width": 1024,
+          "height": 1536,
+          "bytes": 112146,
+          "sha256": "4dfdaf0ab5797b8a94f26d955a139a13509783f3291c6d8e4646264c8590145a",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "standing-960",
+          "path": "client/public/assets/original/final-product/chen-yan-neutral-v1-standing-960.webp",
+          "width": 640,
+          "height": 960,
+          "bytes": 56422,
+          "sha256": "41c84f10da19983521d5670b57111327aab16077af3a22e3c32015fa452a0786",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "avatar-256",
+          "path": "client/public/assets/original/final-product/chen-yan-neutral-v1-avatar-256.webp",
+          "width": 256,
+          "height": 256,
+          "bytes": 13646,
+          "sha256": "c528968bb2a1e5c7423cf9ebc186f0d82ef59ae3160c691c63fc4875fa65949c",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "avatar-512",
+          "path": "client/public/assets/original/final-product/chen-yan-neutral-v1-avatar-512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 38438,
+          "sha256": "a5f03024fee01c27ecebd0a42c8a7ffa3e11ede2d7830ba66a647861c9a1e218",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-480",
+          "path": "client/public/assets/original/final-product/chen-yan-neutral-v1-half-480.webp",
+          "width": 480,
+          "height": 640,
+          "bytes": 48926,
+          "sha256": "0ad9cc4d6ed9f2bca60605a07cb8a4474c5e0599e5a26730755ace40f3c09b6b",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-768",
+          "path": "client/public/assets/original/final-product/chen-yan-neutral-v1-half-768.webp",
+          "width": 768,
+          "height": 1024,
+          "bytes": 95110,
+          "sha256": "d178aff5c77ac6344ad5ec6878da95d06b26694fdd930b80e091c5dd07618b7f",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        }
+      ],
+      "review": "Full head and feet visually inspected on paper composite; RGBA alpha verified; human blind review not performed.",
+      "avatarCrop": [
+        320,
+        0,
+        704,
+        384
+      ],
+      "halfBodyCrop": [
+        224,
+        0,
+        800,
+        768
+      ],
+      "focalPoint": {
+        "portrait": [
+          0.5,
+          0.14
+        ],
+        "avatar": [
+          0.5,
+          0.5
+        ],
+        "mobile": [
+          0.5,
+          0.14
+        ],
+        "landscape": [
+          0.5,
+          0.14
+        ]
+      },
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "cf3ebd6bc5b1b4d3fcac2623fcd2cbdaf9199fd1b4d074bfd366bd612adc745c",
+        "avatarCrop": [
+          320,
+          0,
+          704,
+          384
+        ],
+        "halfBodyCrop": [
+          224,
+          0,
+          800,
+          768
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-person-shen-yan-worry-v1",
+      "purpose": "stage-portrait",
+      "character": "沈砚",
+      "characterId": "original:沈砚",
+      "styleId": "harbor-ink-portrait-v1",
+      "story": "原创角色素材",
+      "expression": "worry",
+      "mainCharacter": false,
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/shen-yan-worry-v1.png",
+      "version": 1,
+      "references": [
+        "final-person-shen-yan-neutral-v1"
+      ],
+      "rights": "Original generated adult character; exact own identity reference used for expression edits; no third-party artwork. Human blind consistency review pending.",
+      "sha256": "64b5a69ed3518037a2a8580c5062bc68bff1eb2e89f279be6df08e33eeada94e",
+      "width": 1024,
+      "height": 1536,
+      "bytes": 1956131,
+      "selected": true,
+      "prompt": "Use case: identity-preserve. Image 1 is the exact original adult character identity and edit target. Keep face structure, ethnicity, adult age, skin tone, hair style/color, exact garments, accessories, stance, proportions, and the soft narrative gouache and fine ink illustration. Modify only the facial expression described below. Full body with complete head and both shoes visible; leave at least 24 pixels of real transparent space at top and bottom and all sides of the silhouette; remove any stray non-character background pixels. True transparent RGBA background, no scenery, floor, shadow, vignette, halo, aura, captions, lettering, logos or watermark. At least 1024x1536 portrait. Expression: clearly concerned eyes, knitted brow, thoughtful closed mouth, no tears.",
+      "derivatives": [
+        {
+          "role": "standing-1536",
+          "path": "client/public/assets/original/final-product/shen-yan-worry-v1-standing-1536.webp",
+          "width": 1024,
+          "height": 1536,
+          "bytes": 144096,
+          "sha256": "478f0d96c4dc3af325aa08b93470bdc4ae2fd8e7e8c7152d18398050fd25b9c6",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "standing-960",
+          "path": "client/public/assets/original/final-product/shen-yan-worry-v1-standing-960.webp",
+          "width": 640,
+          "height": 960,
+          "bytes": 82006,
+          "sha256": "9d9b1d41ff999d15949701b44e0a54ea23aab3bbd709380f3535b498c0334309",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "avatar-256",
+          "path": "client/public/assets/original/final-product/shen-yan-worry-v1-avatar-256.webp",
+          "width": 256,
+          "height": 256,
+          "bytes": 17724,
+          "sha256": "c73387afdde755ca27045d588148b3dbf8e421aaa697ff11d090ccb017758bd5",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "avatar-512",
+          "path": "client/public/assets/original/final-product/shen-yan-worry-v1-avatar-512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 46450,
+          "sha256": "190fe54f3c88c3ddff0c04a8214264587e9f9422d2575ee69cf8fc05e31015e0",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-480",
+          "path": "client/public/assets/original/final-product/shen-yan-worry-v1-half-480.webp",
+          "width": 480,
+          "height": 640,
+          "bytes": 60170,
+          "sha256": "b458bc79648cce4614ac384d043e0d600027494e9f06483088a3926b5b5c3bbf",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-768",
+          "path": "client/public/assets/original/final-product/shen-yan-worry-v1-half-768.webp",
+          "width": 768,
+          "height": 1024,
+          "bytes": 109468,
+          "sha256": "6f733931e9f489f5dfdb4003822f46a4c0c8dc448666888204fdf3e50d0ed892",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        }
+      ],
+      "review": "Full head and feet visually inspected on paper composite; RGBA alpha verified; human blind review not performed.",
+      "avatarCrop": [
+        320,
+        0,
+        704,
+        384
+      ],
+      "halfBodyCrop": [
+        224,
+        0,
+        800,
+        768
+      ],
+      "focalPoint": {
+        "portrait": [
+          0.5,
+          0.14
+        ],
+        "avatar": [
+          0.5,
+          0.5
+        ],
+        "mobile": [
+          0.5,
+          0.14
+        ],
+        "landscape": [
+          0.5,
+          0.14
+        ]
+      },
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "64b5a69ed3518037a2a8580c5062bc68bff1eb2e89f279be6df08e33eeada94e",
+        "avatarCrop": [
+          320,
+          0,
+          704,
+          384
+        ],
+        "halfBodyCrop": [
+          224,
+          0,
+          800,
+          768
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-person-jiang-ning-neutral-v1",
+      "purpose": "stage-portrait",
+      "character": "江宁",
+      "characterId": "original:江宁",
+      "styleId": "harbor-ink-portrait-v1",
+      "story": "慢邮的春天",
+      "expression": "neutral",
+      "mainCharacter": false,
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/jiang-ning-neutral-v1.png",
+      "version": 1,
+      "references": [],
+      "rights": "Original generated adult character; exact own identity reference used for expression edits; no third-party artwork. Human blind consistency review pending.",
+      "sha256": "1b8d6cb97d880ead51e9c3b287ae5b087f978a65974607a80d1c90195c0a6d99",
+      "width": 1024,
+      "height": 1536,
+      "bytes": 1687555,
+      "selected": true,
+      "prompt": "Use case: illustration-story. Asset: original adult story character, for avatar and half-body presentation crops plus full-body visual novel stage. Soft narrative gouache illustration with delicate fine ink linework, restrained warm paper-inspired ivory, muted sage, teal, charcoal and terracotta, painterly cloth textures, believable adult anatomy and hands, calm neutral expression. Whole adult figure in quiet natural three-quarter standing pose, centered in portrait 1024x1536 or larger. Complete head and both shoes inside the image, with generous transparent margin on all sides. Actual transparent RGBA background, NO floor, backdrop, shadow oval, halo, aura, vignette, text, labels, logo, watermarks, existing franchise characters. Subject: Chinese woman aged 30, warm oval face with a distinctive small beauty mark below one eye, shoulder-length straight dark hair with a side part, muted ochre knitted sweater, ivory wide-leg trousers and simple brown ankle boots, original flower-shop owner. Hands relaxed; no flowers or props.",
+      "derivatives": [
+        {
+          "role": "standing-1536",
+          "path": "client/public/assets/original/final-product/jiang-ning-neutral-v1-standing-1536.webp",
+          "width": 1024,
+          "height": 1536,
+          "bytes": 111896,
+          "sha256": "6f85c6e922d16d7e4910866b2cf93f6e5ec1ab63323deff4410e030f212e15f9",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "standing-960",
+          "path": "client/public/assets/original/final-product/jiang-ning-neutral-v1-standing-960.webp",
+          "width": 640,
+          "height": 960,
+          "bytes": 59116,
+          "sha256": "3c2992b622198d99cded12b2f9cdfbceba7a44b165db2b8158ed5df14cc6b554",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "avatar-256",
+          "path": "client/public/assets/original/final-product/jiang-ning-neutral-v1-avatar-256.webp",
+          "width": 256,
+          "height": 256,
+          "bytes": 17858,
+          "sha256": "b12345739d2271426129813f4400461db5d8c5af9a2afc2d7e4ccf460d373b46",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "avatar-512",
+          "path": "client/public/assets/original/final-product/jiang-ning-neutral-v1-avatar-512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 48514,
+          "sha256": "cf5d5c0335550f5105044300dc175f296dec8e154862bb242b9b8953cd6d43a5",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-480",
+          "path": "client/public/assets/original/final-product/jiang-ning-neutral-v1-half-480.webp",
+          "width": 480,
+          "height": 640,
+          "bytes": 52712,
+          "sha256": "d8dc57e46283bb91893a68b4742bca4752e05f2e811b6828630ee7720152c2ca",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-768",
+          "path": "client/public/assets/original/final-product/jiang-ning-neutral-v1-half-768.webp",
+          "width": 768,
+          "height": 1024,
+          "bytes": 101444,
+          "sha256": "fd4aba4989995bee4cc651e001f16907bafa445f266f33e9ba640d2c91505abb",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        }
+      ],
+      "review": "Full head and feet visually inspected on paper composite; RGBA alpha verified; human blind review not performed.",
+      "avatarCrop": [
+        320,
+        0,
+        704,
+        384
+      ],
+      "halfBodyCrop": [
+        224,
+        0,
+        800,
+        768
+      ],
+      "focalPoint": {
+        "portrait": [
+          0.5,
+          0.14
+        ],
+        "avatar": [
+          0.5,
+          0.5
+        ],
+        "mobile": [
+          0.5,
+          0.14
+        ],
+        "landscape": [
+          0.5,
+          0.14
+        ]
+      },
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "1b8d6cb97d880ead51e9c3b287ae5b087f978a65974607a80d1c90195c0a6d99",
+        "avatarCrop": [
+          320,
+          0,
+          704,
+          384
+        ],
+        "halfBodyCrop": [
+          224,
+          0,
+          800,
+          768
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-person-wei-cheng-neutral-v1",
+      "purpose": "stage-portrait",
+      "character": "魏澄",
+      "characterId": "original:魏澄",
+      "styleId": "harbor-ink-portrait-v1",
+      "story": "雨后长街",
+      "expression": "neutral",
+      "mainCharacter": false,
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/wei-cheng-neutral-v1.png",
+      "version": 1,
+      "references": [],
+      "rights": "Original generated adult character; exact own identity reference used for expression edits; no third-party artwork. Human blind consistency review pending.",
+      "sha256": "a6c732bbf256849b78800e12ce03ce7467c4dba38bea45d934b1ffb420ff75cb",
+      "width": 1024,
+      "height": 1536,
+      "bytes": 1904645,
+      "selected": true,
+      "prompt": "Use case: illustration-story. Asset: original adult story character, for avatar and half-body presentation crops plus full-body visual novel stage. Soft narrative gouache illustration with delicate fine ink linework, restrained warm paper-inspired ivory, muted sage, teal, charcoal and terracotta, painterly cloth textures, believable adult anatomy and hands, calm neutral expression. Whole adult figure in quiet natural three-quarter standing pose, centered in portrait 1024x1536 or larger. Complete head and both shoes inside the image, with generous transparent margin on all sides. Actual transparent RGBA background, NO floor, backdrop, shadow oval, halo, aura, vignette, text, labels, logo, watermarks, existing franchise characters. Subject: Chinese man aged 34, broad gentle face, short dark crew cut, small moustache, ivory rolled-sleeve shirt and charcoal apron over warm brown trousers, plain dark shoes, original small cafe owner. Natural sturdy build, no mug or logo.",
+      "derivatives": [
+        {
+          "role": "standing-1536",
+          "path": "client/public/assets/original/final-product/wei-cheng-neutral-v1-standing-1536.webp",
+          "width": 1024,
+          "height": 1536,
+          "bytes": 148678,
+          "sha256": "ac9429731bac26a745e5172e43ae07a2c75c447817b5c6d27677467667ede669",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "standing-960",
+          "path": "client/public/assets/original/final-product/wei-cheng-neutral-v1-standing-960.webp",
+          "width": 640,
+          "height": 960,
+          "bytes": 76030,
+          "sha256": "06a8a2775366d5290e4a48284fb14b555494e669837e42fbea2eb953c4571f10",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "avatar-256",
+          "path": "client/public/assets/original/final-product/wei-cheng-neutral-v1-avatar-256.webp",
+          "width": 256,
+          "height": 256,
+          "bytes": 16850,
+          "sha256": "d01cb588f0872e864f0473c07fa7abfcdd3a11d2fe8ea0dccdbde68f5d4501e0",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "avatar-512",
+          "path": "client/public/assets/original/final-product/wei-cheng-neutral-v1-avatar-512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 45608,
+          "sha256": "7730852d8c22ad15bdb67b2c414bedcdca21c9b2b32cf24fa08152257d4b310e",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-480",
+          "path": "client/public/assets/original/final-product/wei-cheng-neutral-v1-half-480.webp",
+          "width": 480,
+          "height": 640,
+          "bytes": 70144,
+          "sha256": "cf6e15fd36163971532eebaf5ede34cc39aa0ea054296d42bd8ccb852583e9bd",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-768",
+          "path": "client/public/assets/original/final-product/wei-cheng-neutral-v1-half-768.webp",
+          "width": 768,
+          "height": 1024,
+          "bytes": 132884,
+          "sha256": "834bdb03265bab91df48cc6dd3293a30ee91b15b2c091925df3737c5584de423",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        }
+      ],
+      "review": "Full head and feet visually inspected on paper composite; RGBA alpha verified; human blind review not performed.",
+      "avatarCrop": [
+        320,
+        0,
+        704,
+        384
+      ],
+      "halfBodyCrop": [
+        224,
+        0,
+        800,
+        768
+      ],
+      "focalPoint": {
+        "portrait": [
+          0.5,
+          0.14
+        ],
+        "avatar": [
+          0.5,
+          0.5
+        ],
+        "mobile": [
+          0.5,
+          0.14
+        ],
+        "landscape": [
+          0.5,
+          0.14
+        ]
+      },
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "a6c732bbf256849b78800e12ce03ce7467c4dba38bea45d934b1ffb420ff75cb",
+        "avatarCrop": [
+          320,
+          0,
+          704,
+          384
+        ],
+        "halfBodyCrop": [
+          224,
+          0,
+          800,
+          768
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-person-yun-xi-neutral-v1",
+      "purpose": "stage-portrait",
+      "character": "云溪",
+      "characterId": "original:云溪",
+      "styleId": "harbor-ink-portrait-v1",
+      "story": "雨后长街",
+      "expression": "neutral",
+      "mainCharacter": false,
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/yun-xi-neutral-v1.png",
+      "version": 1,
+      "references": [],
+      "rights": "Original generated adult character; exact own identity reference used for expression edits; no third-party artwork. Human blind consistency review pending.",
+      "sha256": "43e3206291ee6f46517a5ec8e752108ea3b333508ef793df3dbebb7ccd2707ac",
+      "width": 1024,
+      "height": 1536,
+      "bytes": 1700294,
+      "selected": true,
+      "prompt": "Use case: illustration-story. Asset: original adult story character, for avatar and half-body presentation crops plus full-body visual novel stage. Soft narrative gouache illustration with delicate fine ink linework, restrained warm paper-inspired ivory, muted sage, teal, charcoal and terracotta, painterly cloth textures, believable adult anatomy and hands, calm neutral expression. Whole adult figure in quiet natural three-quarter standing pose, centered in portrait 1024x1536 or larger. Complete head and both shoes inside the image, with generous transparent margin on all sides. Actual transparent RGBA background, NO floor, backdrop, shadow oval, halo, aura, vignette, text, labels, logo, watermarks, existing franchise characters. Subject: Chinese woman aged 32, softly angular face and expressive dark eyes, dark shoulder-length curly bob, ivory buttoned shirt under a dusty rose vest, muted charcoal long skirt and brown flats, simple silver hair clip, original neighborhood designer. No tools or props.",
+      "derivatives": [
+        {
+          "role": "standing-1536",
+          "path": "client/public/assets/original/final-product/yun-xi-neutral-v1-standing-1536.webp",
+          "width": 1024,
+          "height": 1536,
+          "bytes": 122586,
+          "sha256": "6977cd2ccb623e7969b919f3e11e588854747275fab58018f43dd421f6c72681",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "standing-960",
+          "path": "client/public/assets/original/final-product/yun-xi-neutral-v1-standing-960.webp",
+          "width": 640,
+          "height": 960,
+          "bytes": 61516,
+          "sha256": "6aadf3198c76b1c535a902eacbdd973e9d380362b3a893b78cdd6c337f9e1b29",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "avatar-256",
+          "path": "client/public/assets/original/final-product/yun-xi-neutral-v1-avatar-256.webp",
+          "width": 256,
+          "height": 256,
+          "bytes": 19418,
+          "sha256": "3a2715ad5253a8f5e693062a9fcf481cb86a29e09f9871b4a3a56a077efe98b7",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "avatar-512",
+          "path": "client/public/assets/original/final-product/yun-xi-neutral-v1-avatar-512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 53456,
+          "sha256": "7cfe93d4caf471b11fddefe63a999752cdf8e364ef759b78d8651aaa706ab40c",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-480",
+          "path": "client/public/assets/original/final-product/yun-xi-neutral-v1-half-480.webp",
+          "width": 480,
+          "height": 640,
+          "bytes": 53780,
+          "sha256": "dc969e33f29d0d7a60af5630292ef913389888fbcb34c5883854e8da7283280a",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-768",
+          "path": "client/public/assets/original/final-product/yun-xi-neutral-v1-half-768.webp",
+          "width": 768,
+          "height": 1024,
+          "bytes": 104424,
+          "sha256": "06903799fbdee884fca73d566b9262932b8939a3ed4d45245e966ecd2c413c00",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        }
+      ],
+      "review": "Full head and feet visually inspected on paper composite; RGBA alpha verified; human blind review not performed.",
+      "avatarCrop": [
+        320,
+        0,
+        704,
+        384
+      ],
+      "halfBodyCrop": [
+        224,
+        0,
+        800,
+        768
+      ],
+      "focalPoint": {
+        "portrait": [
+          0.5,
+          0.14
+        ],
+        "avatar": [
+          0.5,
+          0.5
+        ],
+        "mobile": [
+          0.5,
+          0.14
+        ],
+        "landscape": [
+          0.5,
+          0.14
+        ]
+      },
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "43e3206291ee6f46517a5ec8e752108ea3b333508ef793df3dbebb7ccd2707ac",
+        "avatarCrop": [
+          320,
+          0,
+          704,
+          384
+        ],
+        "halfBodyCrop": [
+          224,
+          0,
+          800,
+          768
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-person-shen-yan-joy-v1",
+      "purpose": "stage-portrait",
+      "character": "沈砚",
+      "characterId": "original:沈砚",
+      "styleId": "harbor-ink-portrait-v1",
+      "story": "原创角色素材",
+      "expression": "joy",
+      "mainCharacter": false,
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/shen-yan-joy-v1.png",
+      "version": 1,
+      "references": [
+        "final-person-shen-yan-neutral-v1"
+      ],
+      "rights": "Original generated adult character; exact own identity reference used for expression edits; no third-party artwork. Human blind consistency review pending.",
+      "sha256": "d4c6541bc98ec068e7ae7dfb7984df84ed7ab9fb36e2e892dbd71ff992568820",
+      "width": 1024,
+      "height": 1536,
+      "bytes": 2001378,
+      "selected": true,
+      "prompt": "Use case: identity-preserve. Image 1 is the exact original adult character identity and edit target. Keep face structure, ethnicity, adult age, skin tone, hair style/color, exact garments, accessories, stance, proportions, and the soft narrative gouache and fine ink illustration. Modify only the facial expression described below. Full body with complete head and both shoes visible; leave at least 24 pixels of real transparent space at top and bottom and all sides of the silhouette; remove any stray non-character background pixels. True transparent RGBA background, no scenery, floor, shadow, vignette, halo, aura, captions, lettering, logos or watermark. At least 1024x1536 portrait. Expression: a clear warm modest smile with lifted cheeks and happy softened eyes.",
+      "derivatives": [
+        {
+          "role": "standing-1536",
+          "path": "client/public/assets/original/final-product/shen-yan-joy-v1-standing-1536.webp",
+          "width": 1024,
+          "height": 1536,
+          "bytes": 150720,
+          "sha256": "cf98740b0fd418eaf574a5b55f92b27da8e89263fa4b1c6e197ed5b769cebd02",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "standing-960",
+          "path": "client/public/assets/original/final-product/shen-yan-joy-v1-standing-960.webp",
+          "width": 640,
+          "height": 960,
+          "bytes": 85172,
+          "sha256": "20f78d3b4c5c30bf4a2324b721c51b3b8dc161bfa8dce60925ef063f0b9a6aa0",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "avatar-256",
+          "path": "client/public/assets/original/final-product/shen-yan-joy-v1-avatar-256.webp",
+          "width": 256,
+          "height": 256,
+          "bytes": 18440,
+          "sha256": "3f2739079114d10cabae2b89bc5b0c3218d0d15b3e8b03f0eceb13aeb2169f5a",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "avatar-512",
+          "path": "client/public/assets/original/final-product/shen-yan-joy-v1-avatar-512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 48074,
+          "sha256": "a0e03234848e260887c51c23eae689e720cb27355ce546a95de9e7252c4388b1",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-480",
+          "path": "client/public/assets/original/final-product/shen-yan-joy-v1-half-480.webp",
+          "width": 480,
+          "height": 640,
+          "bytes": 62928,
+          "sha256": "d650be75e5cdd4b314a8cfd8dbad05d6b9a843123662cb5899f3d59bc0252b70",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-768",
+          "path": "client/public/assets/original/final-product/shen-yan-joy-v1-half-768.webp",
+          "width": 768,
+          "height": 1024,
+          "bytes": 114878,
+          "sha256": "f615d3a82bfc5fc9686f73f4ec35a0041563ee8a24f13fbe3307db26d5632316",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        }
+      ],
+      "review": "Full head and feet visually inspected on paper composite; RGBA alpha verified; human blind review not performed.",
+      "avatarCrop": [
+        320,
+        0,
+        704,
+        384
+      ],
+      "halfBodyCrop": [
+        224,
+        0,
+        800,
+        768
+      ],
+      "focalPoint": {
+        "portrait": [
+          0.5,
+          0.14
+        ],
+        "avatar": [
+          0.5,
+          0.5
+        ],
+        "mobile": [
+          0.5,
+          0.14
+        ],
+        "landscape": [
+          0.5,
+          0.14
+        ]
+      },
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "d4c6541bc98ec068e7ae7dfb7984df84ed7ab9fb36e2e892dbd71ff992568820",
+        "avatarCrop": [
+          320,
+          0,
+          704,
+          384
+        ],
+        "halfBodyCrop": [
+          224,
+          0,
+          800,
+          768
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-person-yu-bai-neutral-v1",
+      "purpose": "stage-portrait",
+      "character": "余白",
+      "characterId": "original:余白",
+      "styleId": "harbor-ink-portrait-v1",
+      "story": "听风城",
+      "expression": "neutral",
+      "mainCharacter": false,
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/yu-bai-neutral-v1.png",
+      "version": 1,
+      "references": [],
+      "rights": "Original generated adult character; exact own identity reference used for expression edits; no third-party artwork. Human blind consistency review pending.",
+      "sha256": "6782a78fad7288984a1f149b049bfc38ef3b88de81a1d3b6f90272efd743ecd9",
+      "width": 1024,
+      "height": 1536,
+      "bytes": 1814309,
+      "selected": true,
+      "prompt": "Use case: illustration-story. Asset: original adult story character, for avatar and half-body presentation crops plus full-body visual novel stage. Soft narrative gouache illustration with delicate fine ink linework, restrained warm paper-inspired ivory, muted sage, teal, charcoal and terracotta, painterly cloth textures, believable adult anatomy and hands, calm neutral expression. Whole adult figure in quiet natural three-quarter standing pose, centered in portrait 1024x1536 or larger. Complete head and both shoes inside the image, with generous transparent margin on all sides. Actual transparent RGBA background, NO floor, backdrop, shadow oval, halo, aura, vignette, text, labels, logo, watermarks, existing franchise characters. Subject: Adult East Asian man aged 35 in an original gentle fantasy city, long dark auburn hair tied low, warm olive skin, distinct thoughtful broad nose and deep-set brown eyes, cream woven poncho with restrained sage edging over teal tunic, brown straight trousers and soft ankle boots, one small bronze earring. Original listener of city wind, no aura or magic symbols.",
+      "derivatives": [
+        {
+          "role": "standing-1536",
+          "path": "client/public/assets/original/final-product/yu-bai-neutral-v1-standing-1536.webp",
+          "width": 1024,
+          "height": 1536,
+          "bytes": 131018,
+          "sha256": "5e42b802d2d5854bd358bc115da8c2fd73859903e5ab61acbdd8d4a2347a33d1",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "standing-960",
+          "path": "client/public/assets/original/final-product/yu-bai-neutral-v1-standing-960.webp",
+          "width": 640,
+          "height": 960,
+          "bytes": 71644,
+          "sha256": "cb68780127117f44f156e5dd8d3e8e90367701ffd3f5284272f1d4b6b020b267",
+          "alpha": true,
+          "process": "Lanczos display resize"
+        },
+        {
+          "role": "avatar-256",
+          "path": "client/public/assets/original/final-product/yu-bai-neutral-v1-avatar-256.webp",
+          "width": 256,
+          "height": 256,
+          "bytes": 19174,
+          "sha256": "7aa69e42dc9b646c55f45cc1fa368375e6dd086f02d6aeaf03b649fc39bfd9ac",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "avatar-512",
+          "path": "client/public/assets/original/final-product/yu-bai-neutral-v1-avatar-512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 52822,
+          "sha256": "2ccc0c639afd7c9e8e3fc7a17ed5d10427d68f61ea931d48d85f6f82b829206e",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-480",
+          "path": "client/public/assets/original/final-product/yu-bai-neutral-v1-half-480.webp",
+          "width": 480,
+          "height": 640,
+          "bytes": 64682,
+          "sha256": "1fa6a5947e41ffce9c37031c755bf24235c49c4564dadcd83fcee8089d2e0440",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        },
+        {
+          "role": "half-768",
+          "path": "client/public/assets/original/final-product/yu-bai-neutral-v1-half-768.webp",
+          "width": 768,
+          "height": 1024,
+          "bytes": 122354,
+          "sha256": "9c4e45e8f06f0c0e38afe58f709d5003cc719abea062121392078bc19b534f47",
+          "alpha": true,
+          "process": "Lanczos display resize with explicit presentation crop"
+        }
+      ],
+      "review": "Full head and feet visually inspected on paper composite; RGBA alpha verified; human blind review not performed.",
+      "avatarCrop": [
+        320,
+        0,
+        704,
+        384
+      ],
+      "halfBodyCrop": [
+        224,
+        0,
+        800,
+        768
+      ],
+      "focalPoint": {
+        "portrait": [
+          0.5,
+          0.14
+        ],
+        "avatar": [
+          0.5,
+          0.5
+        ],
+        "mobile": [
+          0.5,
+          0.14
+        ],
+        "landscape": [
+          0.5,
+          0.14
+        ]
+      },
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "6782a78fad7288984a1f149b049bfc38ef3b88de81a1d3b6f90272efd743ecd9",
+        "avatarCrop": [
+          320,
+          0,
+          704,
+          384
+        ],
+        "halfBodyCrop": [
+          224,
+          0,
+          800,
+          768
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-cover-clock-garden-v1",
+      "purpose": "cover",
+      "story": "不走的钟，开花的院子",
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/clock-garden-cover-v1.png",
+      "version": 1,
+      "references": [],
+      "rights": "Original project story and generated cover; no third-party artwork. Human blind review pending.",
+      "sha256": "519ebd6654253b9de59ed65c00591d787d69bf83feae7f90ce1117bc6422ddf5",
+      "width": 1024,
+      "height": 1536,
+      "bytes": 3014017,
+      "selected": true,
+      "prompt": "Create an ORIGINAL literary novel cover illustration, portrait 2:3, 1024x1536 pixels or larger. Painted narrative gouache and fine ink illustration, visible handmade paper texture, expressive simplified forms, restrained warm ivory / ink green / muted terracotta / soft gold palette. An old small-town clock-repair shop with a large round wall clock showing five, brass clockwork on a wooden desk, a little pot of white lily-of-the-valley on the windowsill, a weathered closed garden door at the back. A gentle magical feeling, early-spring light, no people. Keep a calm upper quarter and lower margin for separately rendered application typography. Full illustration edge-to-edge, no border, NO text, letters, numbers, signatures, logos, watermark, UI, existing book title, or trademark. This is a finished painterly illustration, not a photograph. Opaque background.",
+      "focalPoint": {
+        "mobile": [
+          0.5,
+          0.5
+        ],
+        "landscape": [
+          0.5,
+          0.5
+        ]
+      },
+      "derivatives": [
+        {
+          "role": "400",
+          "path": "client/public/assets/original/final-product/clock-garden-cover-v1-400.webp",
+          "width": 400,
+          "height": 600,
+          "bytes": 64272,
+          "sha256": "15c88e66f42d809c40841ae93025fea4a1eb126bc2b6ed5ce120afb35553d14d",
+          "process": "Lanczos cover display resize from immutable generated master"
+        },
+        {
+          "role": "800",
+          "path": "client/public/assets/original/final-product/clock-garden-cover-v1-800.webp",
+          "width": 800,
+          "height": 1200,
+          "bytes": 213288,
+          "sha256": "bd8cfae973aebdbf913a39462fbcec70003fe288eade5847f9c295ee3245feae",
+          "process": "Lanczos cover display resize from immutable generated master"
+        }
+      ],
+      "review": "Generated output visually inspected; no interface text; human blind review not performed.",
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "519ebd6654253b9de59ed65c00591d787d69bf83feae7f90ce1117bc6422ddf5",
+        "sizes": [
+          [
+            400,
+            600
+          ],
+          [
+            800,
+            1200
+          ]
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-cover-seventh-page-v1",
+      "purpose": "cover",
+      "story": "旧书店的第七页",
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/seventh-page-cover-v1.png",
+      "version": 1,
+      "references": [],
+      "rights": "Original project story and generated cover; no third-party artwork. Human blind review pending.",
+      "sha256": "12e6b6ba066da8c382d4cea1b8ac4bc049d52fe5ab13880cecc6462b5a525d50",
+      "width": 1024,
+      "height": 1536,
+      "bytes": 2909391,
+      "selected": true,
+      "prompt": "Create an ORIGINAL literary novel cover illustration, portrait 2:3, 1024x1536 pixels or larger. Painted narrative gouache and fine ink illustration, visible handmade paper texture, expressive simplified forms, restrained warm ivory / ink green / muted terracotta / soft gold palette. An intimate old Chinese bookshop in rainy evening light, an open blue cloth-bound sailing journal on a wooden counter, an unopened pale letter with a faded half-moon wax seal tucked between blank pages, brass spectacles nearby, shelves disappearing into shadow. Quiet suspense, no people. Keep a calm upper quarter and lower margin for separately rendered application typography. Full illustration edge-to-edge, no border, NO text, letters, numbers, signatures, logos, watermark, UI, existing book title, or trademark. This is a finished painterly illustration, not a photograph. Opaque background.",
+      "focalPoint": {
+        "mobile": [
+          0.5,
+          0.5
+        ],
+        "landscape": [
+          0.5,
+          0.5
+        ]
+      },
+      "derivatives": [
+        {
+          "role": "400",
+          "path": "client/public/assets/original/final-product/seventh-page-cover-v1-400.webp",
+          "width": 400,
+          "height": 600,
+          "bytes": 63708,
+          "sha256": "06a2ac96089f85f5c3be0e86d8ac134c1bba09af2ca3a1c3f0e199f9d7422b0e",
+          "process": "Lanczos cover display resize from immutable generated master"
+        },
+        {
+          "role": "800",
+          "path": "client/public/assets/original/final-product/seventh-page-cover-v1-800.webp",
+          "width": 800,
+          "height": 1200,
+          "bytes": 215830,
+          "sha256": "4d3701512325b595648d5aa7d6e2a979d613e5f7c15bf4f48fd4a2e1b5f78720",
+          "process": "Lanczos cover display resize from immutable generated master"
+        }
+      ],
+      "review": "Generated output visually inspected; no interface text; human blind review not performed.",
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "12e6b6ba066da8c382d4cea1b8ac4bc049d52fe5ab13880cecc6462b5a525d50",
+        "sizes": [
+          [
+            400,
+            600
+          ],
+          [
+            800,
+            1200
+          ]
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-cover-rain-street-v1",
+      "purpose": "cover",
+      "story": "雨后长街",
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/rain-street-cover-v1.png",
+      "version": 1,
+      "references": [],
+      "rights": "Original project story and generated cover; no third-party artwork. Human blind review pending.",
+      "sha256": "0cf01634e8dd4b0b22e4fb3724a8b2ae1f64306380d34bd9cb94c1a8da023421",
+      "width": 1024,
+      "height": 1536,
+      "bytes": 3152349,
+      "selected": true,
+      "prompt": "Create an ORIGINAL literary novel cover illustration, portrait 2:3, 1024x1536 pixels or larger. Painted narrative gouache and fine ink illustration, visible handmade paper texture, expressive simplified forms, restrained warm ivory / ink green / muted terracotta / soft gold palette. A warm little cafe at the end of a rain-wet Chinese street at blue hour, a single warm window, a blank folded paper boat in a shallow ceramic dish on the windowsill, two steaming ceramic cups on a round wooden table, reflections from terracotta street lamps. Romantic quiet feeling, no people. Keep a calm upper quarter and lower margin for separately rendered application typography. Full illustration edge-to-edge, no border, NO text, letters, numbers, signatures, logos, watermark, UI, existing book title, or trademark. This is a finished painterly illustration, not a photograph. Opaque background.",
+      "focalPoint": {
+        "mobile": [
+          0.5,
+          0.5
+        ],
+        "landscape": [
+          0.5,
+          0.5
+        ]
+      },
+      "derivatives": [
+        {
+          "role": "400",
+          "path": "client/public/assets/original/final-product/rain-street-cover-v1-400.webp",
+          "width": 400,
+          "height": 600,
+          "bytes": 68252,
+          "sha256": "349147babec3f56a6f9f242a3852fdc9aa116955bdc8cd6bfb05d7d24ccf8d82",
+          "process": "Lanczos cover display resize from immutable generated master"
+        },
+        {
+          "role": "800",
+          "path": "client/public/assets/original/final-product/rain-street-cover-v1-800.webp",
+          "width": 800,
+          "height": 1200,
+          "bytes": 241544,
+          "sha256": "e8871d46356df002be7b32c11db7be398f5fce3f21990de53c0a32541e32362c",
+          "process": "Lanczos cover display resize from immutable generated master"
+        }
+      ],
+      "review": "Generated output visually inspected; no interface text; human blind review not performed.",
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "0cf01634e8dd4b0b22e4fb3724a8b2ae1f64306380d34bd9cb94c1a8da023421",
+        "sizes": [
+          [
+            400,
+            600
+          ],
+          [
+            800,
+            1200
+          ]
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-cover-slow-mail-v1",
+      "purpose": "cover",
+      "story": "慢邮的春天",
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/slow-mail-cover-v1.png",
+      "version": 1,
+      "references": [],
+      "rights": "Original project story and generated cover; no third-party artwork. Human blind review pending.",
+      "sha256": "666a3d634f056c9dc74006ccf725d775e7a12f9f6f323117b42e6a08e462106a",
+      "width": 1024,
+      "height": 1536,
+      "bytes": 3339008,
+      "selected": true,
+      "prompt": "Create an ORIGINAL literary novel cover illustration, portrait 2:3, 1024x1536 pixels or larger. Painted narrative gouache and fine ink illustration, visible handmade paper texture, expressive simplified forms, restrained warm ivory / ink green / muted terracotta / soft gold palette. A small riverside flower shop in spring, two pots of lily-of-the-valley at its entrance, an old warm yellow mailbox by the street corner, a folded small sage umbrella leaning nearby, a blank pale postcard half visible among flowers. Romantic hopeful mood, no people. Keep a calm upper quarter and lower margin for separately rendered application typography. Full illustration edge-to-edge, no border, NO text, letters, numbers, signatures, logos, watermark, UI, existing book title, or trademark. This is a finished painterly illustration, not a photograph. Opaque background.",
+      "focalPoint": {
+        "mobile": [
+          0.5,
+          0.5
+        ],
+        "landscape": [
+          0.5,
+          0.5
+        ]
+      },
+      "derivatives": [
+        {
+          "role": "400",
+          "path": "client/public/assets/original/final-product/slow-mail-cover-v1-400.webp",
+          "width": 400,
+          "height": 600,
+          "bytes": 87382,
+          "sha256": "89d167f1c8dbee209f97f1a3b8aefbd97bf88e4fcaa70348f94ffc2f8d619c35",
+          "process": "Lanczos cover display resize from immutable generated master"
+        },
+        {
+          "role": "800",
+          "path": "client/public/assets/original/final-product/slow-mail-cover-v1-800.webp",
+          "width": 800,
+          "height": 1200,
+          "bytes": 291888,
+          "sha256": "477d7ab1c297b4a496cb0833d09948db38e0dcd377c6a0d9fca54f91c0260275",
+          "process": "Lanczos cover display resize from immutable generated master"
+        }
+      ],
+      "review": "Generated output visually inspected; no interface text; human blind review not performed.",
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "666a3d634f056c9dc74006ccf725d775e7a12f9f6f323117b42e6a08e462106a",
+        "sizes": [
+          [
+            400,
+            600
+          ],
+          [
+            800,
+            1200
+          ]
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-cover-wind-city-v1",
+      "purpose": "cover",
+      "story": "听风城",
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/wind-city-cover-v1.png",
+      "version": 1,
+      "references": [],
+      "rights": "Original project story and generated cover; no third-party artwork. Human blind review pending.",
+      "sha256": "5a3bc4aafae1448b159822b33926287974dbc3a189df9e0fb04694f1eff1d48e",
+      "width": 1024,
+      "height": 1536,
+      "bytes": 3438612,
+      "selected": true,
+      "prompt": "Create an ORIGINAL literary novel cover illustration, portrait 2:3, 1024x1536 pixels or larger. Painted narrative gouache and fine ink illustration, visible handmade paper texture, expressive simplified forms, restrained warm ivory / ink green / muted terracotta / soft gold palette. An original peaceful fantasy forest town, a slender copper wind bell hanging from an ancient tree over a clear stream, a small hilltop lantern and a distant timber inn, pale sage leaves, warm windows, clouds drifting slowly. An invitation to explore, no figures or copyrighted characters. Keep a calm upper quarter and lower margin for separately rendered application typography. Full illustration edge-to-edge, no border, NO text, letters, numbers, signatures, logos, watermark, UI, existing book title, or trademark. This is a finished painterly illustration, not a photograph. Opaque background.",
+      "focalPoint": {
+        "mobile": [
+          0.5,
+          0.5
+        ],
+        "landscape": [
+          0.5,
+          0.5
+        ]
+      },
+      "derivatives": [
+        {
+          "role": "400",
+          "path": "client/public/assets/original/final-product/wind-city-cover-v1-400.webp",
+          "width": 400,
+          "height": 600,
+          "bytes": 79468,
+          "sha256": "89f580b0797376dac13472bb1ba6cb5612095bd20de3abe9a7366ed851f0adfb",
+          "process": "Lanczos cover display resize from immutable generated master"
+        },
+        {
+          "role": "800",
+          "path": "client/public/assets/original/final-product/wind-city-cover-v1-800.webp",
+          "width": 800,
+          "height": 1200,
+          "bytes": 284796,
+          "sha256": "57b9058d84c1cfed25d045c7f625aed19a2f7c5387749f973088757160b114e7",
+          "process": "Lanczos cover display resize from immutable generated master"
+        }
+      ],
+      "review": "Generated output visually inspected; no interface text; human blind review not performed.",
+      "displayRecipe": {
+        "version": 1,
+        "sourceSHA": "5a3bc4aafae1448b159822b33926287974dbc3a189df9e0fb04694f1eff1d48e",
+        "sizes": [
+          [
+            400,
+            600
+          ],
+          [
+            800,
+            1200
+          ]
+        ],
+        "quality": 86,
+        "method": 6,
+        "resize": "Lanczos",
+        "pillow": "12.2.0"
+      }
+    },
+    {
+      "id": "final-bg-harbor-dawn-native-attempt-v2",
+      "purpose": "stage-background",
+      "story": "雾港的最后一封信",
+      "tool": "builtin-imagegen",
+      "source": "assets/source/final-product/harbor-dawn-native-attempt-v2.png",
+      "version": 2,
+      "references": [],
+      "rights": "Original generated scene; no third-party reference.",
+      "sha256": "3c9322290f141bbe826fbb53e3240eb5800230d60b8024c8efea6f8157b5a91c",
+      "width": 1672,
+      "height": 941,
+      "bytes": 2529456,
+      "selected": false,
+      "prompt": "Create an ORIGINAL production visual-novel scene background, landscape 16:9, NATIVE output at least 1920x1080 pixels (prefer 2048x1152 or 3840x2160; do not supply a smaller image enlarged). A quiet Chinese river harbor at dawn after rain, timber ferry jetty, small wooden ferry without people, weathered brass lantern on the dock, distant lighthouse silhouette half hidden in pearl mist. Warm ivory paper, deep ink green, muted terracotta and soft gold; finely painted narrative gouache with delicate ink details matching a literary story-reader app. Eye-level wide shot, layered depth, clear foreground edges, restful low-detail lower quarter for readable dialogue overlay, important objects in central safe 70% for mobile crop. Real environment not a poster or UI. No people, letters, numbers, text, logos, watermarks, signage. Opaque background.",
+      "derivatives": [],
+      "review": "Rejected for native resolution: tool returned 1672x941 despite prompt requiring >=1920x1080. No upscale counted as passing.",
+      "requiredNativeSize": [
+        1920,
+        1080
+      ],
+      "nativeResolutionPassed": false
+    }
+  ]
+}

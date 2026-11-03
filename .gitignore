@@ -1,0 +1,11 @@
+# deps / build artifacts
+app/client/node_modules/
+app/venv/
+app/client/dist/
+app/**/__pycache__/
+app/**/.pytest_cache/
+app/data/
+app/.env
+app/.env.bak-*
+verification/
+*.log

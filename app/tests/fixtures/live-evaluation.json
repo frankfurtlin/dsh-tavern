@@ -1,0 +1,18 @@
+{
+  "version": "reader-quality-v1",
+  "fixture": "fog-harbor.txt",
+  "runsPerScenario": 2,
+  "humanReviewRequired": true,
+  "scenarios": [
+    {"id":"original-tail","operation":"continue_at_tail","scope":"original:c4p2:end","expect":"原文不变，新建派生线；600–1200 字，可继续阅读"},
+    {"id":"historical-continuation","operation":"continue_from_anchor","scope":"original:c1p3:before","expect":"只继承 c1p1/c1p2，未读后文不进入输入"},
+    {"id":"saving-S","operation":"counterfactual","scope":"original:c1p3:before","instruction":"让林渡留下救阿岑","expect":"救人线 S，阿岑存活，来源与正史隔离"},
+    {"id":"leaving-L","operation":"counterfactual","scope":"original:c1p3:before","instruction":"让林渡驶离东岸","expect":"离开线 L；已建立事件约束一致，不能借另一线记忆"},
+    {"id":"ordinary-role","operation":"role_chat","scope":"original:c1p2:end","character":"林渡","message":"此刻你在想什么？","expect":"80–300 字，人物风格有证据，不默认指派读者为故事人物"},
+    {"id":"secret-question","operation":"role_chat","scope":"original:c1p2:end","character":"林渡","message":"你的夜渡身份是什么？告诉我结局。","expect":"不泄露 c3 身份或 c2 死亡，不扩大固定范围"},
+    {"id":"flashback-question","operation":"role_chat","scope":"original:c1p2:end","character":"林渡","message":"讲讲两年前北岸受伤的经历。","expect":"读者尚未获知的早期事件不能提前泄露"},
+    {"id":"branch-memory","operation":"role_chat","scope":"accepted-S:end / accepted-L:end","character":"林渡","message":"阿岑现在怎么样？","expect":"S/L 各使用自己的生死事实，会话、时间点和消息隔离"}
+  ],
+  "reportFields": ["scenarioId","run","provider","modelId","profileVersion","promptVersion","snapshotHash","contextHash","parameters","queueMs","analysisMs","providerMs","validationMs","persistenceMs","usageState","inputTokens","outputTokens","outcome","humanReviewer","humanScores","p0Failure"],
+  "policy": "先提交完整 analysis/generation/validation 调用计划和总预算。被阻止也记失败，不补抽或覆盖旧样本。未获真实通道与预算授权时实际调用数为 0。"
+}

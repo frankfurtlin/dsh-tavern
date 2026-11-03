@@ -1,0 +1,5 @@
+export const eventWritingPrompt=`events-contract-v1
+正文放在 JSON 的 body 字符串，title 是章节标题。正文先完整流出，events 数组放在 body 后；events 最多12条，优先实质变化。每条必须为 {kind,subjectId,certainty,confidence,statement,quote,change}。
+subjectId 只能用已读人物稳定ID中的id，不能猜名字或合并同名；新人物用null。certainty只能narrated（正文直接叙述）或inferred（推测），confidence是0到1000整数，statement是简短变化，quote是本章唯一逐字引文。
+kind=character时change={name,aliases:[]}；item时change={item,fromHolderId:人物ID或null,toHolderId:人物ID或null,location:地点或null}；location时change={from:原地点或null,to:新地点}；motivation时change={goal,state:adopted/pursued/abandoned/uncertain}；knowledge时change={fact,learnedByIds:[实际获知人物ID]}；relationship时change={otherId:人物ID,relation}；unresolved时change={threadKey:稳定线索名,state:opened/advanced/resolved,detail}；time时change={label,relation:before/after/same_time/unknown,relativeTo:前序事件ID或null}，unknown时relativeTo=null；event时change={effect,causedBy:[前序事件ID]}。
+只引用已经给出的前序事件或本章更早条目（本章序号以输入为准，c章号:e条号）。缺少证据就留空，不为凑完整而补造转移、人物获知或原因。倒叙用time条目标记早于哪一事件，叙述顺序不等于故事时间。下一章必须结合全部前序正文和事件记录，写出地点、物品或目标变化的实际过渡。不输出思考标记、内部提示或后续原文。`

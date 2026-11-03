@@ -1,0 +1,12 @@
+<script setup lang="ts">
+import {ref,onMounted} from 'vue'
+import {api} from '../api'
+import {useRequestScope} from '../platform/request-scope'
+import type {Profile} from '../api/types'
+const props=defineProps<{admin?:boolean}>(),capture=useRequestScope(),current=ref<{version:number;modelId:string|null;enabled:boolean;source?:string;platformAvailable?:boolean;profileId?:string}>(),profiles=ref<Profile[]>([]),selected=ref(''),busy=ref(false),error=ref(''),notice=ref('')
+const endpoint=props.admin?'/product/admin/vision-model':'/product/vision-model'
+async function load(){const scope=capture();error.value='';try{const [setting,models]=await Promise.all([api<NonNullable<typeof current.value>>(endpoint),api<{items:Profile[]}>('/model-profiles')]);if(scope.valid()){current.value=setting;profiles.value=models.items.filter(p=>p.status==='active'&&p.source!=='platform');selected.value=setting.source==='platform'?'platform':setting.profileId||''}}catch(e){if(scope.valid())error.value=(e as Error).message}}
+async function save(){if(!current.value||busy.value)return;const scope=capture();busy.value=true;error.value='';notice.value='';try{await api(endpoint,{method:'PUT',body:{expectedVersion:current.value.version,profileId:selected.value==='platform'?null:selected.value,usePlatform:selected.value==='platform'}});if(scope.valid()){notice.value=props.admin?'平台视觉模型已保存，后续配置使用该通道。':'视觉校验模型已保存。已有的请求仍使用排队时确认的模型。';await load()}}catch(e){if(scope.valid())error.value=(e as Error).message}finally{if(scope.valid())busy.value=false}}
+onMounted(load)
+</script>
+<template><section class="product-card"><h2>{{admin?'平台视觉校验模型':'画面校验模型'}}</h2><p class="product-note">检查已生成图片中的人物、出口和热点，需要支持看图的模型。它与故事文本和图片生成分别配置、分别记账。</p><p v-if="current">{{current.enabled?'当前可用：'+current.modelId:'尚未配置视觉通道'}}<span v-if="current.source==='platform'"> · 平台已配置视觉通道</span></p><p v-if="error" class="error" role="alert">{{error}} <button @click="load">重新加载</button></p><p v-if="notice" role="status">{{notice}}</p><form v-if="current" @submit.prevent="save"><label>选择支持看图的通道<select v-model="selected" aria-label="选择支持看图的通道"><option value="">选择已添加的个人通道</option><option v-if="!admin&&current.platformAvailable" value="platform">使用平台提供的画面校验模型</option><option v-for="profile in profiles" :key="profile.id" :value="profile.id">{{profile.name}} · {{profile.modelId}}</option></select></label><p class="product-note">个人通道需确认支持图片输入。纯文本通道不能用于画面校验，失败时保留已收到的图片。</p><button :disabled="busy||!selected">{{busy?'正在保存…':admin?'保存平台视觉模型':'保存画面校验模型'}}</button></form></section></template>

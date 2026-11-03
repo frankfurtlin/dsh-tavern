@@ -1,0 +1,235 @@
+{
+  "schema": 1,
+  "author": "本项目自编故事与几何插画",
+  "license": "CC0-1.0",
+  "bundles": [
+    {
+      "id": "original-light-letter",
+      "title": "灯下的回信",
+      "description": "许澄把伞放在旧书店门边。唐禾递给她一张折起的信纸，罗叔把最后一盏灯留在桌上。雨声渐渐轻了，他们决定等收信的人一起读完这封信。",
+      "storyFile": "story.txt",
+      "storySha256": "4ccdee7906a42ecff85e10596aa5f76926f34536f2c3e267a3d744315dc3f1c0",
+      "license": "CC0-1.0",
+      "images": [
+        {
+          "file": "cover-0.png",
+          "kind": "cover",
+          "name": "灯下的回信",
+          "sha256": "69c3eac7a03160db10d88ae3f1d0712d58bf382eb04c89cafee95006ccd062c3",
+          "width": 400,
+          "height": 600,
+          "mime": "image/png",
+          "license": "CC0-1.0",
+          "description": "自编几何插画 · 故事画面"
+        },
+        {
+          "file": "avatar-1.png",
+          "kind": "avatar",
+          "name": "许澄",
+          "sha256": "72ff218eee48b8ce337b8468f4c89482c40ce660ae39acb652fd704070c5dfcf",
+          "width": 512,
+          "height": 512,
+          "mime": "image/png",
+          "license": "CC0-1.0",
+          "description": "自编几何插画 · 许澄"
+        },
+        {
+          "file": "avatar-2.png",
+          "kind": "avatar",
+          "name": "唐禾",
+          "sha256": "72ff218eee48b8ce337b8468f4c89482c40ce660ae39acb652fd704070c5dfcf",
+          "width": 512,
+          "height": 512,
+          "mime": "image/png",
+          "license": "CC0-1.0",
+          "description": "自编几何插画 · 唐禾"
+        },
+        {
+          "file": "avatar-3.png",
+          "kind": "avatar",
+          "name": "罗叔",
+          "sha256": "72ff218eee48b8ce337b8468f4c89482c40ce660ae39acb652fd704070c5dfcf",
+          "width": 512,
+          "height": 512,
+          "mime": "image/png",
+          "license": "CC0-1.0",
+          "description": "自编几何插画 · 罗叔"
+        },
+        {
+          "file": "scene-4.png",
+          "kind": "scene",
+          "name": "灯下的回信",
+          "sha256": "ec63582ebc9fb8212248f0c3919527cc5b68d3c6716fb181659c49f690e7c266",
+          "width": 960,
+          "height": 600,
+          "mime": "image/png",
+          "license": "CC0-1.0",
+          "description": "自编几何插画 · 故事画面"
+        },
+        {
+          "file": "scene-5.png",
+          "kind": "scene",
+          "name": "灯下的回信",
+          "sha256": "ec63582ebc9fb8212248f0c3919527cc5b68d3c6716fb181659c49f690e7c266",
+          "width": 960,
+          "height": 600,
+          "mime": "image/png",
+          "license": "CC0-1.0",
+          "description": "自编几何插画 · 故事画面"
+        }
+      ]
+    },
+    {
+      "id": "original-snow-pass",
+      "title": "雪关同行",
+      "description": "陆遥在关口遇见闻青和阿朔。三人各带一盏小灯，准备沿山间的旧路送药。闻青熟悉路上的石阶，阿朔记得每一处可以避风的地方。",
+      "storyFile": "story.txt",
+      "storySha256": "d09554af92021e35d52aae95d5a05cba030b994030ae249aa05ebd46dcd79c4e",
+      "license": "CC0-1.0",
+      "images": [
+        {
+          "file": "cover-0.png",
+          "kind": "cover",
+          "name": "雪关同行",
+          "sha256": "d573eb680a3a1c26b902424e1de9e81456e449d64cfd83fc2924ad854bf9a8ae",
+          "width": 400,
+          "height": 600,
+          "mime": "image/png",
+          "license": "CC0-1.0",
+          "description": "自编几何插画 · 故事画面"
+        },
+        {
+          "file": "avatar-1.png",
+          "kind": "avatar",
+          "name": "陆遥",
+          "sha256": "5fa951cfc146f3a4f862a20819cc8743446874c92d900aeb196e3490c2178377",
+          "width": 512,
+          "height": 512,
+          "mime": "image/png",
+          "license": "CC0-1.0",
+          "description": "自编几何插画 · 陆遥"
+        },
+        {
+          "file": "avatar-2.png",
+          "kind": "avatar",
+          "name": "闻青",
+          "sha256": "5fa951cfc146f3a4f862a20819cc8743446874c92d900aeb196e3490c2178377",
+          "width": 512,
+          "height": 512,
+          "mime": "image/png",
+          "license": "CC0-1.0",
+          "description": "自编几何插画 · 闻青"
+        },
+        {
+          "file": "avatar-3.png",
+          "kind": "avatar",
+          "name": "阿朔",
+          "sha256": "5fa951cfc146f3a4f862a20819cc8743446874c92d900aeb196e3490c2178377",
+          "width": 512,
+          "height": 512,
+          "mime": "image/png",
+          "license": "CC0-1.0",
+          "description": "自编几何插画 · 阿朔"
+        },
+        {
+          "file": "scene-4.png",
+          "kind": "scene",
+          "name": "雪关同行",
+          "sha256": "1dfb9d62e680461efe2bca2224aab83dc0038e55b42da5b5e817fbe079b2d060",
+          "width": 960,
+          "height": 600,
+          "mime": "image/png",
+          "license": "CC0-1.0",
+          "description": "自编几何插画 · 故事画面"
+        },
+        {
+          "file": "scene-5.png",
+          "kind": "scene",
+          "name": "雪关同行",
+          "sha256": "1dfb9d62e680461efe2bca2224aab83dc0038e55b42da5b5e817fbe079b2d060",
+          "width": 960,
+          "height": 600,
+          "mime": "image/png",
+          "license": "CC0-1.0",
+          "description": "自编几何插画 · 故事画面"
+        }
+      ]
+    },
+    {
+      "id": "original-postcard",
+      "title": "未寄出的合照",
+      "description": "江宁在旧相馆遇见苏晚和小叶。小叶从抽屉里找到一张没有写地址的明信片，苏晚记得照片里的长椅，江宁认出了湖边那棵歪斜的树。",
+      "storyFile": "story.txt",
+      "storySha256": "a956b0c198679dc6a4e228e13416389da06640fa584a475d14a1113172c9e7d8",
+      "license": "CC0-1.0",
+      "images": [
+        {
+          "file": "cover-0.png",
+          "kind": "cover",
+          "name": "未寄出的合照",
+          "sha256": "598f10afd5ef54a6dbfec36870d37d004822c7683882446c264cf66f77ff6d54",
+          "width": 400,
+          "height": 600,
+          "mime": "image/png",
+          "license": "CC0-1.0",
+          "description": "自编几何插画 · 故事画面"
+        },
+        {
+          "file": "avatar-1.png",
+          "kind": "avatar",
+          "name": "江宁",
+          "sha256": "1264a708f468a0e09d6e4648338c707d2fda1c72ca068979817284090600e787",
+          "width": 512,
+          "height": 512,
+          "mime": "image/png",
+          "license": "CC0-1.0",
+          "description": "自编几何插画 · 江宁"
+        },
+        {
+          "file": "avatar-2.png",
+          "kind": "avatar",
+          "name": "苏晚",
+          "sha256": "1264a708f468a0e09d6e4648338c707d2fda1c72ca068979817284090600e787",
+          "width": 512,
+          "height": 512,
+          "mime": "image/png",
+          "license": "CC0-1.0",
+          "description": "自编几何插画 · 苏晚"
+        },
+        {
+          "file": "avatar-3.png",
+          "kind": "avatar",
+          "name": "小叶",
+          "sha256": "1264a708f468a0e09d6e4648338c707d2fda1c72ca068979817284090600e787",
+          "width": 512,
+          "height": 512,
+          "mime": "image/png",
+          "license": "CC0-1.0",
+          "description": "自编几何插画 · 小叶"
+        },
+        {
+          "file": "scene-4.png",
+          "kind": "scene",
+          "name": "未寄出的合照",
+          "sha256": "20081c353f63afe670179447aa47efa5d176fb081538e26144e143729e707ec3",
+          "width": 960,
+          "height": 600,
+          "mime": "image/png",
+          "license": "CC0-1.0",
+          "description": "自编几何插画 · 故事画面"
+        },
+        {
+          "file": "scene-5.png",
+          "kind": "scene",
+          "name": "未寄出的合照",
+          "sha256": "20081c353f63afe670179447aa47efa5d176fb081538e26144e143729e707ec3",
+          "width": 960,
+          "height": 600,
+          "mime": "image/png",
+          "license": "CC0-1.0",
+          "description": "自编几何插画 · 故事画面"
+        }
+      ]
+    }
+  ]
+}

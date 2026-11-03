@@ -1,0 +1,5 @@
+import {it,expect} from 'vitest'
+import {createGenerationFollowing} from './generation-follow'
+it('stops before async rendering and latest changes only the supplied body',()=>{const f=createGenerationFollowing(),body={scrollTop:0,scrollHeight:400},reader={scrollTop:7},camera={x:5};f.render(body,true);f.settled();f.wheel(-1);body.scrollHeight=800;expect(f.render(body,true)).toBe(false);expect(body.scrollTop).toBe(400);expect(f.newWords).toBe(true);f.latest();expect(f.render(body,false)).toBe(true);expect(body.scrollTop).toBe(800);expect(reader.scrollTop).toBe(7);expect(camera.x).toBe(5)})
+it('touch and PageUp stop without needing a scroll event first',()=>{const f=createGenerationFollowing(),body={scrollTop:100,scrollHeight:200};f.touchStart(10);f.touchMove(14);expect(f.render(body,true)).toBe(false);f.latest();f.key('PageUp');expect(f.render(body,true)).toBe(false)})
+it('programmatic scrolling cannot undo a subsequent upward user gesture',()=>{const f=createGenerationFollowing(),body={scrollTop:0,scrollHeight:400};f.render(body,true);f.wheel(-10);f.scroll(100,400,100);expect(f.following).toBe(false);f.render(body,true);expect(body.scrollTop).toBe(400)})

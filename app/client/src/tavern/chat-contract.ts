@@ -1,0 +1,6 @@
+import type {GroupSettings} from './group'
+import type {CharacterCard} from './card-format'
+export interface ChatSession {title:string;cards:{id:string;revision:number;value:CharacterCard}[];messageIds:string[];persona:{name:string;description:string};mode:'reader'|'roleplay';authorNote:string;modelOverride:string|null;archived:boolean;parent:{sessionId:string;messageId:string}|null;createdAt:string;currentTaskId:string|null;companionId?:string;importFile?:{sourceId:string;sha256:string;format:'reader-jsonl'|'st-jsonl'};importMetadata?:Record<string,unknown>;quickReplyIds?:string[];group?:GroupSettings;promptPresetId?:string|null;lorebookIds?:string[];regexIds?:string[];allowCardRegex?:boolean;loreState?:{turn:number;activations:{bookId:string;entryId:string;turn:number}[]}}
+export interface ChatVariant {id:string;text:string;taskId:string|null;state:'complete'|'partial';createdAt:string;editedFrom?:string}
+export interface ChatMessage {sessionId:string;role:'user'|'assistant'|'system';speakerId:string|null;variants:ChatVariant[];selectedVariantId:string;hidden:boolean;createdAt:string;personaName?:string;importRecord?:Record<string,unknown>}
+export function selectedText(message:ChatMessage){return message.variants.find(variant=>variant.id===message.selectedVariantId)?.text||''}

@@ -1,0 +1,1394 @@
+[
+  {
+    "name": "five-chapter",
+    "ledgers": [
+      {
+        "schema": "prose-events-v1",
+        "sourceHash": "fa5dc957f0a5d68f173e388972f5fa49733900204fde9576033897921856c26c",
+        "chapterIndex": 1,
+        "status": "model-proposed",
+        "events": [
+          {
+            "kind": "item",
+            "subjectId": "lin",
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "🙂林渡把蓝信交给梅舟。",
+            "quote": "🙂林渡把蓝信交给梅舟。",
+            "change": {
+              "item": "蓝信",
+              "fromHolderId": "lin",
+              "toHolderId": "mei",
+              "location": "渡口"
+            },
+            "id": "c1:e1",
+            "start": 0,
+            "end": 12,
+            "offsetUnit": "utf16"
+          },
+          {
+            "kind": "location",
+            "subjectId": "mei",
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "梅舟从渡口走到南岸。",
+            "quote": "梅舟从渡口走到南岸。",
+            "change": {
+              "from": "渡口",
+              "to": "南岸"
+            },
+            "id": "c1:e2",
+            "start": 12,
+            "end": 22,
+            "offsetUnit": "utf16"
+          }
+        ]
+      },
+      {
+        "schema": "prose-events-v1",
+        "sourceHash": "092ff85d50ffb16ca52b7047354f11014d24ea15c8005b4582d0b584326f5e4c",
+        "chapterIndex": 2,
+        "status": "model-proposed",
+        "events": [
+          {
+            "kind": "motivation",
+            "subjectId": "mei",
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "她决定查清旧信来历。",
+            "quote": "她决定查清旧信来历。",
+            "change": {
+              "goal": "查清旧信来历",
+              "state": "adopted"
+            },
+            "id": "c2:e1",
+            "start": 0,
+            "end": 10,
+            "offsetUnit": "utf16"
+          },
+          {
+            "kind": "unresolved",
+            "subjectId": null,
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "失踪船夫仍未找到。",
+            "quote": "失踪船夫仍未找到。",
+            "change": {
+              "threadKey": "失踪船夫",
+              "state": "opened",
+              "detail": "船夫去向未明"
+            },
+            "id": "c2:e2",
+            "start": 10,
+            "end": 19,
+            "offsetUnit": "utf16"
+          }
+        ]
+      },
+      {
+        "schema": "prose-events-v1",
+        "sourceHash": "c8655c64e12135fd6173b6e70909bdd9581bedb40024ba0d35cf5138a24cd6ea",
+        "chapterIndex": 3,
+        "status": "model-proposed",
+        "events": [
+          {
+            "kind": "item",
+            "subjectId": "mei",
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "梅舟把蓝信交还林渡。",
+            "quote": "梅舟把蓝信交还林渡。",
+            "change": {
+              "item": "蓝信",
+              "fromHolderId": "mei",
+              "toHolderId": "lin",
+              "location": "南岸"
+            },
+            "id": "c3:e1",
+            "start": 0,
+            "end": 10,
+            "offsetUnit": "utf16"
+          },
+          {
+            "kind": "knowledge",
+            "subjectId": "lin",
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "林渡获知船夫去了北岸。",
+            "quote": "林渡获知船夫去了北岸。",
+            "change": {
+              "fact": "船夫去了北岸",
+              "learnedByIds": [
+                "lin"
+              ]
+            },
+            "id": "c3:e2",
+            "start": 10,
+            "end": 21,
+            "offsetUnit": "utf16"
+          }
+        ]
+      },
+      {
+        "schema": "prose-events-v1",
+        "sourceHash": "9604693b01785fff630b1ac1483efdf5a7d558adf009bcf5e3b691763f500134",
+        "chapterIndex": 4,
+        "status": "model-proposed",
+        "events": [
+          {
+            "kind": "time",
+            "subjectId": null,
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "这是他们相遇前一夜的事。",
+            "quote": "这是他们相遇前一夜的事。",
+            "change": {
+              "label": "相遇前一夜",
+              "relation": "before",
+              "relativeTo": "c1:e1"
+            },
+            "id": "c4:e1",
+            "start": 0,
+            "end": 12,
+            "offsetUnit": "utf16"
+          },
+          {
+            "kind": "location",
+            "subjectId": "lin",
+            "certainty": "inferred",
+            "confidence": 850,
+            "statement": "也许林渡已经回到渡口。",
+            "quote": "也许林渡已经回到渡口。",
+            "change": {
+              "from": null,
+              "to": "渡口"
+            },
+            "id": "c4:e2",
+            "start": 12,
+            "end": 23,
+            "offsetUnit": "utf16"
+          }
+        ]
+      },
+      {
+        "schema": "prose-events-v1",
+        "sourceHash": "c0dcc246a0fa7fc72883c805fcfb7243dc92340dbc7e01fbc8ab6eb86c31d39a",
+        "chapterIndex": 5,
+        "status": "model-proposed",
+        "events": [
+          {
+            "kind": "unresolved",
+            "subjectId": null,
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "船夫归来，失踪之谜解开。",
+            "quote": "船夫归来，失踪之谜解开。",
+            "change": {
+              "threadKey": "失踪船夫",
+              "state": "resolved",
+              "detail": "船夫亲自归来"
+            },
+            "id": "c5:e1",
+            "start": 0,
+            "end": 12,
+            "offsetUnit": "utf16"
+          },
+          {
+            "kind": "motivation",
+            "subjectId": "mei",
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "她放弃追查旧信。",
+            "quote": "她放弃追查旧信。",
+            "change": {
+              "goal": "查清旧信来历",
+              "state": "abandoned"
+            },
+            "id": "c5:e2",
+            "start": 12,
+            "end": 20,
+            "offsetUnit": "utf16"
+          }
+        ]
+      }
+    ],
+    "state": {
+      "schema": "prose-event-state-v2",
+      "eventOrder": [
+        "c1:e1",
+        "c1:e2",
+        "c2:e1",
+        "c2:e2",
+        "c3:e1",
+        "c3:e2",
+        "c4:e1",
+        "c4:e2",
+        "c5:e1",
+        "c5:e2"
+      ],
+      "items": {
+        "蓝信": {
+          "holderId": "lin",
+          "location": "南岸",
+          "eventId": "c3:e1"
+        }
+      },
+      "locations": {
+        "mei": {
+          "place": "南岸",
+          "eventId": "c1:e2"
+        }
+      },
+      "motivations": {
+        "mei": {
+          "goal": "查清旧信来历",
+          "state": "abandoned",
+          "eventId": "c5:e2"
+        }
+      },
+      "threads": {
+        "失踪船夫": {
+          "state": "resolved",
+          "detail": "船夫亲自归来",
+          "eventId": "c5:e1"
+        }
+      },
+      "knowledge": {
+        "lin": [
+          {
+            "fact": "船夫去了北岸",
+            "eventId": "c3:e2"
+          }
+        ]
+      },
+      "characters": {},
+      "timeRelations": [
+        {
+          "eventId": "c4:e1",
+          "label": "相遇前一夜",
+          "relation": "before",
+          "relativeTo": "c1:e1"
+        }
+      ],
+      "historicalEvents": [],
+      "relationships": {},
+      "causalEvents": [],
+      "hints": []
+    },
+    "canonical": "{\"causalEvents\":[],\"characters\":{},\"eventOrder\":[\"c1:e1\",\"c1:e2\",\"c2:e1\",\"c2:e2\",\"c3:e1\",\"c3:e2\",\"c4:e1\",\"c4:e2\",\"c5:e1\",\"c5:e2\"],\"hints\":[],\"historicalEvents\":[],\"items\":{\"蓝信\":{\"eventId\":\"c3:e1\",\"holderId\":\"lin\",\"location\":\"南岸\"}},\"knowledge\":{\"lin\":[{\"eventId\":\"c3:e2\",\"fact\":\"船夫去了北岸\"}]},\"locations\":{\"mei\":{\"eventId\":\"c1:e2\",\"place\":\"南岸\"}},\"motivations\":{\"mei\":{\"eventId\":\"c5:e2\",\"goal\":\"查清旧信来历\",\"state\":\"abandoned\"}},\"relationships\":{},\"schema\":\"prose-event-state-v2\",\"threads\":{\"失踪船夫\":{\"detail\":\"船夫亲自归来\",\"eventId\":\"c5:e1\",\"state\":\"resolved\"}},\"timeRelations\":[{\"eventId\":\"c4:e1\",\"label\":\"相遇前一夜\",\"relation\":\"before\",\"relativeTo\":\"c1:e1\"}]}",
+    "sha256": "67859a65c0ae4ae14cd671c205051ffbe2c365c1bf6ce1303dc8656c6786c033"
+  },
+  {
+    "name": "soft-gap",
+    "ledgers": [
+      {
+        "schema": "prose-events-v1",
+        "sourceHash": "fa5dc957f0a5d68f173e388972f5fa49733900204fde9576033897921856c26c",
+        "chapterIndex": 1,
+        "status": "model-proposed",
+        "events": [
+          {
+            "kind": "item",
+            "subjectId": "lin",
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "🙂林渡把蓝信交给梅舟。",
+            "quote": "🙂林渡把蓝信交给梅舟。",
+            "change": {
+              "item": "蓝信",
+              "fromHolderId": "lin",
+              "toHolderId": "mei",
+              "location": "渡口"
+            },
+            "id": "c1:e1",
+            "start": 0,
+            "end": 12,
+            "offsetUnit": "utf16"
+          },
+          {
+            "kind": "location",
+            "subjectId": "mei",
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "梅舟从渡口走到南岸。",
+            "quote": "梅舟从渡口走到南岸。",
+            "change": {
+              "from": "渡口",
+              "to": "南岸"
+            },
+            "id": "c1:e2",
+            "start": 12,
+            "end": 22,
+            "offsetUnit": "utf16"
+          }
+        ]
+      },
+      {
+        "schema": "prose-events-v1",
+        "sourceHash": "800bc2b618b7d30256263a53df273d47f01e627098267329cc94e5534a8d4cd5",
+        "chapterIndex": 2,
+        "status": "model-proposed",
+        "events": [
+          {
+            "kind": "item",
+            "subjectId": "lin",
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "林渡把蓝信再交给梅舟。",
+            "quote": "林渡把蓝信再交给梅舟。",
+            "change": {
+              "item": "蓝信",
+              "fromHolderId": "lin",
+              "toHolderId": "mei",
+              "location": null
+            },
+            "id": "c2:e1",
+            "start": 0,
+            "end": 11,
+            "offsetUnit": "utf16"
+          },
+          {
+            "kind": "location",
+            "subjectId": "mei",
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "梅舟从北岸去城中。",
+            "quote": "梅舟从北岸去城中。",
+            "change": {
+              "from": "北岸",
+              "to": "城中"
+            },
+            "id": "c2:e2",
+            "start": 11,
+            "end": 20,
+            "offsetUnit": "utf16"
+          }
+        ]
+      }
+    ],
+    "state": {
+      "schema": "prose-event-state-v2",
+      "eventOrder": [
+        "c1:e1",
+        "c1:e2",
+        "c2:e1",
+        "c2:e2"
+      ],
+      "items": {
+        "蓝信": {
+          "holderId": "mei",
+          "location": null,
+          "eventId": "c2:e1"
+        }
+      },
+      "locations": {
+        "mei": {
+          "place": "城中",
+          "eventId": "c2:e2"
+        }
+      },
+      "motivations": {},
+      "threads": {},
+      "knowledge": {},
+      "characters": {},
+      "timeRelations": [],
+      "historicalEvents": [],
+      "relationships": {},
+      "causalEvents": [],
+      "hints": [
+        {
+          "code": "ITEM_TRANSFER_GAP",
+          "eventId": "c2:e1",
+          "previousEventId": "c1:e1",
+          "severity": "soft"
+        },
+        {
+          "code": "LOCATION_TRANSITION_GAP",
+          "eventId": "c2:e2",
+          "previousEventId": "c1:e2",
+          "severity": "soft"
+        }
+      ]
+    },
+    "canonical": "{\"causalEvents\":[],\"characters\":{},\"eventOrder\":[\"c1:e1\",\"c1:e2\",\"c2:e1\",\"c2:e2\"],\"hints\":[{\"code\":\"ITEM_TRANSFER_GAP\",\"eventId\":\"c2:e1\",\"previousEventId\":\"c1:e1\",\"severity\":\"soft\"},{\"code\":\"LOCATION_TRANSITION_GAP\",\"eventId\":\"c2:e2\",\"previousEventId\":\"c1:e2\",\"severity\":\"soft\"}],\"historicalEvents\":[],\"items\":{\"蓝信\":{\"eventId\":\"c2:e1\",\"holderId\":\"mei\",\"location\":null}},\"knowledge\":{},\"locations\":{\"mei\":{\"eventId\":\"c2:e2\",\"place\":\"城中\"}},\"motivations\":{},\"relationships\":{},\"schema\":\"prose-event-state-v2\",\"threads\":{},\"timeRelations\":[]}",
+    "sha256": "d5bab3106bd359e2cea99da941ae5e167e14ff7b7676465949554b8ecbe486a0"
+  },
+  {
+    "name": "flashback",
+    "ledgers": [
+      {
+        "schema": "prose-events-v1",
+        "sourceHash": "fa5dc957f0a5d68f173e388972f5fa49733900204fde9576033897921856c26c",
+        "chapterIndex": 1,
+        "status": "model-proposed",
+        "events": [
+          {
+            "kind": "item",
+            "subjectId": "lin",
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "🙂林渡把蓝信交给梅舟。",
+            "quote": "🙂林渡把蓝信交给梅舟。",
+            "change": {
+              "item": "蓝信",
+              "fromHolderId": "lin",
+              "toHolderId": "mei",
+              "location": "渡口"
+            },
+            "id": "c1:e1",
+            "start": 0,
+            "end": 12,
+            "offsetUnit": "utf16"
+          },
+          {
+            "kind": "location",
+            "subjectId": "mei",
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "梅舟从渡口走到南岸。",
+            "quote": "梅舟从渡口走到南岸。",
+            "change": {
+              "from": "渡口",
+              "to": "南岸"
+            },
+            "id": "c1:e2",
+            "start": 12,
+            "end": 22,
+            "offsetUnit": "utf16"
+          }
+        ]
+      },
+      {
+        "schema": "prose-events-v1",
+        "sourceHash": "ce2fec7897b821969ab6d203fe45a7ad4d79379dac48c158b3d85d1df8c7c01e",
+        "chapterIndex": 2,
+        "status": "model-proposed",
+        "events": [
+          {
+            "kind": "time",
+            "subjectId": null,
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "前夜。",
+            "quote": "前夜。",
+            "change": {
+              "label": "前夜",
+              "relation": "before",
+              "relativeTo": "c1:e1"
+            },
+            "id": "c2:e1",
+            "start": 0,
+            "end": 3,
+            "offsetUnit": "utf16"
+          },
+          {
+            "kind": "item",
+            "subjectId": "lin",
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "林渡把蓝信藏起来。",
+            "quote": "林渡把蓝信藏起来。",
+            "change": {
+              "item": "蓝信",
+              "fromHolderId": "lin",
+              "toHolderId": "lin",
+              "location": "木箱"
+            },
+            "id": "c2:e2",
+            "start": 3,
+            "end": 12,
+            "offsetUnit": "utf16"
+          }
+        ]
+      }
+    ],
+    "state": {
+      "schema": "prose-event-state-v2",
+      "eventOrder": [
+        "c1:e1",
+        "c1:e2",
+        "c2:e1",
+        "c2:e2"
+      ],
+      "items": {
+        "蓝信": {
+          "holderId": "mei",
+          "location": "渡口",
+          "eventId": "c1:e1"
+        }
+      },
+      "locations": {
+        "mei": {
+          "place": "南岸",
+          "eventId": "c1:e2"
+        }
+      },
+      "motivations": {},
+      "threads": {},
+      "knowledge": {},
+      "characters": {},
+      "timeRelations": [
+        {
+          "eventId": "c2:e1",
+          "label": "前夜",
+          "relation": "before",
+          "relativeTo": "c1:e1"
+        }
+      ],
+      "historicalEvents": [
+        "c2:e2"
+      ],
+      "relationships": {},
+      "causalEvents": [],
+      "hints": []
+    },
+    "canonical": "{\"causalEvents\":[],\"characters\":{},\"eventOrder\":[\"c1:e1\",\"c1:e2\",\"c2:e1\",\"c2:e2\"],\"hints\":[],\"historicalEvents\":[\"c2:e2\"],\"items\":{\"蓝信\":{\"eventId\":\"c1:e1\",\"holderId\":\"mei\",\"location\":\"渡口\"}},\"knowledge\":{},\"locations\":{\"mei\":{\"eventId\":\"c1:e2\",\"place\":\"南岸\"}},\"motivations\":{},\"relationships\":{},\"schema\":\"prose-event-state-v2\",\"threads\":{},\"timeRelations\":[{\"eventId\":\"c2:e1\",\"label\":\"前夜\",\"relation\":\"before\",\"relativeTo\":\"c1:e1\"}]}",
+    "sha256": "6304ec8f751a52ea854262f782f280e8b72bae268452a58d1f0a61a99b307b85"
+  },
+  {
+    "name": "unicode-key-order",
+    "ledgers": [
+      {
+        "schema": "prose-events-v1",
+        "sourceHash": "fa5dc957f0a5d68f173e388972f5fa49733900204fde9576033897921856c26c",
+        "chapterIndex": 1,
+        "status": "model-proposed",
+        "events": [
+          {
+            "kind": "item",
+            "subjectId": "lin",
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "🙂林渡把蓝信交给梅舟。",
+            "quote": "🙂林渡把蓝信交给梅舟。",
+            "change": {
+              "item": "",
+              "fromHolderId": "lin",
+              "toHolderId": "mei",
+              "location": "渡口"
+            },
+            "id": "c1:e1",
+            "start": 0,
+            "end": 12,
+            "offsetUnit": "utf16"
+          },
+          {
+            "kind": "location",
+            "subjectId": "mei",
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "梅舟从渡口走到南岸。",
+            "quote": "梅舟从渡口走到南岸。",
+            "change": {
+              "from": "渡口",
+              "to": "南岸"
+            },
+            "id": "c1:e2",
+            "start": 12,
+            "end": 22,
+            "offsetUnit": "utf16"
+          },
+          {
+            "kind": "item",
+            "subjectId": "lin",
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "🙂林渡把蓝信交给梅舟。",
+            "quote": "🙂林渡把蓝信交给梅舟。",
+            "change": {
+              "item": "🙂",
+              "fromHolderId": "lin",
+              "toHolderId": "mei",
+              "location": "渡口"
+            },
+            "id": "c1:e3",
+            "start": 0,
+            "end": 12,
+            "offsetUnit": "utf16"
+          }
+        ]
+      }
+    ],
+    "state": {
+      "schema": "prose-event-state-v2",
+      "eventOrder": [
+        "c1:e1",
+        "c1:e2",
+        "c1:e3"
+      ],
+      "items": {
+        "": {
+          "holderId": "mei",
+          "location": "渡口",
+          "eventId": "c1:e1"
+        },
+        "🙂": {
+          "holderId": "mei",
+          "location": "渡口",
+          "eventId": "c1:e3"
+        }
+      },
+      "locations": {
+        "mei": {
+          "place": "南岸",
+          "eventId": "c1:e2"
+        }
+      },
+      "motivations": {},
+      "threads": {},
+      "knowledge": {},
+      "characters": {},
+      "timeRelations": [],
+      "historicalEvents": [],
+      "relationships": {},
+      "causalEvents": [],
+      "hints": []
+    },
+    "canonical": "{\"causalEvents\":[],\"characters\":{},\"eventOrder\":[\"c1:e1\",\"c1:e2\",\"c1:e3\"],\"hints\":[],\"historicalEvents\":[],\"items\":{\"\":{\"eventId\":\"c1:e1\",\"holderId\":\"mei\",\"location\":\"渡口\"},\"🙂\":{\"eventId\":\"c1:e3\",\"holderId\":\"mei\",\"location\":\"渡口\"}},\"knowledge\":{},\"locations\":{\"mei\":{\"eventId\":\"c1:e2\",\"place\":\"南岸\"}},\"motivations\":{},\"relationships\":{},\"schema\":\"prose-event-state-v2\",\"threads\":{},\"timeRelations\":[]}",
+    "sha256": "a2dfa68d986ee181289211b0e37e47d4346a6708ce76ea173d5c4d151de935fb"
+  },
+  {
+    "name": "literal-prototype-key",
+    "ledgers": [
+      {
+        "schema": "prose-events-v1",
+        "sourceHash": "fa5dc957f0a5d68f173e388972f5fa49733900204fde9576033897921856c26c",
+        "chapterIndex": 1,
+        "status": "model-proposed",
+        "events": [
+          {
+            "kind": "item",
+            "subjectId": "lin",
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "🙂林渡把蓝信交给梅舟。",
+            "quote": "🙂林渡把蓝信交给梅舟。",
+            "change": {
+              "item": "__proto__",
+              "fromHolderId": "lin",
+              "toHolderId": "mei",
+              "location": "渡口"
+            },
+            "id": "c1:e1",
+            "start": 0,
+            "end": 12,
+            "offsetUnit": "utf16"
+          },
+          {
+            "kind": "location",
+            "subjectId": "mei",
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "梅舟从渡口走到南岸。",
+            "quote": "梅舟从渡口走到南岸。",
+            "change": {
+              "from": "渡口",
+              "to": "南岸"
+            },
+            "id": "c1:e2",
+            "start": 12,
+            "end": 22,
+            "offsetUnit": "utf16"
+          }
+        ]
+      }
+    ],
+    "state": {
+      "schema": "prose-event-state-v2",
+      "eventOrder": [
+        "c1:e1",
+        "c1:e2"
+      ],
+      "items": {
+        "__proto__": {
+          "holderId": "mei",
+          "location": "渡口",
+          "eventId": "c1:e1"
+        }
+      },
+      "locations": {
+        "mei": {
+          "place": "南岸",
+          "eventId": "c1:e2"
+        }
+      },
+      "motivations": {},
+      "threads": {},
+      "knowledge": {},
+      "characters": {},
+      "timeRelations": [],
+      "historicalEvents": [],
+      "relationships": {},
+      "causalEvents": [],
+      "hints": []
+    },
+    "canonical": "{\"causalEvents\":[],\"characters\":{},\"eventOrder\":[\"c1:e1\",\"c1:e2\"],\"hints\":[],\"historicalEvents\":[],\"items\":{\"__proto__\":{\"eventId\":\"c1:e1\",\"holderId\":\"mei\",\"location\":\"渡口\"}},\"knowledge\":{},\"locations\":{\"mei\":{\"eventId\":\"c1:e2\",\"place\":\"南岸\"}},\"motivations\":{},\"relationships\":{},\"schema\":\"prose-event-state-v2\",\"threads\":{},\"timeRelations\":[]}",
+    "sha256": "79b65e09d04de43b7232e661b887ff18b003765d59d74a134528a21837967f54"
+  },
+  {
+    "name": "directed-relationship-and-cause",
+    "ledgers": [
+      {
+        "schema": "prose-events-v1",
+        "sourceHash": "4c9cd6b0258f1ce3af17a48a16d20fcbcb76d3e9b3c947c300f7e0c7dfbebbbd",
+        "chapterIndex": 1,
+        "status": "model-proposed",
+        "events": [
+          {
+            "kind": "relationship",
+            "subjectId": "lin",
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "林渡与梅舟结盟。",
+            "quote": "林渡与梅舟结盟。",
+            "change": {
+              "otherId": "mei",
+              "relation": "盟友"
+            },
+            "id": "c1:e1",
+            "start": 0,
+            "end": 8,
+            "offsetUnit": "utf16"
+          },
+          {
+            "kind": "event",
+            "subjectId": "lin",
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "结盟后两人同行。",
+            "quote": "结盟后两人同行。",
+            "change": {
+              "effect": "两人同行",
+              "causedBy": [
+                "c1:e1"
+              ]
+            },
+            "id": "c1:e2",
+            "start": 8,
+            "end": 16,
+            "offsetUnit": "utf16"
+          }
+        ]
+      },
+      {
+        "schema": "prose-events-v1",
+        "sourceHash": "a45cecaa92c74d211c543abb9046b3b96fb2e8429cf5e584cee42bdfb1876613",
+        "chapterIndex": 2,
+        "status": "model-proposed",
+        "events": [
+          {
+            "kind": "relationship",
+            "subjectId": "lin",
+            "certainty": "inferred",
+            "confidence": 850,
+            "statement": "也许林渡视梅舟为对手。",
+            "quote": "也许林渡视梅舟为对手。",
+            "change": {
+              "otherId": "mei",
+              "relation": "对手"
+            },
+            "id": "c2:e1",
+            "start": 0,
+            "end": 11,
+            "offsetUnit": "utf16"
+          },
+          {
+            "kind": "time",
+            "subjectId": null,
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "结盟以前。",
+            "quote": "结盟以前。",
+            "change": {
+              "label": "结盟前",
+              "relation": "before",
+              "relativeTo": "c1:e1"
+            },
+            "id": "c2:e2",
+            "start": 11,
+            "end": 16,
+            "offsetUnit": "utf16"
+          },
+          {
+            "kind": "relationship",
+            "subjectId": "lin",
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "两人曾经互相警惕。",
+            "quote": "两人曾经互相警惕。",
+            "change": {
+              "otherId": "mei",
+              "relation": "警惕"
+            },
+            "id": "c2:e3",
+            "start": 16,
+            "end": 25,
+            "offsetUnit": "utf16"
+          },
+          {
+            "kind": "event",
+            "subjectId": "lin",
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "警惕使他们分头离开。",
+            "quote": "警惕使他们分头离开。",
+            "change": {
+              "effect": "分头离开",
+              "causedBy": [
+                "c2:e3"
+              ]
+            },
+            "id": "c2:e4",
+            "start": 25,
+            "end": 35,
+            "offsetUnit": "utf16"
+          }
+        ]
+      },
+      {
+        "schema": "prose-events-v1",
+        "sourceHash": "c948ee74b44497ae982c6a85b67caee622e9ef7aef6c8fc6de8f8366d5b79b22",
+        "chapterIndex": 3,
+        "status": "model-proposed",
+        "events": [
+          {
+            "kind": "relationship",
+            "subjectId": "mei",
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "梅舟已经信任林渡。",
+            "quote": "梅舟已经信任林渡。",
+            "change": {
+              "otherId": "lin",
+              "relation": "信任"
+            },
+            "id": "c3:e1",
+            "start": 0,
+            "end": 9,
+            "offsetUnit": "utf16"
+          },
+          {
+            "kind": "relationship",
+            "subjectId": "lin",
+            "certainty": "narrated",
+            "confidence": 850,
+            "statement": "林渡明确解除同盟。",
+            "quote": "林渡明确解除同盟。",
+            "change": {
+              "otherId": "mei",
+              "relation": "解除同盟"
+            },
+            "id": "c3:e2",
+            "start": 9,
+            "end": 18,
+            "offsetUnit": "utf16"
+          }
+        ]
+      }
+    ],
+    "state": {
+      "schema": "prose-event-state-v2",
+      "eventOrder": [
+        "c1:e1",
+        "c1:e2",
+        "c2:e1",
+        "c2:e2",
+        "c2:e3",
+        "c2:e4",
+        "c3:e1",
+        "c3:e2"
+      ],
+      "items": {},
+      "locations": {},
+      "motivations": {},
+      "threads": {},
+      "knowledge": {},
+      "characters": {},
+      "timeRelations": [
+        {
+          "eventId": "c2:e2",
+          "label": "结盟前",
+          "relation": "before",
+          "relativeTo": "c1:e1"
+        }
+      ],
+      "historicalEvents": [
+        "c2:e3",
+        "c2:e4"
+      ],
+      "relationships": {
+        "lin": {
+          "mei": {
+            "relation": "解除同盟",
+            "eventId": "c3:e2"
+          }
+        },
+        "mei": {
+          "lin": {
+            "relation": "信任",
+            "eventId": "c3:e1"
+          }
+        }
+      },
+      "causalEvents": [
+        {
+          "eventId": "c1:e2",
+          "effect": "两人同行",
+          "causedBy": [
+            "c1:e1"
+          ],
+          "temporalFrame": "present"
+        },
+        {
+          "eventId": "c2:e4",
+          "effect": "分头离开",
+          "causedBy": [
+            "c2:e3"
+          ],
+          "temporalFrame": "past"
+        }
+      ],
+      "hints": []
+    },
+    "canonical": "{\"causalEvents\":[{\"causedBy\":[\"c1:e1\"],\"effect\":\"两人同行\",\"eventId\":\"c1:e2\",\"temporalFrame\":\"present\"},{\"causedBy\":[\"c2:e3\"],\"effect\":\"分头离开\",\"eventId\":\"c2:e4\",\"temporalFrame\":\"past\"}],\"characters\":{},\"eventOrder\":[\"c1:e1\",\"c1:e2\",\"c2:e1\",\"c2:e2\",\"c2:e3\",\"c2:e4\",\"c3:e1\",\"c3:e2\"],\"hints\":[],\"historicalEvents\":[\"c2:e3\",\"c2:e4\"],\"items\":{},\"knowledge\":{},\"locations\":{},\"motivations\":{},\"relationships\":{\"lin\":{\"mei\":{\"eventId\":\"c3:e2\",\"relation\":\"解除同盟\"}},\"mei\":{\"lin\":{\"eventId\":\"c3:e1\",\"relation\":\"信任\"}}},\"schema\":\"prose-event-state-v2\",\"threads\":{},\"timeRelations\":[{\"eventId\":\"c2:e2\",\"label\":\"结盟前\",\"relation\":\"before\",\"relativeTo\":\"c1:e1\"}]}",
+    "sha256": "452af91f14091060b8f5f7d1b6a063e25a32da4209a2f60e2a1a4c4ade7e4eea"
+  },
+  {
+    "name": "cross-batch-soft-transition",
+    "groups": [
+      {
+        "scope": "first",
+        "ledgers": [
+          {
+            "schema": "prose-events-v1",
+            "sourceHash": "fa5dc957f0a5d68f173e388972f5fa49733900204fde9576033897921856c26c",
+            "chapterIndex": 1,
+            "status": "model-proposed",
+            "events": [
+              {
+                "kind": "item",
+                "subjectId": "lin",
+                "certainty": "narrated",
+                "confidence": 850,
+                "statement": "🙂林渡把蓝信交给梅舟。",
+                "quote": "🙂林渡把蓝信交给梅舟。",
+                "change": {
+                  "item": "蓝信",
+                  "fromHolderId": "lin",
+                  "toHolderId": "mei",
+                  "location": "渡口"
+                },
+                "id": "c1:e1",
+                "start": 0,
+                "end": 12,
+                "offsetUnit": "utf16"
+              },
+              {
+                "kind": "location",
+                "subjectId": "mei",
+                "certainty": "narrated",
+                "confidence": 850,
+                "statement": "梅舟从渡口走到南岸。",
+                "quote": "梅舟从渡口走到南岸。",
+                "change": {
+                  "from": "渡口",
+                  "to": "南岸"
+                },
+                "id": "c1:e2",
+                "start": 12,
+                "end": 22,
+                "offsetUnit": "utf16"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "scope": "next",
+        "ledgers": [
+          {
+            "schema": "prose-events-v1",
+            "sourceHash": "800bc2b618b7d30256263a53df273d47f01e627098267329cc94e5534a8d4cd5",
+            "chapterIndex": 1,
+            "status": "model-proposed",
+            "events": [
+              {
+                "kind": "item",
+                "subjectId": "lin",
+                "certainty": "narrated",
+                "confidence": 850,
+                "statement": "林渡把蓝信再交给梅舟。",
+                "quote": "林渡把蓝信再交给梅舟。",
+                "change": {
+                  "item": "蓝信",
+                  "fromHolderId": "lin",
+                  "toHolderId": "mei",
+                  "location": null
+                },
+                "id": "c1:e1",
+                "start": 0,
+                "end": 11,
+                "offsetUnit": "utf16"
+              },
+              {
+                "kind": "location",
+                "subjectId": "mei",
+                "certainty": "narrated",
+                "confidence": 850,
+                "statement": "梅舟从北岸去城中。",
+                "quote": "梅舟从北岸去城中。",
+                "change": {
+                  "from": "北岸",
+                  "to": "城中"
+                },
+                "id": "c1:e2",
+                "start": 11,
+                "end": 20,
+                "offsetUnit": "utf16"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "state": {
+      "schema": "prose-event-state-v2",
+      "eventOrder": [
+        "first/c1:e1",
+        "first/c1:e2",
+        "next/c1:e1",
+        "next/c1:e2"
+      ],
+      "items": {
+        "蓝信": {
+          "holderId": "mei",
+          "location": null,
+          "eventId": "next/c1:e1"
+        }
+      },
+      "locations": {
+        "mei": {
+          "place": "城中",
+          "eventId": "next/c1:e2"
+        }
+      },
+      "motivations": {},
+      "threads": {},
+      "knowledge": {},
+      "characters": {},
+      "timeRelations": [],
+      "historicalEvents": [],
+      "relationships": {},
+      "causalEvents": [],
+      "hints": [
+        {
+          "code": "ITEM_TRANSFER_GAP",
+          "eventId": "next/c1:e1",
+          "previousEventId": "first/c1:e1",
+          "severity": "soft"
+        },
+        {
+          "code": "LOCATION_TRANSITION_GAP",
+          "eventId": "next/c1:e2",
+          "previousEventId": "first/c1:e2",
+          "severity": "soft"
+        }
+      ]
+    },
+    "canonical": "{\"causalEvents\":[],\"characters\":{},\"eventOrder\":[\"first/c1:e1\",\"first/c1:e2\",\"next/c1:e1\",\"next/c1:e2\"],\"hints\":[{\"code\":\"ITEM_TRANSFER_GAP\",\"eventId\":\"next/c1:e1\",\"previousEventId\":\"first/c1:e1\",\"severity\":\"soft\"},{\"code\":\"LOCATION_TRANSITION_GAP\",\"eventId\":\"next/c1:e2\",\"previousEventId\":\"first/c1:e2\",\"severity\":\"soft\"}],\"historicalEvents\":[],\"items\":{\"蓝信\":{\"eventId\":\"next/c1:e1\",\"holderId\":\"mei\",\"location\":null}},\"knowledge\":{},\"locations\":{\"mei\":{\"eventId\":\"next/c1:e2\",\"place\":\"城中\"}},\"motivations\":{},\"relationships\":{},\"schema\":\"prose-event-state-v2\",\"threads\":{},\"timeRelations\":[]}",
+    "sha256": "b2834d5b0a892bbcbd53e93fbeb942a5239dc86c7ec648d701ba9c26873df173"
+  },
+  {
+    "name": "namespaced-multiple-batches",
+    "groups": [
+      {
+        "scope": "a@v1",
+        "ledgers": [
+          {
+            "schema": "prose-events-v1",
+            "sourceHash": "fa5dc957f0a5d68f173e388972f5fa49733900204fde9576033897921856c26c",
+            "chapterIndex": 1,
+            "status": "model-proposed",
+            "events": [
+              {
+                "kind": "item",
+                "subjectId": "lin",
+                "certainty": "narrated",
+                "confidence": 850,
+                "statement": "🙂林渡把蓝信交给梅舟。",
+                "quote": "🙂林渡把蓝信交给梅舟。",
+                "change": {
+                  "item": "蓝信",
+                  "fromHolderId": "lin",
+                  "toHolderId": "mei",
+                  "location": "渡口"
+                },
+                "id": "c1:e1",
+                "start": 0,
+                "end": 12,
+                "offsetUnit": "utf16"
+              },
+              {
+                "kind": "location",
+                "subjectId": "mei",
+                "certainty": "narrated",
+                "confidence": 850,
+                "statement": "梅舟从渡口走到南岸。",
+                "quote": "梅舟从渡口走到南岸。",
+                "change": {
+                  "from": "渡口",
+                  "to": "南岸"
+                },
+                "id": "c1:e2",
+                "start": 12,
+                "end": 22,
+                "offsetUnit": "utf16"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "scope": "b@v2",
+        "ledgers": [
+          {
+            "schema": "prose-events-v1",
+            "sourceHash": "4c9cd6b0258f1ce3af17a48a16d20fcbcb76d3e9b3c947c300f7e0c7dfbebbbd",
+            "chapterIndex": 1,
+            "status": "model-proposed",
+            "events": [
+              {
+                "kind": "relationship",
+                "subjectId": "lin",
+                "certainty": "narrated",
+                "confidence": 850,
+                "statement": "林渡与梅舟结盟。",
+                "quote": "林渡与梅舟结盟。",
+                "change": {
+                  "otherId": "mei",
+                  "relation": "盟友"
+                },
+                "id": "c1:e1",
+                "start": 0,
+                "end": 8,
+                "offsetUnit": "utf16"
+              },
+              {
+                "kind": "event",
+                "subjectId": "lin",
+                "certainty": "narrated",
+                "confidence": 850,
+                "statement": "结盟后两人同行。",
+                "quote": "结盟后两人同行。",
+                "change": {
+                  "effect": "两人同行",
+                  "causedBy": [
+                    "c1:e1"
+                  ]
+                },
+                "id": "c1:e2",
+                "start": 8,
+                "end": 16,
+                "offsetUnit": "utf16"
+              }
+            ]
+          },
+          {
+            "schema": "prose-events-v1",
+            "sourceHash": "a45cecaa92c74d211c543abb9046b3b96fb2e8429cf5e584cee42bdfb1876613",
+            "chapterIndex": 2,
+            "status": "model-proposed",
+            "events": [
+              {
+                "kind": "relationship",
+                "subjectId": "lin",
+                "certainty": "inferred",
+                "confidence": 850,
+                "statement": "也许林渡视梅舟为对手。",
+                "quote": "也许林渡视梅舟为对手。",
+                "change": {
+                  "otherId": "mei",
+                  "relation": "对手"
+                },
+                "id": "c2:e1",
+                "start": 0,
+                "end": 11,
+                "offsetUnit": "utf16"
+              },
+              {
+                "kind": "time",
+                "subjectId": null,
+                "certainty": "narrated",
+                "confidence": 850,
+                "statement": "结盟以前。",
+                "quote": "结盟以前。",
+                "change": {
+                  "label": "结盟前",
+                  "relation": "before",
+                  "relativeTo": "c1:e1"
+                },
+                "id": "c2:e2",
+                "start": 11,
+                "end": 16,
+                "offsetUnit": "utf16"
+              },
+              {
+                "kind": "relationship",
+                "subjectId": "lin",
+                "certainty": "narrated",
+                "confidence": 850,
+                "statement": "两人曾经互相警惕。",
+                "quote": "两人曾经互相警惕。",
+                "change": {
+                  "otherId": "mei",
+                  "relation": "警惕"
+                },
+                "id": "c2:e3",
+                "start": 16,
+                "end": 25,
+                "offsetUnit": "utf16"
+              },
+              {
+                "kind": "event",
+                "subjectId": "lin",
+                "certainty": "narrated",
+                "confidence": 850,
+                "statement": "警惕使他们分头离开。",
+                "quote": "警惕使他们分头离开。",
+                "change": {
+                  "effect": "分头离开",
+                  "causedBy": [
+                    "c2:e3"
+                  ]
+                },
+                "id": "c2:e4",
+                "start": 25,
+                "end": 35,
+                "offsetUnit": "utf16"
+              }
+            ]
+          },
+          {
+            "schema": "prose-events-v1",
+            "sourceHash": "c948ee74b44497ae982c6a85b67caee622e9ef7aef6c8fc6de8f8366d5b79b22",
+            "chapterIndex": 3,
+            "status": "model-proposed",
+            "events": [
+              {
+                "kind": "relationship",
+                "subjectId": "mei",
+                "certainty": "narrated",
+                "confidence": 850,
+                "statement": "梅舟已经信任林渡。",
+                "quote": "梅舟已经信任林渡。",
+                "change": {
+                  "otherId": "lin",
+                  "relation": "信任"
+                },
+                "id": "c3:e1",
+                "start": 0,
+                "end": 9,
+                "offsetUnit": "utf16"
+              },
+              {
+                "kind": "relationship",
+                "subjectId": "lin",
+                "certainty": "narrated",
+                "confidence": 850,
+                "statement": "林渡明确解除同盟。",
+                "quote": "林渡明确解除同盟。",
+                "change": {
+                  "otherId": "mei",
+                  "relation": "解除同盟"
+                },
+                "id": "c3:e2",
+                "start": 9,
+                "end": 18,
+                "offsetUnit": "utf16"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "state": {
+      "schema": "prose-event-state-v2",
+      "eventOrder": [
+        "a@v1/c1:e1",
+        "a@v1/c1:e2",
+        "b@v2/c1:e1",
+        "b@v2/c1:e2",
+        "b@v2/c2:e1",
+        "b@v2/c2:e2",
+        "b@v2/c2:e3",
+        "b@v2/c2:e4",
+        "b@v2/c3:e1",
+        "b@v2/c3:e2"
+      ],
+      "items": {
+        "蓝信": {
+          "holderId": "mei",
+          "location": "渡口",
+          "eventId": "a@v1/c1:e1"
+        }
+      },
+      "locations": {
+        "mei": {
+          "place": "南岸",
+          "eventId": "a@v1/c1:e2"
+        }
+      },
+      "motivations": {},
+      "threads": {},
+      "knowledge": {},
+      "characters": {},
+      "timeRelations": [
+        {
+          "eventId": "b@v2/c2:e2",
+          "label": "结盟前",
+          "relation": "before",
+          "relativeTo": "b@v2/c1:e1"
+        }
+      ],
+      "historicalEvents": [
+        "b@v2/c2:e3",
+        "b@v2/c2:e4"
+      ],
+      "relationships": {
+        "lin": {
+          "mei": {
+            "relation": "解除同盟",
+            "eventId": "b@v2/c3:e2"
+          }
+        },
+        "mei": {
+          "lin": {
+            "relation": "信任",
+            "eventId": "b@v2/c3:e1"
+          }
+        }
+      },
+      "causalEvents": [
+        {
+          "eventId": "b@v2/c1:e2",
+          "effect": "两人同行",
+          "causedBy": [
+            "b@v2/c1:e1"
+          ],
+          "temporalFrame": "present"
+        },
+        {
+          "eventId": "b@v2/c2:e4",
+          "effect": "分头离开",
+          "causedBy": [
+            "b@v2/c2:e3"
+          ],
+          "temporalFrame": "past"
+        }
+      ],
+      "hints": []
+    },
+    "canonical": "{\"causalEvents\":[{\"causedBy\":[\"b@v2/c1:e1\"],\"effect\":\"两人同行\",\"eventId\":\"b@v2/c1:e2\",\"temporalFrame\":\"present\"},{\"causedBy\":[\"b@v2/c2:e3\"],\"effect\":\"分头离开\",\"eventId\":\"b@v2/c2:e4\",\"temporalFrame\":\"past\"}],\"characters\":{},\"eventOrder\":[\"a@v1/c1:e1\",\"a@v1/c1:e2\",\"b@v2/c1:e1\",\"b@v2/c1:e2\",\"b@v2/c2:e1\",\"b@v2/c2:e2\",\"b@v2/c2:e3\",\"b@v2/c2:e4\",\"b@v2/c3:e1\",\"b@v2/c3:e2\"],\"hints\":[],\"historicalEvents\":[\"b@v2/c2:e3\",\"b@v2/c2:e4\"],\"items\":{\"蓝信\":{\"eventId\":\"a@v1/c1:e1\",\"holderId\":\"mei\",\"location\":\"渡口\"}},\"knowledge\":{},\"locations\":{\"mei\":{\"eventId\":\"a@v1/c1:e2\",\"place\":\"南岸\"}},\"motivations\":{},\"relationships\":{\"lin\":{\"mei\":{\"eventId\":\"b@v2/c3:e2\",\"relation\":\"解除同盟\"}},\"mei\":{\"lin\":{\"eventId\":\"b@v2/c3:e1\",\"relation\":\"信任\"}}},\"schema\":\"prose-event-state-v2\",\"threads\":{},\"timeRelations\":[{\"eventId\":\"b@v2/c2:e2\",\"label\":\"结盟前\",\"relation\":\"before\",\"relativeTo\":\"b@v2/c1:e1\"}]}",
+    "sha256": "dbb669198aa83bff48c600798d491a312219672617b4bb05766e5a7d29417916"
+  }
+]

@@ -1,0 +1,5 @@
+<script setup lang="ts">
+import PageHeader from '../workspace/PageHeader.vue'
+</script>
+<template><div class="workspace-page data-use"><PageHeader title="数据与使用说明" description="当前账号版本的保存、公开和模型处理范围。"/><section class="workspace-card"><h2>账号和私人内容</h2><p>使用账号保存故事、游玩存档、独立聊天、记忆及阅读进度。未公开的内容不进入公开作品目录。请保存账号恢复码；当前不提供邮件找回，密码和恢复码都丢失时无法保证找回账号。</p><h2>公开作品与玩家副本</h2><p>只有你主动提交并通过审核的作品版本会公开。公开版本包含可游玩的设定、开局、知识和封面；其他用户可以保存并编辑自己的副本。私人聊天、已有玩家存档和模型密钥不会随作品发布。撤下作品不会远程删除他人已经保存的副本。</p><h2>模型处理与费用</h2><p>发起生成时，必要的故事上下文、允许人物知道的资料及你提供的提示会发送到所选模型服务。文本、出图和画面校验分别使用对应通道。平台内测积分是否扣除以权益页显示为准，供应商费用和额度分别计算；费用未知不表示免费。</p><h2>导出和删除</h2><p>账号设置可导出加密备份，文件由你保管；忘记备份口令无法解密。注销账号会停用登录并进入后台清理，可以通过回执查询。部署者手工制作的离线备份需要单独管理，不能承诺注销立即删除所有离线副本。</p><h2>问题反馈</h2><p>反馈仅向你和处理问题的管理员展示。诊断默认不包含小说、聊天正文或密钥；截图和描述由你主动选择提交。</p><RouterLink to="/help/feedback">提交问题或查看回执</RouterLink><RouterLink to="/settings?section=data">数据与备份</RouterLink><RouterLink to="/login">返回登录</RouterLink></section></div></template>
+<style scoped>.data-use{max-width:900px}.data-use h2{margin-top:28px}.data-use p{line-height:1.9}.data-use a{display:inline-block;padding:12px;margin-right:12px;min-height:44px}</style>
