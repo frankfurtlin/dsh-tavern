@@ -4,7 +4,7 @@ const locate=(path:string,params:Record<string,string>={})=>pageLocation({path,p
 describe('secondary page navigation',()=>{
  it.each(['/product/account','/product/wallet','/product/admin','/settings/models'])('%s returns to account settings on direct entry',path=>{
   expect(locate(path).parent?.path).toBe('/settings')
-  expect(locate(path).title).not.toBe('故事之间')
+  expect(locate(path).title).not.toBe('酒馆')
  })
  it('keeps historical import in the data settings section',()=>expect(locate('/settings/import-history').parent?.path).toBe('/settings?section=data'))
  it('returns from an author editor to its exact work',()=>expect(locate('/worlds/abc/author',{worldId:'abc'})).toMatchObject({area:{path:'/worlds/scripts'},parent:{path:'/stories/world-abc'}}))

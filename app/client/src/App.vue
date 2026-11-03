@@ -45,7 +45,7 @@ onMounted(async()=>{cleanup=await lifecycle(async()=>{if(await refreshAuth()){st
 </script>
 <template>
  <StartupPlaceholder v-if="!store.booted"/>
- <AppShell v-else-if="store.user&&!['/login','/register','/recover'].includes(route.path)" :navigation="workspaceNavigation" :groups="workspaceGroups" :immersive="!!reading" :work-entry="route.path.startsWith('/stories/')" main-id="main" scope-label="故事之间">
+ <AppShell v-else-if="store.user&&!['/login','/register','/recover'].includes(route.path)" :navigation="workspaceNavigation" :groups="workspaceGroups" :immersive="!!reading" :work-entry="route.path.startsWith('/stories/')" main-id="main" scope-label="酒馆">
   <template #sidebar-footer><AccountPanel/></template>
   <template #header-actions><HeaderActions/></template>
   <div v-if="!store.online" class="offline"><WifiOff :size="16"/>离线阅读 · 仅显示此账号已缓存内容</div>

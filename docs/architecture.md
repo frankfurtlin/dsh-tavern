@@ -1,24 +1,25 @@
-# dsh-story-between 架构
+# dsh-tavern 架构
 
 ## 一句话
 
 插件由**两个半边**组成：`lib/index.js`（host 半）在 DSH Web 里注册
-`prefix /story` 反向代理，把本地写作应用挂到 DSH 登录态后面；`client.js`
+`prefix /tavern` 反向代理（旧 `/story` 作为兼容别名），把本地写作应用挂到 DSH
+登录态后面；`client.js`
 （client 半）在浏览器里注册侧栏入口与主面板，用同源 iframe 展示应用，
 并用 `postMessage`（P2 桥）把当前故事上下文交给 DSH Agent 续写 / 角色扮演。
 
 ```
 ┌────────────────────────── DSH Web (127.0.0.1:3080) ──────────────────────────┐
 │  client.js（浏览器）                                                          │
-│   ├─ slots.register('sidebar.panellist', id=story, order=24)                 │
-│   └─ slots.register('main', key=story)                                       │
-│        └─ 工具条 + <iframe src="/story/">  ←── P2 postMessage ──┐             │
+│   ├─ slots.register('sidebar.panellist', id=tavern, order=24)                 │
+│   └─ slots.register('main', key=tavern)                                       │
+│        └─ 工具条 + <iframe src="/tavern/">  ←── P2 postMessage ──┐             │
 │                                                                │             │
 │  lib/index.js（host）                                          │             │
 │   ├─ ctx.get('connection').requestRejection(req)  ← 登录闸门   │             │
-│   └─ ctx.webServer.register({kind:'prefix', path:'/story'})    │             │
+│   └─ ctx.webServer.register({kind:'prefix', path:'/tavern'})    │             │
 └───────────────┬────────────────────────────────────────────────┘             │
-                │ 剥掉 /story 前缀                                             │
+                │ 剥掉 /tavern 前缀                                             │
      ┌──────────┴───────────┐                                                   │
      ▼                      ▼                                                   │
  /api/** /health/**      其余 /assets、HTML、sw.js                              │
@@ -34,7 +35,7 @@
 
 ### 闸门
 
-每个进入 `/story` 的请求先调用宿主的
+每个进入 `/tavern` 的请求先调用宿主的
 `ctx.get('connection', false)?.requestRejection(req)`：
 
 | 返回值 | 含义 | 插件行为 |
@@ -43,21 +44,32 @@
 | `401` | 未通过浏览器登录（无 token/cookie） | 返回 401 纯文本，沿用 DSH 措辞 |
 | `403` | Host/Origin 不在信任列表 | 返回 403 纯文本，沿用 DSH 措辞 |
 
-这样内嵌面板天然继承 DSH 的登录态，插件不另做一套认证；`/story`
+这样内嵌面板天然继承 DSH 的登录态，插件不另做一套认证；`/tavern`
 在公网上也只能经 Caddy → DSH 网关访问，端口本身只监听回环地址。
 
 ### 分流（先剥前缀，再转发）
 
 | 浏览器请求 | 上游 | 超时 | 额外头 |
 | --- | --- | --- | --- |
-| `/story/api/**` | `127.0.0.1:8001` | **不设**（生成/续写可能数分钟） | `x-dsh-trusted: <secret>` |
-| `/story/health/**` | `127.0.0.1:8001` | **不设** | 同上 |
-| `/story/`、`/story/assets/**`、`/story/sw.js`… | `127.0.0.1:8810` | 10s | 无 |
-| `/story`（无尾斜杠） | `127.0.0.1:8810` 的 `/` | 10s | 无 |
+| `/tavern/api/**` | `127.0.0.1:8001` | **不设**（生成/续写可能数分钟） | `x-dsh-trusted: <secret>` |
+| `/tavern/health/**` | `127.0.0.1:8001` | **不设** | 同上 |
+| `/tavern/`、`/tavern/assets/**`、`/tavern/sw.js`… | `127.0.0.1:8810` | 10s | 无 |
+| `/tavern`（无尾斜杠） | `127.0.0.1:8810` 的 `/` | 10s | 无 |
 
-上游路径是「剥掉 `/story` 之后」的路径：应用 dist 已按 `base=/story` 构建，
-页面里引用 `/story/assets/...`，静态服务器本身不认识 `story` 段，所以必须在
-插件里剥掉。`/story/api/...` 到 uvicorn 时同样只剩 `/api/...`。
+上游路径是「剥掉 `/tavern` 之后」的路径：应用 dist 已按 `base=/tavern` 构建，
+页面里引用 `/tavern/assets/...`，静态服务器本身不认识 `tavern` 段，所以必须在
+插件里剥掉。`/tavern/api/...` 到 uvicorn 时同样只剩 `/api/...`。
+
+### 旧前缀 `/story` 兼容别名
+
+插件同时注册 `prefix /story`，指向同一个 handler，行为分两种：
+
+| 旧请求 | 行为 | 原因 |
+| --- | --- | --- |
+| `GET/HEAD /story/...` | `302` 到 `/tavern/...`，保留 path 后缀与 query | 书签、旧 iframe 缓存、外链都能平滑换到新地址；用 302 而非 301，别名将来下线时浏览器不会永久缓存 |
+| `POST/PUT/PATCH/DELETE /story/...` | **不重定向**，把请求前缀改写成 `/tavern` 后照常反代 | 302 会把 POST 降级成 GET 并丢 body；308 又要求客户端重放 body（浏览器做不到无感）。原地改写 body 一个字节都不碰 |
+
+两种路径都先过登录闸门；命中分流规则与 `/tavern` 完全一致。
 
 ### 头处理
 
@@ -76,8 +88,8 @@
   生成第一帧不会憋在代理层。
 - API 不设响应超时；静态上游 10s 不响应则销毁连接。
 - 错误只回中文友好文案，细节（错误码、端口、路径）只进宿主日志：
-  - 上游连不上 → `502 故事之间应用暂时不可用，请稍后重试。`
-  - 静态上游超时 → `504 故事之间应用响应超时，请稍后重试。`
+  - 上游连不上 → `502 酒馆应用暂时不可用，请稍后重试。`
+  - 静态上游超时 → `504 酒馆应用响应超时，请稍后重试。`
 - 客户端断开（`req` aborted / `res` close）时销毁上游请求，避免泄漏。
 
 ## 前端面板结构（client 半）
@@ -86,8 +98,8 @@
 
 | 座位 | 注册项 | 说明 |
 | --- | --- | --- |
-| `sidebar.panellist` | `{ id: 'story', order: 24, label: () => '故事之间' }` | 侧栏一行；图标是手写 SVG（`data-dsh-panel-entry="story"`） |
-| `main` | `{ key: 'story', inject: () => ({ askDsh }) }` | 主面板；点击侧栏行后由宿主按 key 找到组件 |
+| `sidebar.panellist` | `{ id: 'tavern', order: 24, label: () => '酒馆' }` | 侧栏一行；图标是手写 SVG（`data-dsh-panel-entry="tavern"`） |
+| `main` | `{ key: 'tavern', inject: () => ({ askDsh }) }` | 主面板；点击侧栏行后由宿主按 key 找到组件 |
 
 `order=24` 落在紫微斗数（20）与 Skill Center（30）之间。
 
@@ -95,15 +107,15 @@
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ 故事之间  当前：/worlds/w1/play    [续写要求 / @角色名] [让 DSH 续写] [角色扮演] [刷新] [新窗口打开] │
+│ 酒馆  当前：/worlds/w1/play    [续写要求 / @角色名] [让 DSH 续写] [角色扮演] [刷新] [新窗口打开] │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│                         <iframe src="/story/"> 应用本体                      │
+│                         <iframe src="/tavern/"> 应用本体                      │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-iframe 地址是 `new URL('story/', document.baseURI)`：与宿主同源，cookie /
+iframe 地址是 `new URL('tavern/', document.baseURI)`：与宿主同源，cookie /
 登录态自然共享，也方便 P2 用 `window.location.origin` 做目标校验。
 若上次在应用里打开过正文页（应用上报过有效 `appPath`），重新挂载面板时
 iframe 会恢复到那里，见下文「位置记忆」。
@@ -112,22 +124,22 @@ iframe 会恢复到那里，见下文「位置记忆」。
 
 | 动作 | `data` 锚点 | 行为 |
 | --- | --- | --- |
-| 让 DSH 续写 | `data-dsh-story-action="continue"` | 读上下文 → 组续写 prompt → 新开 DSH 会话 |
-| 角色扮演 | `data-dsh-story-action="roleplay"` | 读上下文 → 选角色 → 组角色扮演 prompt |
-| 刷新 | `data-dsh-story-action="reload"` | 清掉位置记忆并回 `/story/` 应用首页重新加载（恢复失败时的兜底） |
-| 新窗口打开 | `data-dsh-story-action="open"` | 新标签页打开 `/story/` |
-| 额外要求 | `data-dsh-story-extra` | 输入框；回车等同「让 DSH 续写」 |
+| 让 DSH 续写 | `data-dsh-tavern-action="continue"` | 读上下文 → 组续写 prompt → 新开 DSH 会话 |
+| 角色扮演 | `data-dsh-tavern-action="roleplay"` | 读上下文 → 选角色 → 组角色扮演 prompt |
+| 刷新 | `data-dsh-tavern-action="reload"` | 清掉位置记忆并回 `/tavern/` 应用首页重新加载（恢复失败时的兜底） |
+| 新窗口打开 | `data-dsh-tavern-action="open"` | 新标签页打开 `/tavern/` |
+| 额外要求 | `data-dsh-tavern-extra` | 输入框；回车等同「让 DSH 续写」 |
 
 给自动化验收的稳定锚点：
 
 | 属性 | 值 |
 | --- | --- |
-| `data-dsh-story-view` | 面板根节点（存在即面板已挂载） |
-| `data-dsh-story-connected` | `"1"` / `"0"`：是否收到 pong/state |
-| `data-dsh-story-restored` | `"1"` / `"0"`：本次挂载是否从位置记忆恢复了 iframe 地址 |
-| `data-dsh-story-hint` | `idle` / `loading` / `waiting` / `ready` / `busy` / `sent` / `error` |
-| `data-dsh-story-status` | 工具条状态文本（人话，不保证稳定，断言优先用 hint） |
-| `data-dsh-story-frame` | iframe |
+| `data-dsh-tavern-view` | 面板根节点（存在即面板已挂载） |
+| `data-dsh-tavern-connected` | `"1"` / `"0"`：是否收到 pong/state |
+| `data-dsh-tavern-restored` | `"1"` / `"0"`：本次挂载是否从位置记忆恢复了 iframe 地址 |
+| `data-dsh-tavern-hint` | `idle` / `loading` / `waiting` / `ready` / `busy` / `sent` / `error` |
+| `data-dsh-tavern-status` | 工具条状态文本（人话，不保证稳定，断言优先用 hint） |
+| `data-dsh-tavern-frame` | iframe |
 
 状态提示优先级：动作反馈（notice）> 加载中 > 等待应用 > 未打开正文 >
 已连接并显示当前页面。`hint` 是按同一状态压缩出的稳定 token。
@@ -137,25 +149,25 @@ iframe 会恢复到那里，见下文「位置记忆」。
 DSH 切到别的面板会卸载 main 座位，iframe 一并销毁；应用重新加载后默认停在
 `/explore`，故事上下文就丢了。插件侧做一层「最后一次有效应用路由」记忆：
 
-- 应用通过 `dsh-story:state` 上报 `appPath` 且 `hasContext=true`（或 path 落在
+- 应用通过 `dsh-tavern:state` 上报 `appPath` 且 `hasContext=true`（或 path 落在
   `/worlds/` 下，`pong` 也认）时，把 `appPath` 记进模块作用域，并镜像到
-  `sessionStorage`（key `dsh-story:last-app-path`）；
-- 面板挂载时 iframe `src = 'story/' + appPath`（去掉前导 `/`），没有记忆才用
-  `story/`；`/` 首页不记；
+  `sessionStorage`（key `dsh-tavern:last-app-path`）；
+- 面板挂载时 iframe `src = 'tavern/' + appPath`（去掉前导 `/`），没有记忆才用
+  `tavern/`；`/` 首页不记；
 - 恢复期间（新文档 `onLoad` 之前）不覆盖记忆，避免 iframe 导航与 postMessage
   路由互相打架；`onLoad` 之后应用上报的路由才是权威值；
 - 恢复的地址失效（应用回落到 `/explore` 或报错页）不会卡死面板：点「刷新」
   清空记忆并回应用首页即可；插件本身不因恢复失败抛错；
-- 新增锚点 `data-dsh-story-restored` 便于验收区分「恢复」与「回首页」。
+- 新增锚点 `data-dsh-tavern-restored` 便于验收区分「恢复」与「回首页」。
 
-实现注意：`appPath` 是应用路由路径（如 `/worlds/w1/play`），**不含** `/story`
-base —— 应用用 `createWebHistory('/story')`，`router.currentRoute.value.path`
-天然去掉 base；拼 URL 时只加一次 `/story/`。
+实现注意：`appPath` 是应用路由路径（如 `/worlds/w1/play`），**不含** `/tavern`
+base —— 应用用 `createWebHistory('/tavern')`，`router.currentRoute.value.path`
+天然去掉 base；拼 URL 时只加一次 `/tavern/`。
 
 ### 主题
 
 宿主切浅色/深色时，`client.js` 观察 `document.documentElement` 的
-`color-scheme` 变化，给 iframe 发附加消息 `{type:'dsh-story:theme', theme}`
+`color-scheme` 变化，给 iframe 发附加消息 `{type:'dsh-tavern:theme', theme}`
 （契约之外，应用可选实现）；iframe onLoad 时也会补发一次当前主题。
 
 ## P2 postMessage 协议（契约 §3）
@@ -167,16 +179,16 @@ base —— 应用用 `createWebHistory('/story')`，`router.currentRoute.value.
 
 | 消息 | 字段 | 说明 |
 | --- | --- | --- |
-| `dsh-story:ping` | — | 握手；应用回 pong |
-| `dsh-story:context-request` | `id`、`kind: 'continue' \| 'roleplay'`、可空 `target` | 请求当前故事上下文；`id` 用于关联响应 |
+| `dsh-tavern:ping` | — | 握手；应用回 pong |
+| `dsh-tavern:context-request` | `id`、`kind: 'continue' \| 'roleplay'`、可空 `target` | 请求当前故事上下文；`id` 用于关联响应 |
 
 iframe → 父：
 
 | 消息 | 字段 | 说明 |
 | --- | --- | --- |
-| `dsh-story:pong` | `appPath` | 回应 ping，父页面标记已连接 |
-| `dsh-story:state` | `appPath`、`hasContext` | 应用主动上报状态（建议页面就绪时发一次） |
-| `dsh-story:context` | `id`、`ok: true`、`context{...}` 或 `ok:false`、`error` | 上下文响应 |
+| `dsh-tavern:pong` | `appPath` | 回应 ping，父页面标记已连接 |
+| `dsh-tavern:state` | `appPath`、`hasContext` | 应用主动上报状态（建议页面就绪时发一次） |
+| `dsh-tavern:context` | `id`、`ok: true`、`context{...}` 或 `ok:false`、`error` | 上下文响应 |
 
 `context` 字段：`appPath`、`worldTitle`、`lineTitle`、`mode`、
 `characters[{name, identity, speech}]`、`activeCharacter`（最近活跃角色名，
@@ -278,28 +290,28 @@ iframe → 父：
 | 配置 | 位置 | 作用 |
 | --- | --- | --- |
 | `DSH_TRUSTED_SECRET` | `app/.env` | 应用侧校验可信头的 secret；插件启动时读入 |
-| `DSH_STORY_TRUSTED_SECRET` | 宿主环境 | 覆盖上面的 secret（隔离测试/应急） |
-| `DSH_STORY_API_PORT` | 宿主环境 | 覆盖 API 上游端口（默认 8001） |
-| `DSH_STORY_STATIC_PORT` | 宿主环境 | 覆盖静态上游端口（默认 8810） |
+| `DSH_TAVERN_TRUSTED_SECRET` | 宿主环境 | 覆盖上面的 secret（隔离测试/应急） |
+| `DSH_TAVERN_API_PORT` | 宿主环境 | 覆盖 API 上游端口（默认 8001） |
+| `DSH_TAVERN_STATIC_PORT` | 宿主环境 | 覆盖静态上游端口（默认 8810） |
 
 secret 读不到时：打印告警、继续转发但**不带**可信头，应用侧按未登录处理；
-不要让宿主崩溃。日志前缀统一 `[dsh-story-between]`。
+不要让宿主崩溃。日志前缀统一 `[dsh-tavern]`。
 
 改完代码：
 
 - 只改 `client.js`：重启 DSH Web（或按宿主机制热载）后刷新页面；
 - 改 `lib/index.js`：必须重启 DSH Web 进程（host 半在启动时注册路由、读 secret）；
-- 改应用/改 `.env`：按 `app/` 的部署方式重启对应 `dsh-story-between-*` 服务，
+- 改应用/改 `.env`：按 `app/` 的部署方式重启对应 `dsh-tavern-*` 服务，
   插件不用动（secret 变了才需要重启 DSH Web）。
 
 应用以 host 侧 systemd 单元运行（单元文件在 `/etc/systemd/system/`，不随本插件仓库分发）；入口如下：
 
 | 单元 | 入口 |
 | --- | --- |
-| `dsh-story-between-api.service` | `app/venv/bin/python -m uvicorn app.main:app --port 8001` |
-| `dsh-story-between-web.service` | `/usr/bin/python3.11 app/deploy/static_server.py`（`:8810`） |
-| `dsh-story-between-worker.service` | `app/venv/bin/python -m app.worker` |
-| `dsh-story-between-world-worker.service` | `app/venv/bin/python -m app.world.worker` |
+| `dsh-tavern-api.service` | `app/venv/bin/python -m uvicorn app.main:app --port 8001` |
+| `dsh-tavern-web.service` | `/usr/bin/python3.11 app/deploy/static_server.py`（`:8810`） |
+| `dsh-tavern-worker.service` | `app/venv/bin/python -m app.worker` |
+| `dsh-tavern-world-worker.service` | `app/venv/bin/python -m app.world.worker` |
 
 ## 风险 / 待验证
 
@@ -309,7 +321,7 @@ secret 读不到时：打印告警、继续转发但**不带**可信头，应用
 2. **编辑器 DOM 依赖**：预填靠 Lexical 的 `contenteditable` + `execCommand`，
    宿主升级编辑器实现时可能失效。失效表现是「提示已复制到剪贴板」，
    不会丢内容；发现异常先查 `COMPOSER_SELECTOR` 与实际 DOM。
-3. **`dsh-story:theme` 是契约外的附加消息**：应用未实现时无影响；
+3. **`dsh-tavern:theme` 是契约外的附加消息**：应用未实现时无影响；
    应用实现时注意只切主题、不重载页面。
 4. **8 秒上下文超时**：应用读到上千字正文通常远快于此；若真实环境常超时，
    需要应用侧优化读取或调整 `CONTEXT_TIMEOUT_MS`（改之前先确认契约是否接受）。
@@ -318,10 +330,10 @@ secret 读不到时：打印告警、继续转发但**不带**可信头，应用
 
 ## 验收锚点一览（给测试用）
 
-- 侧栏：`[data-dsh-panel-entry="story"]`、label「故事之间」、order 24；
-- 面板：`[data-dsh-story-view]`、`[data-dsh-story-connected="1"]`、
-  `[data-dsh-story-frame]`（`src` 以 `/story/` 结尾）、
-  `[data-dsh-story-action=continue|roleplay|reload|open]`、`[data-dsh-story-extra]`；
+- 侧栏：`[data-dsh-panel-entry="tavern"]`、label「酒馆」、order 24；
+- 面板：`[data-dsh-tavern-view]`、`[data-dsh-tavern-connected="1"]`、
+  `[data-dsh-tavern-frame]`（`src` 以 `/tavern/` 结尾）、
+  `[data-dsh-tavern-action=continue|roleplay|reload|open]`、`[data-dsh-tavern-extra]`；
 - P2：假 iframe 可断言收到 `context-request{kind,id}`、父页面发出 `ping`/`theme`；
 - 交 Agent：替身 `uiWorkspace.startSession` 能拿到含 `【作品】/【章节】/【最近正文】`
   的 prompt，并观察到 `layout.selectPanel(null)`。

@@ -26,7 +26,7 @@ onUnmounted(()=>{disposed=true;themeGeneration++;window.removeEventListener('rea
 <template>
   <div class="final-app" :style="themeStyle">
     <template v-if="!store.vault&&initializing"><div class="legacy-device-status" role="status">正在检查历史设备资料…</div></template><template v-else-if="!store.vault&&store.available.length">
-      <div class="final-unlock"><div class="final-wordmark"><BookOpen :size="26"/><span>故事之间</span></div>
+      <div class="final-unlock"><div class="final-wordmark"><BookOpen :size="26"/><span>酒馆</span></div>
         <form class="final-vault-card" @submit.prevent="open"><span class="final-eyebrow">历史设备资料</span><h1>恢复这台设备上的资料</h1>
           <p>这里仅用于打开之前保存在这台设备上的加密资料。继续使用产品，请返回账号工作区。</p>
           <label v-if="store.available.length">历史资料<select v-model="selected"><option v-for="(vault,index) in store.available" :key="vault.id" :value="vault.id">资料 {{index+1}} · {{new Date(vault.createdAt).toLocaleDateString()}}</option></select></label>

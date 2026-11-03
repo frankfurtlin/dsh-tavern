@@ -20,7 +20,7 @@ onMounted(load)
 </script>
 <template>
  <div class="workspace-page discovery-page">
-  <PageHeader :title="store.user?'欢迎回来，'+store.user.username:'欢迎来到故事之间'" description="从一个故事开始，让每次选择都有回响。">
+  <PageHeader :title="store.user?'欢迎回来，'+store.user.username:'欢迎来到酒馆'" description="从一个故事开始，让每次选择都有回响。">
    <RouterLink to="/worlds/scripts" class="discovery-create"><Feather :size="17"/>创作作品</RouterLink>
   </PageHeader>
   <label class="workspace-search discovery-search"><Search :size="19"/><input v-model="search" type="search" aria-label="搜索作品" placeholder="搜索故事、题材或关键词"></label>

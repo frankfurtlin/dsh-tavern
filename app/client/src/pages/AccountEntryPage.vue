@@ -47,7 +47,7 @@ async function configure(){const scope=capture(),generation=++requestGeneration;
 </script>
 <template>
  <div class="entry-page" :class="{'entry-native':native}">
-  <header class="entry-header"><RouterLink to="/login" class="entry-brand"><BookOpen :size="26"/>故事之间</RouterLink><RouterLink to="/help">使用帮助</RouterLink></header>
+  <header class="entry-header"><RouterLink to="/login" class="entry-brand"><BookOpen :size="26"/>酒馆</RouterLink><RouterLink to="/help">使用帮助</RouterLink></header>
   <div class="entry-layout">
    <section class="entry-form-card" aria-label="账号登录与注册">
     <p v-if="cleanupStatus" class="hint" role="status">{{cleanupStatus}}<button @click="checkCleanup">查询清理状态</button></p>
@@ -72,7 +72,7 @@ async function configure(){const scope=capture(),generation=++requestGeneration;
     <section v-if="native" class="native-server divider"><label>后端服务器<input v-model="server" type="url" placeholder="https://你的私人服务"></label><button @click="configure">连接服务器</button><small>使用部署者允许且可达的 HTTPS 服务。</small></section>
     <p v-if="!configLoaded&&registering" class="entry-recovery-help">{{configFailed?'无法读取注册规则，请检查网络后重试。':'正在读取注册规则；提交时会由服务器核验邀请码和开放状态。'}}<button v-if="configFailed" class="text-action" @click="loadConfig">重新加载</button></p>
    </section>
-  </div><footer class="entry-bottom">故事之间 · 内测版本 <RouterLink to="/data-use">数据与使用说明</RouterLink></footer>
+  </div><footer class="entry-bottom">酒馆 · 内测版本 <RouterLink to="/data-use">数据与使用说明</RouterLink></footer>
  </div>
 </template>
 <style scoped>

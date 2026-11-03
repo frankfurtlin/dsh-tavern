@@ -1,17 +1,17 @@
 /**
- * dsh-story-between —— client 半（浏览器）。
+ * dsh-tavern —— client 半（浏览器）。
  *
  * 手写 ModuleLoader 工厂，不经打包：只依赖宿主已提供的 react / react/jsx-runtime，
  * 用 h() 直接构造元素。做三件事：
- *   1. 在侧栏「插件」组的 panellist 座位注册一行「故事之间」（order 24，落在
+ *   1. 在侧栏「插件」组的 panellist 座位注册一行「酒馆」（order 24，落在
  *      紫微斗数(20) 与 Skill Center(30) 之间）。
- *   2. 在 main 座位注册 keyed 面板页：同源 iframe 指向宿主反代的 /story/，
+ *   2. 在 main 座位注册 keyed 面板页：同源 iframe 指向宿主反代的 /tavern/，
  *      工具条提供刷新 / 新窗口 / 让 DSH 续写 / 角色扮演 / 续写要求输入。
  *   3. P2 桥：按 docs/contract.md §3 的 postMessage 协议向 iframe 要当前故事
  *      上下文，组装 prompt 后新开 DSH 会话交给 Agent（并预填编辑器 + 剪贴板兜底）。
  */
 window.__ModuleLoader__.load({
-  id: "dsh-story-between",
+  id: "dsh-tavern",
   factory: function (require) {
     var module = { exports: {} };
     var exports = module.exports;
@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     var h = react.createElement;
 
     /** 侧栏行 id —— 同时是 main 座位的 key 与图标上的 data 锚点。 */
-    var PANEL_ID = "story";
+    var PANEL_ID = "tavern";
     /** 侧栏顺序：紫微斗数 = 20，Skill Center = 30。 */
     var PANEL_ORDER = 24;
 
@@ -33,13 +33,13 @@ window.__ModuleLoader__.load({
 
     /** P2 消息类型，必须与 docs/contract.md §3 完全一致。 */
     var MSG = {
-      ping: "dsh-story:ping",
-      pong: "dsh-story:pong",
-      state: "dsh-story:state",
-      contextRequest: "dsh-story:context-request",
-      context: "dsh-story:context",
+      ping: "dsh-tavern:ping",
+      pong: "dsh-tavern:pong",
+      state: "dsh-tavern:state",
+      contextRequest: "dsh-tavern:context-request",
+      context: "dsh-tavern:context",
       // 主题同步是契约之外的附加消息：应用侧愿意听就跟着切主题，不听也无害。
-      theme: "dsh-story:theme",
+      theme: "dsh-tavern:theme",
     };
 
     /** 向 iframe 要上下文的超时：应用侧要读 store、拼摘要，给足 8 秒。 */
@@ -51,7 +51,7 @@ window.__ModuleLoader__.load({
      * iframe 恢复到那里。模块作用域内存缓存为主（SWR 式，够用且无磁盘负担），
      * 另外镜像一份到 sessionStorage，让 DSH 页面刷新后也能接上。
      */
-    var REMEMBERED_PATH_KEY = "dsh-story:last-app-path";
+    var REMEMBERED_PATH_KEY = "dsh-tavern:last-app-path";
     var rememberedAppPath = "";
 
     /** 只接受站内绝对路径；排除 `//` 开头的协议相对地址，避免拼出外站地址。 */
@@ -83,7 +83,7 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 应用路由 → iframe 地址：`story/` + 去掉前导斜杠的 path。
+     * 应用路由 → iframe 地址：`tavern/` + 去掉前导斜杠的 path。
      * 无可用记忆时返回 null，由调用方退回应用首页。
      */
     function frameHrefForAppPath(appPath) {
@@ -91,7 +91,7 @@ window.__ModuleLoader__.load({
       var rest = appPath.replace(/^\/+/, "");
       if (!rest) return null;
       try {
-        return new URL("story/" + rest, document.baseURI).href;
+        return new URL("tavern/" + rest, document.baseURI).href;
       } catch (error) {
         return null;
       }
@@ -244,7 +244,7 @@ window.__ModuleLoader__.load({
     }
 
     /** 侧栏行图标：摊开的书页 + 笔触。 */
-    function StoryPanelIcon(props) {
+    function TavernPanelIcon(props) {
       var size = (props && props.size) || 16;
       return h(
         "svg",
@@ -275,7 +275,7 @@ window.__ModuleLoader__.load({
           onClick: props.onClick,
           disabled: disabled,
           title: props.title || "",
-          "data-dsh-story-action": props.action || "",
+          "data-dsh-tavern-action": props.action || "",
           style: {
             padding: "5px 12px",
             borderRadius: 7,
@@ -297,7 +297,7 @@ window.__ModuleLoader__.load({
      * 主面板页：工具条 + 同源 iframe。
      * @param {object} props 框架 main 座位 share + 本插件注入的面（askDsh）。
      */
-    function StoryPanelPage(props) {
+    function TavernPanelPage(props) {
       var askDsh = props.askDsh;
       var iframeRef = react.useRef(null);
       var pendingRef = react.useRef(null);
@@ -316,12 +316,12 @@ window.__ModuleLoader__.load({
       var [sent, setSent] = react.useState(false);
       var [copied, setCopied] = react.useState(false);
 
-      /** 同源 iframe 地址：宿主把 /story 反代到应用，见 lib/index.js。 */
+      /** 同源 iframe 地址：宿主把 /tavern 反代到应用，见 lib/index.js。 */
       var homeHref = react.useMemo(function () {
         try {
-          return new URL("story/", document.baseURI).href;
+          return new URL("tavern/", document.baseURI).href;
         } catch (error) {
-          return "/story/";
+          return "/tavern/";
         }
       }, []);
 
@@ -358,7 +358,7 @@ window.__ModuleLoader__.load({
           return Promise.resolve({ context: null, error: "内嵌页面还没准备好" });
         }
         seqRef.current += 1;
-        var id = "story-" + Date.now().toString(36) + "-" + seqRef.current;
+        var id = "tavern-" + Date.now().toString(36) + "-" + seqRef.current;
         return new Promise(function (resolve) {
           var timer = window.setTimeout(function () {
             pendingRef.current.delete(id);
@@ -664,11 +664,11 @@ window.__ModuleLoader__.load({
       // 状态提示：notice（动作反馈）优先；否则按加载/连接情况给一句稳定的提示。
       var statusText = notice;
       if (!statusText) {
-        if (!loaded) statusText = "正在加载故事应用…";
+        if (!loaded) statusText = "正在加载酒馆应用…";
         else if (!connected) statusText = "等待应用就绪…（若一直没有反应，点「刷新」）";
         else if (!hasContext) statusText = "已连接；打开一章正文后即可让 DSH 续写";
         else if (appPath) statusText = "当前：" + appPath;
-        else statusText = "已连接故事应用";
+        else statusText = "已连接酒馆应用";
       }
       // 给自动化验收一个稳定的状态锚点：idle / loading / waiting / ready / busy / sent / error。
       var hintState = "idle";
@@ -682,11 +682,11 @@ window.__ModuleLoader__.load({
       return h(
         "div",
         {
-          "data-dsh-story-view": "",
-          "data-dsh-plugin": "story",
-          "data-dsh-story-connected": connected ? "1" : "0",
-          "data-dsh-story-restored": restored ? "1" : "0",
-          "data-dsh-story-hint": hintState,
+          "data-dsh-tavern-view": "",
+          "data-dsh-plugin": "tavern",
+          "data-dsh-tavern-connected": connected ? "1" : "0",
+          "data-dsh-tavern-restored": restored ? "1" : "0",
+          "data-dsh-tavern-hint": hintState,
           style: {
             display: "flex",
             flexDirection: "column",
@@ -708,11 +708,11 @@ window.__ModuleLoader__.load({
               flexWrap: "wrap",
             },
           },
-          h("span", { style: { fontSize: 14, fontWeight: 600 } }, "故事之间"),
+          h("span", { style: { fontSize: 14, fontWeight: 600 } }, "酒馆"),
           h(
             "span",
             {
-              "data-dsh-story-status": "",
+              "data-dsh-tavern-status": "",
               style: { fontSize: 12, color: COLORS.muted, maxWidth: "38vw", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
             },
             statusText,
@@ -720,7 +720,7 @@ window.__ModuleLoader__.load({
           h("span", { style: { flex: 1 } }),
           h("input", {
             type: "text",
-            "data-dsh-story-extra": "",
+            "data-dsh-tavern-extra": "",
             value: extra,
             placeholder: "续写要求 / @角色名（可选）",
             onChange: function (event) {
@@ -771,14 +771,14 @@ window.__ModuleLoader__.load({
             {
               action: "reload",
               onClick: reload,
-              title: "回到故事应用首页并重新加载（恢复失败时用它兜底）",
+              title: "回到酒馆应用首页并重新加载（恢复失败时用它兜底）",
             },
             "刷新",
           ),
           h(
             "a",
             {
-              "data-dsh-story-action": "open",
+              "data-dsh-tavern-action": "open",
               href: homeHref,
               target: "_blank",
               rel: "noreferrer",
@@ -791,8 +791,8 @@ window.__ModuleLoader__.load({
           ref: iframeRef,
           // src 只在挂载时取一次（记忆地址或首页）；之后变更走 reload() 直接改 DOM。
           src: initialSrcRef.current,
-          title: "故事之间",
-          "data-dsh-story-frame": "",
+          title: "酒馆",
+          "data-dsh-tavern-frame": "",
           onLoad: onFrameLoad,
           style: {
             flex: 1,
@@ -835,7 +835,7 @@ window.__ModuleLoader__.load({
           var navigation = ctx.get ? ctx.get("uiWorkspace", false) : null;
           var layout = ctx.get ? ctx.get("layout", false) : null;
           if (!navigation || typeof navigation.startSession !== "function") {
-            console.warn("[dsh-story-between] uiWorkspace 不可用，无法新建会话");
+            console.warn("[dsh-tavern] uiWorkspace 不可用，无法新建会话");
             return false;
           }
           // 注意：宿主的 startSession 是**同步 void**（navigation.d.ts），await 是空操作。
@@ -844,7 +844,7 @@ window.__ModuleLoader__.load({
           if (layout && typeof layout.selectPanel === "function") layout.selectPanel(null);
           return true;
         } catch (error) {
-          console.warn("[dsh-story-between] askDsh 失败:", error);
+          console.warn("[dsh-tavern] askDsh 失败:", error);
           return false;
         }
       }
@@ -860,7 +860,7 @@ window.__ModuleLoader__.load({
             if (view && view.id) return askDsh(prompt, view.id);
           }
         } catch (error) {
-          console.warn("[dsh-story-between] 初始化默认 Workspace 失败:", error);
+          console.warn("[dsh-tavern] 初始化默认 Workspace 失败:", error);
         }
         return askDsh(prompt);
       }
@@ -870,8 +870,8 @@ window.__ModuleLoader__.load({
         disposers.push(
           slots.inject("sidebar.panellist", function () {
             return slots.register(
-              { name: "sidebar.panellist", id: PANEL_ID, order: PANEL_ORDER, label: function () { return "故事之间"; } },
-              StoryPanelIcon,
+              { name: "sidebar.panellist", id: PANEL_ID, order: PANEL_ORDER, label: function () { return "酒馆"; } },
+              TavernPanelIcon,
             );
           }),
         );
@@ -879,12 +879,12 @@ window.__ModuleLoader__.load({
           slots.inject("main", function () {
             return slots.register(
               { name: "main", key: PANEL_ID, inject: function () { return { askDsh: ensureWorkspaceThenAsk }; } },
-              StoryPanelPage,
+              TavernPanelPage,
             );
           }),
         );
       } catch (error) {
-        console.warn("[dsh-story-between] panel registration failed:", error);
+        console.warn("[dsh-tavern] panel registration failed:", error);
       }
 
       ctx.effect(function () {
@@ -896,7 +896,7 @@ window.__ModuleLoader__.load({
           }
           disposers.length = 0;
         };
-      }, "dsh-story-between: ui mounts");
+      }, "dsh-tavern: ui mounts");
     }
 
     exports.apply = apply;

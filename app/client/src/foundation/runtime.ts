@@ -51,7 +51,7 @@ export function installProductFoundation(router:Router){
     engagement();engagedPath=to.matched.at(-1)?.path||to.path
     const publicPage=!!to.meta.public
     applySeo(seoMetadata({origin:import.meta.env.VITE_PUBLIC_ORIGIN||location.origin,path:publicPage?to.path:'/',
-      title:typeof to.meta.title==='string'?to.meta.title+' · 故事之间':'故事之间',
+      title:typeof to.meta.title==='string'?to.meta.title+' · 酒馆':'酒馆',
       description:'阅读、进入故事世界，并保留每次选择的后果。',language:to.path.startsWith('/product')?language.value:'zh-CN',indexable:publicPage&&!!import.meta.env.VITE_PUBLIC_ORIGIN}))
     if(store.user&&!to.meta.local&&!publicPage){
       const path=to.matched.at(-1)?.path||'/other'

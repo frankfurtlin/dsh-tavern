@@ -53,7 +53,7 @@ export function createDshBridge(env:DshBridgeEnv):DshBridge{
   function send(payload:unknown){env.parent.postMessage(payload,env.origin)}
 
   function sendState(){
-    send({type:'dsh-story:state',appPath:env.appPath(),hasContext:env.hasContext()})
+    send({type:'dsh-tavern:state',appPath:env.appPath(),hasContext:env.hasContext()})
   }
 
   function scheduleState(){
@@ -64,21 +64,21 @@ export function createDshBridge(env:DshBridgeEnv):DshBridge{
   function answerContext(id:string|number,data:Record<string,unknown>){
     const kind=data.kind
     if(kind!=='continue'&&kind!=='roleplay'){
-      send({type:'dsh-story:context',id,ok:false,error:'不支持的故事上下文类型'})
+      send({type:'dsh-tavern:context',id,ok:false,error:'不支持的故事上下文类型'})
       return
     }
     const target=typeof data.target==='string'&&data.target.trim()?data.target.trim():undefined
     void env.readContext(kind,target).then(context=>{
       if(!installed)return
       if(!context){
-        send({type:'dsh-story:context',id,ok:false,error:'当前页面没有可用的故事上下文'})
+        send({type:'dsh-tavern:context',id,ok:false,error:'当前页面没有可用的故事上下文'})
         return
       }
-      send({type:'dsh-story:context',id,ok:true,context:{...context,appPath:env.appPath()}})
+      send({type:'dsh-tavern:context',id,ok:true,context:{...context,appPath:env.appPath()}})
     }).catch((error:unknown)=>{
       if(!installed)return
       const message=error instanceof Error&&error.message?error.message:'读取故事上下文失败'
-      send({type:'dsh-story:context',id,ok:false,error:message})
+      send({type:'dsh-tavern:context',id,ok:false,error:message})
     })
   }
 
@@ -89,11 +89,11 @@ export function createDshBridge(env:DshBridgeEnv):DshBridge{
     const data=event.data as Record<string,unknown>|null|undefined
     if(!data||typeof data!=='object')return
     const type=data.type
-    if(type==='dsh-story:ping'){
-      send({type:'dsh-story:pong',appPath:env.appPath()})
+    if(type==='dsh-tavern:ping'){
+      send({type:'dsh-tavern:pong',appPath:env.appPath()})
       return
     }
-    if(type==='dsh-story:context-request'){
+    if(type==='dsh-tavern:context-request'){
       const id=data.id
       if(typeof id!=='string'&&typeof id!=='number')return
       answerContext(id,data)

@@ -1,8 +1,8 @@
 {
-  "name": "dsh-story-between",
+  "name": "dsh-tavern",
   "version": "0.1.0",
   "private": true,
-  "description": "「故事之间」DSH 插件：侧栏入口 + 主面板内嵌本地写作应用（同源反向代理，仅 DSH 登录用户可访问），一键把当前故事交给 DSH Agent 续写 / 角色扮演。",
+  "description": "「酒馆」（Tavern）DSH 插件：侧栏入口 + 主面板内嵌本地写作应用（同源反向代理，仅 DSH 登录用户可访问），一键把当前故事交给 DSH Agent 续写 / 角色扮演。",
   "type": "module",
   "license": "MIT",
   "main": "lib/index.js",
