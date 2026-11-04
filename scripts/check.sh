@@ -1,44 +1,31 @@
 #!/usr/bin/env bash
-# dsh-tavern 验收入口：静态检查 + 隔离 DSH 实例 + 真实浏览器 E2E。
+# dsh-tavern 验收入口：静态检查 + 隔离 DSH 实例 + 真实浏览器 E2E（酒馆 2.0 原生流程）。
 #
 # 用法：
 #   scripts/check.sh                 # 静态 + 隔离实例 + verify.mjs（默认）
 #   scripts/check.sh --static        # 只跑静态检查（快，不启实例）
 #   scripts/check.sh --instance      # 只跑隔离实例 + E2E
 #   scripts/check.sh --with-app-tests # 额外跑应用前端 typecheck + 单测（慢）
-#   scripts/check.sh --no-bridge     # E2E 跳过「交给 Agent」的端到端点击
-#   scripts/check.sh --open-story   # E2E 先在应用内打开一部作品（会写阅读进度，全链路验证用）
-#   scripts/check.sh --cards         # E2E 额外跑角色卡导入 + 单卡聊天（会写入/删除测试卡）
-#   scripts/check.sh --real          # 真生成验收：隐含 --cards，断言回复不是 mock、刷新后仍在（需应用 AI_MODE=dsh + DSH 网关）
-#   scripts/check.sh --real-negative # 负向演练：假定网关已被弄坏，断言 UI 显示失败而不是假回复（侵入环境，手动用）
-#   scripts/check.sh --space         # B 步角色卡空间：隐含 --cards，S1–S6 断言详情/世界书/正则/预设/context-preview（UI 未接入时逐项 SKIP）
-#   （--groups 已废弃：task-25 单用户精简删除了群聊入口/页面，传了只提示忽略，不产生检查项）
-#   scripts/check.sh --memory        # C 步长期伙伴与记忆：隐含 --cards，C1–C6 手工记忆/立即整理/注入预览/停用删除/伙伴置顶（需记忆前后端就绪，抽取需真生成）
-#   scripts/check.sh --keep-home     # 保留 /tmp/dsh-tavern-check（排查用）
+#   scripts/check.sh --keep-home     # 保留 /tmp/dsh-tavern-native/instance（排查用）
 #   scripts/check.sh --port 3199     # 换端口
 #
 # 产物：
-#   $OUT/report.json                   —— verify.mjs 的逐项结果（PASS/FAIL/SKIP）
-#   $OUT/logs/*.log                    —— 每个静态命令的输出
-#   $OUT/logs/dsh.log                  —— 隔离实例的 DSH 日志（启动失败时先看这个）
-#   截图 01-sidebar.png … 08-refresh-home.png（含 03b-tavern-open / 06-restore-panel / 07-reload-restore）
-#        --cards 时另有 09-cards-page.png … 14-cards-deleted.png
-#   角色卡 fixture：/tmp/tavern-verify/cards/{v2-png.png,v2-json.json,v1-json.json,v2-lore.json,manifest.json}
-#        v2-lore.json（陆三更）带 character_book，仅 --space 时由 verify.mjs 读取 manifest.space.lorebook 使用。
-#   --real 时 report.real 记录首句前 60 字/字数/耗时/模型名（不写 prompt 全文）。
-#   --space 时 report.space 记录 S1–S6 的 steps 与证据（世界书条目、正则回复、context-preview）。
-#   --memory 时 report.memory 记录 C1–C6 的 steps 与证据（手工记忆、extract added、preview 标题、停用/删除、long-term companion）。
-#       截图 25-memory-manual.png … 29-companion-library.png。
+#   /tmp/dsh-tavern-native/check/report.json      —— verify.mjs 的逐项结果（PASS/FAIL/SKIP）
+#   /tmp/dsh-tavern-native/check/logs/*.log       —— 每个静态命令的输出
+#   /tmp/dsh-tavern-native/check/logs/dsh.log     —— 隔离实例的 DSH 日志（启动失败时先看这个）
+#   截图 90-sidebar.png、91-panel.png、92-characters-home.png、93-card-imported.png、
+#        94-chat-stream.png、95-chat-done.png、96-regenerate.png、97-history.png、
+#        98-world-info.png、99-old-routes.png
+#   角色卡 fixture：/tmp/dsh-tavern-native/cards/{v2-png.png,v2-json.json,manifest.json}
 #
-# 设计（参考同级插件 dsh-ziwei/scripts/check.sh）：
-#   - 在 /tmp/dsh-tavern-check 起一个完全隔离的 DSH_HOME，profile=check，端口默认 3099，
+# 设计：
+#   - 在 /tmp/dsh-tavern-native/instance 起一个完全隔离的 DSH_HOME，profile=check，端口默认 3099，
 #     绝不动生产实例（3080）。node_modules / package.json 复用生产 profile（符号链接），
 #     但 credentials / storages / 会话全部在临时目录里，退出时清掉。
 #   - 生产 profile 已安装 dsh-tavern 时直接镜像它的 package.json + node_modules；
-#     未安装（plugin-core 还没跑 install）时，生成一份 dev profile 把插件源目录
-#     link 进 node_modules，这样 checkout 也能验收。
-#   - 插件未就绪（/tavern 404、client.js 缺失、侧栏无入口）时脚本不崩，verify.mjs
-#     会输出「未就绪」报告并 exit 1。
+#     未安装时生成 dev profile 把插件源目录 link 进 node_modules。
+#   - 插件未就绪（/tavern 404、client.js 缺失、侧栏无入口）或原生 UI 未交付时脚本不崩，
+#     verify.mjs 会输出「未就绪」报告，依赖项记 SKIP 并写明 owner。
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -46,21 +33,15 @@ REAL_HOME="${DSH_HOME:-$HOME/.dsh}"
 REAL_PROFILE="$REAL_HOME/profiles/web"
 PROFILE="check"
 PORT="${DSH_TAVERN_CHECK_PORT:-3099}"
-CHECK_HOME="${DSH_TAVERN_CHECK_HOME:-/tmp/dsh-tavern-check}"
-OUT="${DSH_TAVERN_VERIFY_OUT:-/tmp/dsh-tavern-verify/check}"
+CHECK_HOME="${DSH_TAVERN_CHECK_HOME:-/tmp/dsh-tavern-native/instance}"
+OUT="${DSH_TAVERN_VERIFY_OUT:-/tmp/dsh-tavern-native/check}"
+FIXTURES="/tmp/dsh-tavern-native/cards"
 LOGS="$OUT/logs"
 DSH_BIN="$(command -v dsh || true)"
 
 RUN_STATIC=1
 RUN_INSTANCE=1
 WITH_APP_TESTS=0
-NO_BRIDGE=0
-OPEN_STORY=0
-CARDS=0
-REAL=0
-REAL_NEGATIVE=0
-SPACE=0
-MEMORY=0
 KEEP_HOME=0
 PASS=0
 FAIL=0
@@ -72,17 +53,9 @@ while [[ $# -gt 0 ]]; do
     --static) RUN_INSTANCE=0 ;;
     --instance) RUN_STATIC=0 ;;
     --with-app-tests) WITH_APP_TESTS=1 ;;
-    --no-bridge) NO_BRIDGE=1 ;;
-    --open-story) OPEN_STORY=1 ;;
-    --cards) CARDS=1 ;;
-    --real) REAL=1; CARDS=1 ;;
-    --real-negative) REAL_NEGATIVE=1; REAL=1; CARDS=1 ;;
-    --space) SPACE=1; CARDS=1 ;;
-    --groups) echo -e "${YELLOW}⚠ --groups 已废弃（task-25 单用户精简删除群聊入口/页面），忽略该参数${NC}" >&2 ;;
-    --memory) MEMORY=1; CARDS=1 ;;
     --keep-home) KEEP_HOME=1 ;;
     --port) PORT="${2:?--port 需要端口号}"; shift ;;
-    --help|-h) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --help|-h) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "未知参数：$1（--help 查看用法）" >&2; exit 2 ;;
   esac
   shift
@@ -94,12 +67,12 @@ ok() { PASS=$((PASS + 1)); printf 'PASS  %s\n' "$*"; }
 bad() { FAIL=$((FAIL + 1)); FAILED+=("$*"); printf 'FAIL  %s\n' "$*"; }
 skip() { SKIP=$((SKIP + 1)); printf 'SKIP  %s\n' "$*"; }
 
-# run "<人话名称>" <命令…>：输出进日志，失败时打印尾部。
 run() {
   local name="$1"
   shift
   local log
-  log="$LOGS/$(printf '%s' "$name" | tr ' /():' '______').log"
+  mkdir -p "$LOGS"
+  log="$LOGS/$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '_' | cut -c1-80).log"
   if "$@" >"$log" 2>&1; then
     ok "$name"
   else
@@ -220,7 +193,6 @@ setup_profile() {
   local target="$CHECK_HOME/profiles/$PROFILE"
 
   if [[ "$TAVERN_INSTALLED" -eq 1 ]]; then
-    # mirror：生产 profile 已经装了插件 → 直接复用它的依赖图（不改生产文件）
     for item in package.json node_modules; do
       ln -s "$REAL_PROFILE/$item" "$target/$item"
     done
@@ -229,7 +201,6 @@ setup_profile() {
     done
     echo "profile 模式：mirror（生产 profile 已安装 dsh-tavern）"
   else
-    # dev：生产 profile 还没装插件 → 生成一份包含插件源目录的依赖图
     local missing=0
     mkdir -p "$target/node_modules"
     if [[ -d "$REAL_PROFILE/node_modules" ]]; then
@@ -263,48 +234,12 @@ NODE
     fi
   fi
 
-  # 登录状态/工作区：复制到隔离 HOME，避免首次启动弹 "Get started"。
   if [[ -f "$REAL_HOME/.credentials.yaml" ]]; then
     cp "$REAL_HOME/.credentials.yaml" "$CHECK_HOME/.credentials.yaml"
     chmod 600 "$CHECK_HOME/.credentials.yaml"
   fi
   if [[ -f "$REAL_HOME/storages/workspace.json" ]]; then
     cp "$REAL_HOME/storages/workspace.json" "$CHECK_HOME/storages/workspace.json"
-  fi
-}
-
-# ── 真生成前置检查（--real）─────────────────────────────────────────────────
-# 只做「只读」探测，不改任何环境：读 app/.env 的 AI_MODE / DSH_AGENT_URL / DSH_AGENT_SECRET，
-# 再带 secret 调一次网关 health。不可用时记 SKIP（由 Lead 决定是否重启/切换），
-# 真正失败会由 verify.mjs 的 H9/R 组以「没有回复」体现，不在这里误判。
-real_preflight() {
-  say "真生成前置检查（--real）"
-  local env_file="$ROOT/app/.env"
-  local ai_mode="" agent_url="" agent_secret=""
-  if [[ -f "$env_file" ]]; then
-    ai_mode="$(sed -n 's/^AI_MODE=//p' "$env_file" | tail -1 | tr -d '\r' | tr -d '"')"
-    agent_url="$(sed -n 's/^DSH_AGENT_URL=//p' "$env_file" | tail -1 | tr -d '\r' | tr -d '"')"
-    agent_secret="$(sed -n 's/^DSH_AGENT_SECRET=//p' "$env_file" | tail -1 | tr -d '\r' | tr -d '"')"
-  fi
-  if [[ "$ai_mode" == "dsh" ]]; then
-    ok "app/.env AI_MODE=dsh（真生成）"
-  else
-    skip "app/.env AI_MODE=${ai_mode:-未设置}：--real 需要 dsh；当前会得到 mock 回复（等 Lead/app-auth 切换后重跑）"
-  fi
-  [[ -n "$agent_url" ]] || agent_url="http://127.0.0.1:3080/tavern-agent/v1"
-  agent_url="${agent_url%/}"
-  if [[ -z "$agent_secret" ]]; then
-    skip "DSH 模型网关 health（app/.env 里没有 DSH_AGENT_SECRET，无法鉴权探测）"
-    return
-  fi
-  local health
-  health="$(curl -s -m 5 -H "Authorization: Bearer $agent_secret" "$agent_url/health" 2>/dev/null || true)"
-  if grep -q '"ok"[[:space:]]*:[[:space:]]*true' <<<"$health"; then
-    local model
-    model="$(node -e 'try{const j=JSON.parse(process.argv[1]);const m=j.model||{};process.stdout.write([m.provider,m.model].filter(Boolean).join("/")||"unknown")}catch{process.stdout.write("unknown")}' "$health" 2>/dev/null || echo unknown)"
-    ok "DSH 模型网关 health ok（模型 ${model}）"
-  else
-    skip "DSH 模型网关 health 不可用（${agent_url}；3080 是否已重启加载 /tavern-agent？owner: plugin-core/Lead）—— --real 会体现为回复超时/UI 失败"
   fi
 }
 
@@ -372,43 +307,11 @@ instance_checks() {
     *) bad "匿名 /tavern/ 期望 401，实际 HTTP ${tavern_code:-无响应}" ;;
   esac
 
-  # 旧 /story 别名：GET/HEAD 应 302 到 /tavern（匿名可能先被闸门拦成 401，都算已注册）。
-  local legacy_headers legacy_code legacy_location
-  legacy_headers="$(curl -s -o /dev/null -D - -m 5 "http://127.0.0.1:$PORT/story/?probe=1" 2>/dev/null || true)"
-  legacy_code="$(printf '%s\n' "$legacy_headers" | awk 'NR==1{print $2}' | tr -d '\r')"
-  legacy_location="$(printf '%s\n' "$legacy_headers" | grep -i '^location:' | head -1 | tr -d '\r' | sed 's/^[Ll]ocation: *//')"
-  case "$legacy_code" in
-    302)
-      if [[ "$legacy_location" == *"/tavern/"* ]]; then
-        ok "旧 /story/ 302 → $legacy_location"
-      else
-        bad "旧 /story/ 302 但 Location 不是 /tavern/：${legacy_location:-无}（owner: plugin-core）"
-      fi
-      ;;
-    401) ok "旧 /story/ 被登录闸门挡住（401；登录态 302 由 verify.mjs 断言）" ;;
-    404) bad "旧 /story/ 404：宿主半没注册兼容别名（owner: plugin-core）" ;;
-    *) bad "旧 /story/ 期望 302/401，实际 HTTP ${legacy_code:-无响应}" ;;
-  esac
-
-  if [[ "$REAL" -eq 1 ]]; then
-    real_preflight
-  fi
-
-  if [[ "$CARDS" -eq 1 ]]; then
-    say "角色卡 fixture（make-cards.py）"
-    local fixture_args=(--out /tmp/tavern-verify/cards)
-    run "生成角色卡 fixture（v2 PNG / v2 JSON / v1 JSON / v2 lorebook JSON）" python3 "$ROOT/scripts/fixtures/make-cards.py" "${fixture_args[@]}"
-  fi
+  say "角色卡 fixture（make-cards.py）"
+  run "生成角色卡 fixture（v2 PNG / v2 JSON）" python3 "$ROOT/scripts/fixtures/make-cards.py" --out "$FIXTURES"
 
   say "真实浏览器 E2E（verify.mjs）"
-  local verify_args=(--url "$url" --out "$OUT")
-  [[ "$NO_BRIDGE" -eq 1 ]] && verify_args+=(--no-bridge)
-  [[ "$OPEN_STORY" -eq 1 ]] && verify_args+=(--open-story)
-  [[ "$CARDS" -eq 1 ]] && verify_args+=(--cards --cards-dir /tmp/tavern-verify/cards)
-  [[ "$SPACE" -eq 1 ]] && verify_args+=(--space)
-  [[ "$MEMORY" -eq 1 ]] && verify_args+=(--memory)
-  [[ "$REAL" -eq 1 ]] && verify_args+=(--real)
-  [[ "$REAL_NEGATIVE" -eq 1 ]] && verify_args+=(--real-negative)
+  local verify_args=(--url "$url" --out "$OUT" --fixtures "$FIXTURES")
   [[ -n "${DSH_TAVERN_DEBUG:-}" ]] && echo "verify args: ${verify_args[*]}"
   if node "$ROOT/verify.mjs" "${verify_args[@]}"; then
     ok "verify.mjs 全部检查通过"

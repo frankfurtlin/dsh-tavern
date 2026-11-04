@@ -141,3 +141,29 @@ iframe → 父（主动，节流）：
 - 失败语义：网关不可用 → `PROVIDER_UNAVAILABLE / 502`「DSH 模型网关不可用，未收到回复」；
   secret 错 → `AGENT_UNAUTHORIZED`；界面显示失败，不落假回复。
 - 端点、请求/响应、超时、日志约束以 `docs/step2-dsh-generation.md` 为准。
+
+### 6.1 请求字段（`/complete`、`/stream` 共用；除 `messages` 外均可选）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `messages` | `{role:'user', content: string \| ContentBlock[]}[]` | 1–64 条，只支持 `user`；多轮上下文由应用自己拼进 `content` |
+| `system` | `string` | 系统提示词 |
+| `maxTokens` | 正整数 | 输出上限 |
+| `temperature` | `number`，0–2 | 透传 `ctx.llm.stream` |
+| `topP` | `number`，0–1 | 透传 `ctx.llm.stream`（DSH 的 `GenerateOptions` 当前未声明该字段，按原样透传，适配器支持后生效）；兼容 snake_case 别名 `top_p` |
+| `stop` | `string` 或 `string[]` | 单条字符串归一为数组；最多 4 条、单条 ≤200 字符，映射到 `GenerateOptions.stop` |
+| `reasoningEffort` | `string` | 白名单 `off/minimal/low/medium/high/xhigh/max`，默认 `low`；非法值回落 `low` |
+| `sessionId` | `string`（≤200） | 透传 provider 会话标识，缺省每次随机 UUID |
+| `model` | `{provider, model}` | 覆盖默认模型，两者都非空才生效 |
+
+- 采样参数只在字段出现时校验，`null` 视为不传；未知字段忽略。
+- 错误语义：结构/`messages` 问题 → `400 AGENT_BAD_REQUEST`；采样参数类型/越界 →
+  `400 INVALID_ARGUMENT`；鉴权缺失/错误 → `401 AGENT_UNAUTHORIZED`；未知路径/方法 →
+  `404 AGENT_NOT_FOUND` / `405 AGENT_METHOD_NOT_ALLOWED`；上游失败/超时 →
+  `502 AGENT_UPSTREAM_FAILED`（SSE 已开始则用 `error` 帧收尾）。
+- `GET /v1/health` 返回 `{ok, model, features:['temperature','topP','stop']}`，
+  应用可据此决定设置页显示哪些采样控件。
+- 透传边界：网关只负责把 `temperature`/`topP`/`stop` 放进 `ctx.llm.stream` 的
+  选项；实际是否生效取决于 DSH 的 provider 适配器（当前 `opencode-go` 的 pi-ai
+  适配器只消费 `temperature`/`maxTokens`/`sessionId`，`stop`/`topP` 会被忽略）。
+  应用侧不应假设 `stop` 一定截断输出。

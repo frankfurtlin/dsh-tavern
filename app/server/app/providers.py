@@ -526,6 +526,12 @@ class MockAdapter(ChatCompletionsAdapter):
                 text = "阿岑还活着。我们已经从仓库里出来，现在留在东岸，把眼前能做的事一件件做好。我不会把另一种走向当成我们此刻发生过的事，也不会替明天作保证。绳子已经系牢，码头的风还有些冷，先找个能歇脚的地方吧。"
             else:
                 text = f"我是{name}。我留意眼前的绳结，也留意雾中遮住的路。东岸的码头还在，北岸的灯也亮着。你问的事，我只按眼前已经知道的来答；没有发生的事，我不作保证。你可以继续问读到的事情，说说此刻最担心的是什么。我会把能确认的判断一步一步说清楚。"
+        elif system_prompt.startswith("tavern-"):
+            character = data.get("character") or {}
+            name = character.get("name") or "角色"
+            text = (f"（{name}停下手里的动作，抬眼看你）你来得正好。窗外的雨还没停，"
+                    f"桌上那盏灯只剩半圈光。我先不急着回答，想听听你这一路是怎么走过来的。"
+                    f"如果你愿意，就把刚才没说完的那句话接下去，我会认真听。")
         elif system_prompt.startswith("card_memory_extract-"):
             text = json.dumps({"memories": [
                 {"kind": "fact", "title": "读者的猫", "content": "读者养了一只叫团子的猫。", "salience": 60},
