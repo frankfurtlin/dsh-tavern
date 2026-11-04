@@ -169,3 +169,17 @@ describe('dsh bridge context readiness',()=>{
     expect(posted[0]!.data).toEqual({type:'dsh-tavern:context',id:'r-none',ok:false,error:'当前页面没有可用的故事上下文'})
   })
 })
+
+describe('dsh bridge state after a successful context read',()=>{
+  it('reports hasContext once the context has been read, even if the store is not ready yet',async()=>{
+    vi.useFakeTimers()
+    const {posted,bridge,event}=setup({hasContext:()=>false})
+    bridge.handle(event({type:'dsh-tavern:context-request',id:'r-state',kind:'continue'}))
+    await vi.advanceTimersByTimeAsync(0)
+    const answer=posted.find(item=>(item.data as {type?:string}).type==='dsh-tavern:context')
+    expect(answer!.data).toMatchObject({id:'r-state',ok:true})
+    await vi.advanceTimersByTimeAsync(600)
+    const state=posted.map(item=>item.data as {type?:string;hasContext?:boolean}).filter(item=>item.type==='dsh-tavern:state')
+    expect(state.at(-1)).toMatchObject({hasContext:true})
+  })
+})

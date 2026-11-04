@@ -27,7 +27,7 @@ class CharacterCard(WorldOwned, WorldBase):
     system_prompt: Mapped[str] = mapped_column(Text, default="")
     post_history_instructions: Mapped[str] = mapped_column(Text, default="")
 
-    source: Mapped[str] = mapped_column(String(8))
+    source: Mapped[str] = mapped_column(String(32))
     raw: Mapped[dict] = mapped_column(JSONB, default=dict)
     avatar_path: Mapped[str | None] = mapped_column(String(200))
 
@@ -99,4 +99,16 @@ class CardMemory(WorldOwned, WorldBase):
     salience: Mapped[int] = mapped_column(Integer, default=50)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     source: Mapped[str] = mapped_column(String(8), default="manual")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class TavernPersona(WorldOwned, WorldBase):
+    """A reader persona ("我是谁") selectable for character card chats."""
+
+    __tablename__ = "tavern_personas"
+    __table_args__ = {"schema": "world"}
+
+    name: Mapped[str] = mapped_column(String(80))
+    description: Mapped[str] = mapped_column(Text, default="")
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

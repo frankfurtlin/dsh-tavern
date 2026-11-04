@@ -8,6 +8,7 @@ from ..cards.models import (  # noqa: F401  (registers the world.card_* tables)
     CharacterCard,
     ChatPreset,
     RegexScript,
+    TavernPersona,
 )
 
 SCHEMA_VERSION = 1
@@ -23,6 +24,13 @@ def migrate():
         # C companions add two more card columns for the same reason.
         conn.execute(text("ALTER TABLE world.character_cards ADD COLUMN IF NOT EXISTS companion boolean NOT NULL DEFAULT false"))
         conn.execute(text("ALTER TABLE world.character_cards ADD COLUMN IF NOT EXISTS memory_task_id varchar(32)"))
+        # P1 personas: world_chat_sessions gains an optional persona reference.
+        conn.execute(text("ALTER TABLE world_chat_sessions ADD COLUMN IF NOT EXISTS persona_id varchar(32)"))
+        # P2 world exports use source='world-export', wider than the original varchar(8).
+        width = conn.execute(text("SELECT character_maximum_length FROM information_schema.columns "
+                                 "WHERE table_schema='world' AND table_name='character_cards' AND column_name='source'")).scalar()
+        if width is not None and width < 32:
+            conn.execute(text("ALTER TABLE world.character_cards ALTER COLUMN source TYPE varchar(32)"))
         conn.execute(text("CREATE TABLE IF NOT EXISTS world.schema_version (version integer PRIMARY KEY)"))
         conn.execute(text("INSERT INTO world.schema_version(version) VALUES (:version) ON CONFLICT DO NOTHING"),
                      {"version": SCHEMA_VERSION})

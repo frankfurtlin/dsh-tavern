@@ -58,11 +58,15 @@ export function createDshBridge(env:DshBridgeEnv):DshBridge{
   let stateTimer:ReturnType<typeof setTimeout>|undefined
   let removeListener:(()=>void)|undefined
   let unsubscribe:(()=>void)|undefined
+  // A successful context read proves the story page is ready even if the route
+  // store has not published yet; keep the panel's state in sync with it.
+  let contextReady=false
 
   function send(payload:unknown){env.parent.postMessage(payload,env.origin)}
 
   function sendState(){
-    send({type:'dsh-tavern:state',appPath:env.appPath(),hasContext:env.hasContext()})
+    if(env.expectContext&&!env.expectContext())contextReady=false
+    send({type:'dsh-tavern:state',appPath:env.appPath(),hasContext:contextReady||env.hasContext()})
   }
 
   function scheduleState(){
@@ -95,6 +99,8 @@ export function createDshBridge(env:DshBridgeEnv):DshBridge{
         return
       }
       send({type:'dsh-tavern:context',id,ok:true,context:{...context,appPath:env.appPath()}})
+      contextReady=true
+      scheduleState()
     }).catch((error:unknown)=>{
       if(!installed)return
       const message=error instanceof Error&&error.message?error.message:'读取故事上下文失败'

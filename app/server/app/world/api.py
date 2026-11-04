@@ -2,6 +2,7 @@ import json
 import time
 from copy import deepcopy
 from fastapi import APIRouter, Depends, Request
+from pydantic import Field
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select, delete, text, or_, and_
 from sqlalchemy.exc import SQLAlchemyError
@@ -21,6 +22,8 @@ from .jobs import create_job, task_view, TERMINAL
 from .state import ancestry, public_view, public_payload, checkpoint_hash, apply_plan, visible_to, scrub_phrases, event_audience_origins, frozen_event, event_visible_to
 from .memory import save_memory
 from .corrections import corrected_state
+from ..schemas import Strict
+from ..cards.world_export import export_world_character
 
 
 def available(db=Depends(get_db)):
@@ -109,6 +112,18 @@ def world_read(world_id: str, user=Depends(current_user), db=Depends(get_db)):
     result = world_result(db, owned(db, World, world_id, user.id), include_definition=True)
     db.commit()
     return result
+
+
+class ExportCharacterCardInput(Strict):
+    characterId: str = Field(min_length=1, max_length=80)
+
+
+@router.post("/worlds/{world_id}/character-cards", status_code=201)
+def export_character_card(world_id: str, data: ExportCharacterCardInput,
+                          user=Depends(current_user), db=Depends(get_db)):
+    world = owned(db, World, world_id, user.id)
+    card = export_world_character(db, user.id, world, data.characterId)
+    return {"cardId": card.id}
 
 
 @router.patch("/worlds/{world_id}")

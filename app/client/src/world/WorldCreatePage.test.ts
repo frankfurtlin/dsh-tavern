@@ -8,8 +8,8 @@ import WorldCreatePage from './WorldCreatePage.vue'
 import {worldApi} from './api'
 import type {WorldTask} from './types'
 
-const scope=vi.hoisted(()=>({epoch:0,route:{query:{world:'fixture-world'} as Record<string,string>,fullPath:'/worlds/new?world=fixture-world'}}))
-vi.mock('vue-router',()=>({useRoute:()=>scope.route,useRouter:()=>({push:vi.fn()})}))
+const scope=vi.hoisted(()=>({epoch:0,route:{query:{world:'fixture-world'} as Record<string,string>,fullPath:'/worlds/new?world=fixture-world'},push:vi.fn()}))
+vi.mock('vue-router',()=>({useRoute:()=>scope.route,useRouter:()=>({push:scope.push})}))
 vi.mock('../api',()=>({newKey:()=> 'fixture-only-key',authGeneration:()=>scope.epoch}))
 vi.mock('./api',()=>({worldApi:vi.fn()}))
 vi.mock('../components/WorldLookLibrary.vue',()=>({default:defineComponent({setup:()=>()=>h('div',{'aria-label':'角色形象库'})})}))
@@ -42,7 +42,7 @@ const world=(status:string)=>({id:'fixture-world',name:'合成恢复世界',stat
 const task=(state:string,persistenceState:string):WorldTask=>({id:'prepare-task',type:'world_prepare',state,persistenceState,phase:'preparing_world',errorCode:state==='failed'?'PERSISTENCE_UNAVAILABLE':state==='cancelled'?'TASK_CANCELLED':null,result:{worldId:'fixture-world'},eventSeq:1,providerState:'received',stream:{}})
 let app:ReturnType<typeof renderer.createApp>,root:Node
 function mount(){root=node('root');app=renderer.createApp(WorldCreatePage);app.provide(ssrContextKey,{modules:new Set()});app.component('RouterLink',defineComponent({setup:(_props,{slots})=>()=>h('a',slots.default?.())}));app.mount(root)}
-beforeEach(()=>{vi.useFakeTimers();vi.stubGlobal('document',{activeElement:null});vi.mocked(worldApi).mockReset();scope.epoch=0;scope.route.query={world:'fixture-world'};scope.route.fullPath='/worlds/new?world=fixture-world'})
+beforeEach(()=>{vi.useFakeTimers();vi.stubGlobal('document',{activeElement:null});vi.mocked(worldApi).mockReset();scope.epoch=0;scope.push.mockReset();scope.route.query={world:'fixture-world'};scope.route.fullPath='/worlds/new?world=fixture-world'})
 afterEach(()=>{app?.unmount();vi.useRealTimers();vi.unstubAllGlobals()})
 
 it('renders recoverable prepare as saving recovery, observes the same task and only then opens identity selection',async()=>{
@@ -168,4 +168,56 @@ it('reopens a known created world after a detail fetch failure without creating 
   expect(text(root)).toContain('你想成为谁？');expect(details).toBe(2)
   expect(api.mock.calls.filter(([,o])=>o?.method==='POST')).toHaveLength(1)
   expect(api.mock.calls.some(([path])=>path.startsWith('/tasks/'))).toBe(false)
+})
+
+it('auto-begins the first playable identity when the explore entry asks for it',async()=>{
+  scope.route.query={world:'fixture-world',auto:'1'};scope.route.fullPath='/worlds/new?world=fixture-world&auto=1'
+  const api=vi.mocked(worldApi)
+  api.mockImplementation(async(path,options)=>{
+    if(path==='/worlds/fixture-world'&&options?.method!=='POST')return {...world('active'),prepareTaskId:null,characters:[{id:'locked',name:'门客',available:false},{id:'reader',name:'林渡',available:true}]} as any
+    if(path==='/worlds/fixture-world/begin')return {lineId:'line-1'} as any
+    return {} as any
+  })
+  mount();await flush()
+  const posts=api.mock.calls.filter(([,options])=>options?.method==='POST')
+  expect(posts).toHaveLength(1);expect(posts[0][0]).toBe('/worlds/fixture-world/begin')
+  expect(posts[0][1]?.body).toMatchObject({characterId:'reader'})
+  expect(scope.push).toHaveBeenCalledWith('/worlds/fixture-world/play?line=line-1')
+})
+it('falls back to the manual identity page with a message when auto entry fails',async()=>{
+  scope.route.query={world:'fixture-world',auto:'1'};scope.route.fullPath='/worlds/new?world=fixture-world&auto=1'
+  const api=vi.mocked(worldApi)
+  api.mockImplementation(async(path,options)=>{
+    if(path==='/worlds/fixture-world/begin')throw new Error('合成进入失败')
+    return {...world('active'),prepareTaskId:null} as any
+  })
+  mount();await flush()
+  expect(text(root)).toContain('合成进入失败');expect(text(root)).toContain('你想成为谁？')
+  expect(api.mock.calls.filter(([,options])=>options?.method==='POST')).toHaveLength(1)
+  await vi.advanceTimersByTimeAsync(5000);await flush()
+  expect(api.mock.calls.filter(([,options])=>options?.method==='POST')).toHaveLength(1)
+  expect(scope.push).not.toHaveBeenCalled()
+})
+it('auto-begins after preparation completes without waiting for a manual choice',async()=>{
+  scope.route.query={world:'fixture-world',auto:'1'};scope.route.fullPath='/worlds/new?world=fixture-world&auto=1'
+  const api=vi.mocked(worldApi);let reads=0
+  api.mockImplementation(async(path,options)=>{
+    if(options?.method==='POST')return {lineId:'line-9'} as any
+    if(path==='/tasks/prepare-task')return task(++reads===1?'running':'succeeded',reads===1?'saved':'saved') as any
+    return world(reads===0?'preparing':'active') as any
+  })
+  mount();await flush()
+  expect(api.mock.calls.filter(([,options])=>options?.method==='POST')).toHaveLength(0)
+  await vi.advanceTimersByTimeAsync(1200);await flush();await flush()
+  const posts=api.mock.calls.filter(([,options])=>options?.method==='POST')
+  expect(posts).toHaveLength(1);expect(posts[0][1]?.body).toMatchObject({characterId:'reader'})
+  expect(scope.push).toHaveBeenCalledWith('/worlds/fixture-world/play?line=line-9')
+})
+it('keeps the book creation flow manual and never auto-begins without auto=1',async()=>{
+  scope.route.query={book:'book-a'};scope.route.fullPath='/worlds/new?book=book-a'
+  const api=vi.mocked(worldApi)
+  api.mockImplementation(async(path)=>path==='/sources'?{items:[{id:'book-a',title:'原来的小说',lines:[]}]} as any:{items:[]} as any)
+  mount();await flush()
+  expect(text(root)).toContain('从小说开始');expect(text(root)).not.toContain('你想成为谁？')
+  expect(api.mock.calls.some(([,options])=>options?.method==='POST')).toBe(false)
 })

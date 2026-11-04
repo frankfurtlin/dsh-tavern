@@ -11,3 +11,7 @@ export async function worldEvents(taskId:string,afterSeq:number,signal:AbortSign
   const reader=response.body.getReader(),decoder=new TextDecoder();let buffer=''
   try{while(!signal.aborted){const chunk=await reader.read();if(epoch!==authGeneration())throw new ApiError('SESSION_CHANGED','账号已变化',401);if(chunk.done)break;buffer+=decoder.decode(chunk.value,{stream:true}).replace(/\r\n/g,'\n');let split:number;while((split=buffer.indexOf('\n\n'))>=0){const frame=buffer.slice(0,split);buffer=buffer.slice(split+2);const data=frame.split('\n').filter(l=>l.startsWith('data:')).map(l=>l.slice(5).trim()).join('\n');if(data){try{const value=JSON.parse(data);if(value.taskId===taskId&&typeof value.seq==='number')onEvent(value)}catch{/* A malformed event is recovered by task snapshot polling. */}}}}}finally{await reader.cancel().catch(()=>{});reader.releaseLock()}
 }
+
+export async function exportWorldCharacterCard(worldId:string,characterId:string):Promise<{cardId:string}>{
+  return worldApi<{cardId:string}>('/worlds/'+encodeURIComponent(worldId)+'/character-cards',{method:'POST',body:{characterId}})
+}

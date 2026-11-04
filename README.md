@@ -29,6 +29,9 @@
 | 固定浅色主题 | 没有明暗切换按钮，启动即 `dataset.theme='light'`；`settings.theme` 字段保留兼容但不再参与界面；`LocalApplication` 旧壳仍在仓库但已无路由/引用（内部外观逻辑不影响主界面） |
 | 角色卡空间（B1） | 卡详情可改设定（`PATCH /character-cards/{id}`）、维护世界书（含 SillyTavern v2/v3 `character_book` 导入）、绑定/新建预设、维护输出正则。聊天时把【角色卡设定】【世界书】【预设】追加进 system prompt，回复落库前按正则改写 |
 | 长期记忆 / 长期伙伴（C） | 卡详情「长期记忆」可手工增删改或「立即整理」同步抽取；每 8 条助手回复自动整理一次；勾「长期伙伴」后卡库「长期伙伴」分组置顶 |
+| P0 上手与对话手感 | 探索页「开始游玩/继续游玩」带 `auto=1`，进世界后自动选第一个可用角色并开局（不再停在身份选择页）；顶部「继续上次」直接回到最近会话；助手回复边生成边增长（pending 气泡），最后一条可「重新生成」，用户消息可「编辑并重发」 |
+| P1 人设 / 导出 / 透明 | 聊天页「我是谁」人设（新建/切换，注入【你的对话对象】）；卡详情「导出角色卡」（PNG + v2 chara，可回导 SillyTavern）与聊天「导出 JSONL」；「本轮记忆」抽屉展示实际注入的世界书/记忆/人设；卡库搜索/排序/批量导入/6 张示例卡；正文字号/行高/衬线字体可调并记忆 |
+| P2 分支 / 互通 / 创作助手 | 任意消息「从这里分支」开新会话；人物「把 TA 存成角色卡」、卡详情「进入互动世界」；卡库「AI 写卡」按一句话生成草案、卡详情「生成候选」开场白（候选可写入备用开场白） |
 
 ## 使用路径
 
@@ -239,4 +242,5 @@ scripts/check.sh --instance --open-story --cards --space --real --memory
 | [docs/step3-card-space.md](docs/step3-card-space.md) | B1 角色卡空间：表、端点、注入与正则规则、S1–S6 验收 |
 | [docs/step3b-group-chat.md](docs/step3b-group-chat.md) | 历史设计：B2 群聊（UI 与服务端均已删除，仅作历史参考） |
 | [docs/step4-companion-memory.md](docs/step4-companion-memory.md) | C 长期记忆：抽取/注入/自动整理、长期伙伴、C1–C6 验收 |
+| [docs/step5-p0-p1-p2.md](docs/step5-p0-p1-p2.md) | P0/P1/P2 设计与验收：一键开聊/继续上次/流式/重生成编辑、人设/导出/记忆透明/卡库/阅读感、分支/卡↔世界/AI 写卡 |
 | [docs/testing.md](docs/testing.md) | 验收方法：静态检查 + 隔离实例真实浏览器 E2E |

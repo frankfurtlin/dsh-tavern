@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {ref,computed,watch,onUnmounted,nextTick} from 'vue'
+import {useRouter} from 'vue-router'
 import {Compass,MapPin,Users,Package,MoveUpRight,ArrowUp,Square,Plus,Minus,Maximize,MessageCircle,X,BookOpen,Clock3,ChevronDown,ChevronUp,LoaderCircle} from 'lucide-vue-next'
 import {Viewer} from '@photo-sphere-viewer/core'
 import {MarkersPlugin} from '@photo-sphere-viewer/markers-plugin'
@@ -9,7 +10,7 @@ import './scene.css'
 import './progressive.css'
 import {useWorld} from './store'
 import {useApp} from '../stores/app'
-import {worldApi} from './api'
+import {worldApi,exportWorldCharacterCard} from './api'
 import {authorizationHeaders,newKey} from '../api'
 import {backendBase,cacheGet,cacheSet} from '../platform/bridge'
 import {useRequestScope} from '../platform/request-scope'
@@ -27,7 +28,7 @@ import type {SceneView,ScenePoint} from './scene-types'
 import type {WorldEntity} from './types'
 
 const emit=defineEmits<{text:[];details:[];draft:[id:string];history:[]}>()
-const store=useWorld(),app=useApp(),capture=useRequestScope(()=>[store.world?.id,store.line?.id])
+const store=useWorld(),app=useApp(),capture=useRequestScope(()=>[store.world?.id,store.line?.id]),router=useRouter()
 const scene=ref<SceneView|null>(null),canvas=ref<HTMLElement|null>(null),prose=ref<HTMLElement|null>(null),input=ref<HTMLTextAreaElement|null>(null)
 const loading=ref(false),moving=ref(false),error=ref(''),selected=ref<WorldEntity|null>(null),expanded=ref(false),tab=ref<'map'|'people'|'items'>('map'),configured=ref(true),viewReady=ref(false)
 const interactionsReady=ref(false),mediaError=ref('')
@@ -36,7 +37,7 @@ const bindingNotice=computed(()=>scene.value?.image?.missingCharacterIds?.length
 const visualPending=computed(()=>loading.value||Boolean(scene.value&&inspectingPicture(scene.value)))
 const feedback=computed(()=>sceneFeedback(scene.value,visualPending.value,progressClock.value))
 const cooldownRemaining=computed(()=>sceneCooldownRemaining(scene.value,progressClock.value))
-const pendingInspection=ref(false),confirmRegenerate=ref(false)
+const pendingInspection=ref(false),confirmRegenerate=ref(false),exportingCard=ref(false),cardNotice=ref('')
 const sourceSceneId=ref('')
 const stoppingScene=ref(false),progressClock=ref(Date.now())
 const progressTicker=setInterval(()=>{progressClock.value=Date.now()},1000)
@@ -82,6 +83,22 @@ const narrativeSegments=computed(()=>{
 })
 function showReply(id:string,focusInput=true){const entry=responses.value.find(e=>e.id===id),speaker=entry?.segments.filter(p=>p.kind==='speech').at(-1)?.speakerId,person=characters.value.find(e=>e.id===speaker);if(person)choose(person,focusInput);else emit('draft',id)}
 function autoReply(){/* Replies never change the player's explicit conversation target. */}
+async function exportCharacterCard(){
+  const character=selected.value,worldId=store.world?.id
+  if(!character||character.type!=='character'||!worldId||exportingCard.value)return
+  const scope=capture()
+  exportingCard.value=true;cardNotice.value=''
+  try{
+    const result=await exportWorldCharacterCard(worldId,character.id)
+    if(!scope.valid())return
+    app.message('已存成角色卡，可在角色卡库继续编辑。')
+    await router.push('/characters/'+result.cardId)
+  }catch(e){
+    if(scope.valid())cardNotice.value=(e as Error).message||'暂时无法存成角色卡。'
+  }finally{
+    if(scope.valid())exportingCard.value=false
+  }
+}
 function closeTarget(){selected.value=null;partnerId.value=''}
 function acceptScene(value:SceneView){
   if(value.invalidPreviewHashes?.some(hash=>shownRevision===hash||shownRevision.startsWith(hash+':')))disposeViewer()
@@ -339,7 +356,7 @@ onUnmounted(()=>{disposed=true;clearInterval(progressTicker);cancelView();clearT
     </aside>
     <div class="scene-view-tools"><button :disabled="!viewReady" aria-label="放大场景" @click="zoom(10)"><Plus :size="18"/></button><button :disabled="!viewReady" aria-label="缩小场景" @click="zoom(-10)"><Minus :size="18"/></button><button :disabled="!viewReady" aria-label="全屏场景" @click="viewer?.toggleFullscreen()"><Maximize :size="18"/></button><button aria-label="世界资料" @click="emit('details')"><Users :size="18"/></button></div>
     <div v-if="region" class="scene-entity-card scene-region-card"><button class="scene-card-close" aria-label="关闭区域详情" @click="region=null"><X :size="16"/></button><MapPin :size="24"/><div><strong>{{region.name}}</strong><p v-if="region.source?.quote">{{region.source.quote}}</p><small v-if="region.id===scene?.pointId">你在这里</small><button v-else :disabled="disabled" @click="move(region)">{{region.direction}} <MoveUpRight :size="14"/></button><button v-for="exit in scene?.exits.filter(e=>e.kind==='exit'&&e.id==='exit:'+region?.id)" :key="exit.id" :disabled="disabled" @click="travel(exit)">{{exit.name}} <MoveUpRight :size="14"/></button></div></div>
-    <div v-if="selected&&!chatting" class="scene-entity-card"><button class="scene-card-close" aria-label="关闭人物或物品详情" @click="closeTarget"><X :size="16"/></button><CharacterAvatar v-if="selected.type==='character'" :entity-id="selected.id" :name="selected.name"/><span v-else class="scene-avatar">{{selected.name.slice(0,1)}}</span><div><strong>{{selected.name}}</strong><small>{{selected.type==='character'?'与你交谈':'查看物品'}}</small><p>{{selected.description||'你可以进一步观察。'}}</p><button v-if="selected.type!=='character'" :disabled="disabled" @click="observeSelected">仔细观察 <MoveUpRight :size="14"/></button></div></div>
+    <div v-if="selected&&!chatting" class="scene-entity-card"><button class="scene-card-close" aria-label="关闭人物或物品详情" @click="closeTarget"><X :size="16"/></button><CharacterAvatar v-if="selected.type==='character'" :entity-id="selected.id" :name="selected.name"/><span v-else class="scene-avatar">{{selected.name.slice(0,1)}}</span><div><strong>{{selected.name}}</strong><small>{{selected.type==='character'?'与你交谈':'查看物品'}}</small><p>{{selected.description||'你可以进一步观察。'}}</p><button v-if="selected.type==='character'&&store.world?.id" :disabled="exportingCard" @click="exportCharacterCard">{{exportingCard?'正在保存…':'把 TA 存成角色卡'}}</button><small v-if="cardNotice" class="error" role="alert">{{cardNotice}}</small><button v-if="selected.type!=='character'" :disabled="disabled" @click="observeSelected">仔细观察 <MoveUpRight :size="14"/></button></div></div>
     <div class="scene-bottom-hud">
       <div v-if="chatting" class="scene-chat" aria-label="角色对话">
         <div class="scene-chat-heading"><CharacterAvatar :entity-id="selected?.id" :name="selected?.name||'人物'"/><strong>{{selected?.name}}</strong><small v-if="scene?.characterPresentation?.[selected?.id||'']?.mode==='voice'">传音</small><button aria-label="结束角色对话" @click="closeTarget"><X :size="18"/></button></div>

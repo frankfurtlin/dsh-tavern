@@ -530,6 +530,25 @@ class MockAdapter(ChatCompletionsAdapter):
             text = json.dumps({"memories": [
                 {"kind": "fact", "title": "读者的猫", "content": "读者养了一只叫团子的猫。", "salience": 60},
             ]}, ensure_ascii=False)
+        elif system_prompt.startswith("card_draft-"):
+            text = json.dumps({
+                "name": "雾港信使",
+                "description": "一位常年在雾港码头送信的年轻人，披着旧呢斗篷，袖口沾着盐霜。",
+                "personality": "说话简短，习惯先观察再开口；对承诺看得比性命重。",
+                "scenario": "雨夜的码头，灯影在水面上摇晃，他把最后一封没有署名的信递给你。",
+                "first_message": "（把信压在斗篷下，压低声音）这封信只给愿意等雨停的人。你若接过去，就得先答应我，不把收信人的名字说出去。",
+                "tags": ["悬疑", "信使", "雾港"],
+            }, ensure_ascii=False)
+        elif system_prompt.startswith("card_greetings-"):
+            card = data.get("card") or {}
+            name = card.get("name") or "角色"
+            scene = card.get("scenario") or "此刻"
+            count = max(1, min(5, int(data.get("count") or 3)))
+            openings = ["你来得正好。", "雨还没停。", "先坐下吧。", "我等你很久了。", "把门带上。"]
+            text = json.dumps({"greetings": [
+                f"（{name}看了你一眼）{openings[index % len(openings)]}关于{scene[:24]}，我想先听听你的说法。"
+                for index in range(count)
+            ]}, ensure_ascii=False)
         elif system_prompt.startswith("connection"):
             text = "连接正常"
         else:

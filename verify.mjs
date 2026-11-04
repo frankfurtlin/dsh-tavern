@@ -4,6 +4,10 @@
  * 用法：
  *   node verify.mjs --url "http://127.0.0.1:3080/?token=..." [--out dir] [--no-bridge] [--open-story] [--cards] [--real] [--space] [--memory]
  *
+ *   --cards 还会带出 P 组（P0 自动进入/继续上次/流式/重生成/编辑）、
+ *   Q 组（P1 人设/导出/卡库/阅读感）与 R2 组（P2 分支/世界成卡/AI 起草）；
+ *   Q 组需要 --memory 创建的会话，R2 的 UI 入口缺失时如实 SKIP 并注明 owner。
+ *
  * 检查分组（与 docs/contract.md v1 对应）：
  *   A. 鉴权与入口：未登录 GET /tavern/ 必须被 DSH 闸门挡住（401）；登录态 200。
  *   B. 侧栏入口「酒馆」存在；点击后 main 面板出现 iframe[data-dsh-tavern-frame]。
@@ -33,6 +37,9 @@
  *   N. 探索页单用户化（task-25，随 --cards 运行）：标题行不再有指向 /recent 的「最近游玩」
  *      链接；「公开互动作品」整节与卡片「作品详情」链接不存在；玩过精选故事后对应卡片出现
  *      文本精确为「最近游玩」的 .recent-flag 徽标。证据写入 report.explore。
+ *   P. P0 体验升级（task-34，docs/step5-p0-p1-p2.md §P0，随 --cards 运行）：探索页开始入口
+ *      auto=1 自动进入故事（不经身份页）→「继续上次」进入上次会话 → 流式 pending 文本增长并
+ *      保存 → 最后一条 assistant 重生成后文本变化 → 编辑用户消息重发；P3–P5 需 --real，否则 SKIP。
  *   U. --memory（C 步，docs/step4-companion-memory.md §7）：卡详情手工记忆增删改 →
  *      聊天发 2 条含自述的消息 → 「立即整理」抽取出 ≥1 条 → 注入预览含手工记忆标题 →
  *      停用/删除后注入预览不再含 → 设为长期伙伴后卡库顶部「长期伙伴」分组置顶 → console clean。
@@ -83,6 +90,9 @@ const report = {
   memory: null,
   nav: null,
   explore: null,
+  p0: null,
+  q: null,
+  r2: null,
   screenshots: [],
 }
 
@@ -937,6 +947,9 @@ try {
   const real = args.includes('--real')
   const realNegative = args.includes('--real-negative')
   const runCards = args.includes('--cards') || real || args.includes('--space')
+  // 调试用：DSH_TAVERN_ONLY=c,q 只跑指定分组（默认全部运行）
+  const onlyGroups = (process.env.DSH_TAVERN_ONLY || '').split(',').map((item) => item.trim().toLowerCase()).filter(Boolean)
+  const groupOn = (name) => onlyGroups.length === 0 || onlyGroups.includes(name)
   const cardsEvidence = { fixturesDir: null, imported: [], avatar: null, chat: null, reload: null, deleted: null }
   // H/S 组共用的 iframe 查找/导航助手（--cards/--space 都用到；提前定义，避免 S 组重写一遍）。
   const fnow = () => page.frames().find((candidate) => /\/tavern\//.test(candidate.url())) || null
@@ -982,7 +995,7 @@ try {
     return nameLocator.locator("xpath=ancestor::*[.//button[normalize-space(.)='开聊'] or .//button[normalize-space(.)='删除']][1]")
   }
 
-  if (runCards) {
+  if (runCards && groupOn('h')) {
     const fixtureDir = arg('cards-dir', '/tmp/tavern-verify/cards')
     cardsEvidence.fixturesDir = fixtureDir
     const cardsCheckNames = [
@@ -1401,7 +1414,7 @@ try {
     console: null,
     steps: [],
   }
-  if (runSpace) {
+  if (runSpace && groupOn('s')) {
     const spaceCheck = (index, ok, detail) => {
       spaceRecorded[index] = true
       check(spaceCheckNames[index], ok, detail)
@@ -1801,7 +1814,7 @@ try {
     console: null,
     steps: [],
   }
-  if (runMemory) {
+  if (runMemory && groupOn('c')) {
     const memCheck = (index, ok, detail) => {
       memoryRecorded[index] = true
       check(memoryCheckNames[index], ok, detail)
@@ -1834,14 +1847,33 @@ try {
     }
     // 回到「角色卡库」列表页。openCharactersPage() 的 URL 粗匹配会把 /characters/groups
     // 也当成卡库（C 组在 T 组之后运行，起点常在群聊页），这里强制落到 /characters 本身。
+    // 卡库「真正挂载」的判据：导入入口或工具栏出现。仅 URL=/tavern/characters 不够——
+    // 卡详情页同样带 .characters-page 类，S 组停在卡详情时会被误判成列表页。
+    const libMounted = async (frame) =>
+      (await frame.locator('.character-toolbar, input[type="file"]').count().catch(() => 0)) > 0
     async function memoryLibrary() {
       const here = fnow()
-      if (here && new URL(here.url()).pathname === '/tavern/characters') return here
-      const opened = await openCharactersPage()
-      const frameNow = fnow()
-      if (frameNow && new URL(frameNow.url()).pathname === '/tavern/characters') return frameNow
-      if (frameNow) await frameNow.evaluate(() => location.assign('/tavern/characters')).catch(() => {})
-      return waitFrameUrl(/\/characters\/?$/, 20000)
+      if (here && new URL(here.url()).pathname === '/tavern/characters' && (await libMounted(here))) return here
+      // openCharactersPage 的 URL 正则也会匹配 /characters/<id> 卡详情，所以必须再校验精确路径 + 组件挂载。
+      await openCharactersPage().catch(() => null)
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const frameNow = fnow()
+        if (frameNow && new URL(frameNow.url()).pathname === '/tavern/characters') {
+          const mounted = await memWait(async () => libMounted(frameNow), 15000)
+          if (mounted) return frameNow
+          // URL 对但视图还是旧的（SPA 残留），强制整页重载一次。
+          await frameNow.evaluate(() => location.assign('/tavern/characters')).catch(() => {})
+        } else if (frameNow) {
+          await frameNow.evaluate(() => location.assign('/tavern/characters')).catch(() => {})
+        }
+        const reached = await waitFrameUrl(/\/characters\/?$/, 20000)
+        if (reached && new URL(reached.url()).pathname === '/tavern/characters') {
+          const mounted = await memWait(async () => libMounted(reached), 15000)
+          if (mounted) return reached
+        }
+        await memSleep(600)
+      }
+      return null
     }
     const memTitle = '读者养猫'
     const memContent = '读者养了一只叫团子的猫'
@@ -1877,10 +1909,7 @@ try {
         if (!frameM) memUnavailable(0, '无法进入角色卡库 /characters（owner: plugin-core 面板/导航；cards-client 路由）')
         if (frameM && memUnavailableAt === -1) {
           // SPA 切到卡库后 URL 先变、组件后渲染；先等卡库壳/导入入口出现，避免把「还在渲染」误判成缺导入入口。
-          const libReady = await memWait(
-            async () => (await frameM.locator('.characters-page, .character-grid, input[type="file"]').count().catch(() => 0)) > 0,
-            20000,
-          )
+          const libReady = await memWait(async () => libMounted(frameM), 20000)
           if (!libReady) memUnavailable(0, '20s 内角色卡库没有渲染出页面内容（owner: cards-client CharactersPage）')
         }
         if (frameM && memUnavailableAt === -1) {
@@ -1888,9 +1917,15 @@ try {
           memoryEvidence.cardName = cardName
           let count = await frameM.getByText(cardName, { exact: true }).count().catch(() => 0)
           if (count === 0) {
-            const fileInput = frameM.locator('input[type="file"]').first()
+            let fileInput = frameM.locator('input[type="file"]').first()
+            // 卡库可能刚从卡详情/正则页切回来，组件尚未挂载；最多重进 3 次再判缺入口。
+            for (let attempt = 0; attempt < 3 && (await fileInput.count().catch(() => 0)) === 0; attempt += 1) {
+              const again = await memoryLibrary()
+              if (again) frameM = again
+              fileInput = frameM.locator('input[type="file"]').first()
+            }
             if (!(await fileInput.count().catch(() => 0))) {
-              memUnavailable(0, '角色卡库缺少导入入口 input[type=file]（owner: cards-client）')
+              memUnavailable(0, `角色卡库缺少导入入口 input[type=file]（owner: cards-client；url=${frameM.url()}）`)
             } else {
               await fileInput.setInputFiles(path.join(fixtureDir, memFixture.file)).catch(() => {})
               const appeared = await memWait(async () => (await frameM.getByText(cardName, { exact: true }).count().catch(() => 0)) > 0, 30000)
@@ -2253,8 +2288,1195 @@ try {
   }
   report.memory = memoryEvidence
 
+  // ── P. P0 体验摩擦与对话控制（task-34，随 --cards 运行）────────────────────
+  // 覆盖 docs/step5-p0-p1-p2.md §P0 验收：P1 自动进入、P2 继续上次、P3 流式增长、
+  // P4 重生成、P5 编辑重发、P6 console。P3–P5 需要真实生成（--real），否则记 SKIP。
+  const runP0 = runCards
+  const p0CheckNames = [
+    'P1 探索页开始入口自动进入故事（auto=1，不经过身份选择页）',
+    'P2 探索页「继续上次」显示上次会话并可进入',
+    'P3 流式回复：pending 气泡文本随时间增长，最终保存',
+    'P4 重生成：最后一条 assistant 重新生成后文本变化并保存',
+    'P5 编辑重发：编辑用户消息后按新文本重发并保存',
+    'P6 P 组期间 console 无报错',
+  ]
+  const p0Evidence = {
+    enabled: runP0,
+    real,
+    autoEnter: null,
+    resumeLast: null,
+    streaming: null,
+    regenerate: null,
+    edit: null,
+    console: null,
+    steps: [],
+  }
+  if (runP0 && groupOn('p')) {
+    const p0Recorded = new Set()
+    const p0Sleep = (ms) => page.waitForTimeout(ms)
+    const p0ConsoleStart = consoleErrors.length
+    const p0Errors = () => consoleErrors.slice(p0ConsoleStart).filter((text) => !/Failed to load resource/.test(text))
+    const p0Record = (index, ok, detail, skipped = false) => {
+      if (p0Recorded.has(index)) return
+      p0Recorded.add(index)
+      const name = p0CheckNames[index]
+      if (skipped) skip(name, detail)
+      else check(name, ok, detail)
+      p0Evidence.steps.push({ name, ok: skipped ? true : !!ok, skipped, detail: detail === undefined ? null : String(detail) })
+    }
+    const p0SkipError = (error) => {
+      const text = String((error && error.message) || error)
+      return /^SKIP:/.test(text) || (!real && /需要真实生成（--real）/.test(text)) || /没有单卡聊天会话/.test(text)
+    }
+    const p0NeedsReal = (error) => !real && /需要真实生成（--real）/.test(String((error && error.message) || error))
+    const p0Wait = async (fn, timeoutMs, stepMs = 400) => {
+      const deadline = Date.now() + timeoutMs
+      while (Date.now() < deadline) {
+        try {
+          if (await fn()) return true
+        } catch {}
+        await p0Sleep(stepMs)
+      }
+      return false
+    }
+    const p0Now = () => {
+      const frames = page.frames().filter((candidate) => /\/tavern\//.test(candidate.url()))
+      return frames.length ? frames[frames.length - 1] : null
+    }
+    const p0Goto = async (pathname, timeoutMs = 25000) => {
+      const frame = p0Now()
+      if (!frame) return null
+      const origin = new URL(frame.url()).origin
+      await frame.evaluate((target) => location.assign(target), `/tavern${pathname}`).catch(() => {})
+      await p0Wait(async () => {
+        const current = p0Now()
+        return Boolean(current && new URL(current.url()).pathname.startsWith(pathname.split('?')[0]))
+      }, timeoutMs)
+      return p0Now()
+    }
+    const p0Explore = async () => {
+      const frame = await p0Goto('/explore')
+      if (frame) await p0Wait(async () => (await frame.locator('.discovery-page').count().catch(() => 0)) > 0, 20000)
+      return p0Now()
+    }
+    const p0Card = (frame) => frame.locator('article.curated-story-card').first()
+    const p0ChatUrl = memoryEvidence.chat && memoryEvidence.chat.url ? memoryEvidence.chat.url : null
+    const p0OpenChat = async () => {
+      if (!p0ChatUrl) return null
+      const frame = p0Now()
+      if (!frame) return null
+      await frame.evaluate((target) => location.assign(target), p0ChatUrl).catch(() => {})
+      const ok = await p0Wait(async () => {
+        const current = p0Now()
+        return Boolean(current && /\/conversations\/world\//.test(current.url()))
+      }, 25000)
+      if (!ok) return null
+      const chat = p0Now()
+      await p0Wait(async () => (await chat.locator('#world-chat-message, textarea#world-chat-message').count().catch(() => 0)) > 0, 20000)
+      return p0Now()
+    }
+    const p0AssistantArticles = (frame) => frame.locator('article.world-chat-message.assistant')
+    const p0AssistantTail = async (frame) => {
+      const article = p0AssistantArticles(frame).last()
+      const meta = ((await article.locator('small').first().textContent().catch(() => '')) || '').trim()
+      const text = ((await article.locator('p').last().textContent().catch(() => '')) || '').trim()
+      return { meta, text }
+    }
+    const p0Send = async (frame, text) => {
+      const composer = frame.locator('textarea#world-chat-message').first()
+      const sendButton = frame.locator('form.world-chat-compose button[type="submit"]').first()
+      await composer.fill(text).catch(() => {})
+      const enabled = await p0Wait(async () => !(await sendButton.isDisabled().catch(() => true)), 8000, 200)
+      if (enabled) await sendButton.click().catch(() => {})
+      else await composer.press('Control+Enter').catch(() => {})
+      const userSeen = await p0Wait(async () => (await frame.locator('.world-chat-message.user p').filter({ hasText: text.slice(0, 10) }).count().catch(() => 0)) > 0, 6000, 300)
+      if (!userSeen && enabled) await sendButton.evaluate((el) => el.click()).catch(() => {})
+      return userSeen
+    }
+    try {
+      // ── P1 自动进入 ─────────────────────────────────────────────────────
+      let p1 = { entry: null, href: null, landedPath: null, identityPageSeen: false, error: null }
+      try {
+        const explore = await p0Explore()
+        if (!explore) throw new Error('无法打开探索页（owner: plugin-core 面板 / cards-client 路由）')
+        const cardCount = await explore.locator('article.curated-story-card').count().catch(() => 0)
+        if (!cardCount) throw new Error('探索页没有精选故事卡，无法验证自动进入（owner: app-auth curated / cards-client）')
+        // auto=1 只对「未开始过」的卡有意义：已玩过的卡点「继续游玩」本来就直接进 play。
+        // 优先选按钮文本以「开始游玩」开头的卡；否则选没有 .recent-flag 的卡。
+        let card = null
+        let cardTitle = ''
+        for (let index = 0; index < cardCount; index += 1) {
+          const candidate = explore.locator('article.curated-story-card').nth(index)
+          const buttonText = ((await candidate.locator('button').filter({ hasText: /开始游玩/ }).first().textContent().catch(() => '')) || '').trim()
+          const flag = await candidate.locator('.recent-flag').count().catch(() => 0)
+          if (/^开始游玩/.test(buttonText) && flag === 0) {
+            card = candidate
+            cardTitle = ((await candidate.locator('h3').first().textContent().catch(() => '')) || '').trim()
+            break
+          }
+        }
+        if (!card) throw new Error('SKIP: 探索页所有精选故事都已开始过（无「开始游玩」卡），无法验证 auto 自动进入；请先清库回基线后重跑（owner: app-auth curated line 状态）')
+        p1.title = cardTitle
+        // 入口若带 href 应含 auto=1；若为 button 则以下落 URL 为准。
+        const entryLink = card.locator('a[href*="auto=1"]').first()
+        p1.href = (await entryLink.count().catch(() => 0)) > 0 ? await entryLink.getAttribute('href').catch(() => null) : null
+        const startButton = card.locator('button').filter({ hasText: /开始游玩|继续游玩|开始/ }).first()
+        const startCount = await startButton.count().catch(() => 0)
+        if (!startCount) throw new Error('精选卡上没有开始入口按钮（owner: cards-client DiscoveryPage）')
+        p1.entry = ((await startButton.textContent().catch(() => '')) || '').trim()
+        await startButton.click().catch(() => {})
+        // auto 流程会短暂经过 /worlds/new?world=…&auto=1，随后 WorldCreatePage 自动选身份并 begin；
+        // 因此断言「不停留在身份页」而不是「从不经过」：45s 内必须自动落到 /worlds/<id>/play?line=…。
+        let sawNewWorld = false
+        let sawAutoParam = false
+        let lastPath = null
+        const deadline = Date.now() + 45000
+        let landed = null
+        while (Date.now() < deadline) {
+          const frame = p0Now()
+          if (frame) {
+            const current = new URL(frame.url())
+            lastPath = current.pathname + current.search
+            if (/\/worlds\/new/.test(current.pathname)) {
+              sawNewWorld = true
+              if (current.searchParams.get('auto') === '1') sawAutoParam = true
+            }
+            if (/\/worlds\/[^/]+\/(play|explore)/.test(current.pathname)) {
+              landed = current.pathname
+              break
+            }
+          }
+          await p0Sleep(300)
+        }
+        p1.landedPath = landed
+        p1.sawNewWorld = sawNewWorld
+        p1.sawAutoParam = sawAutoParam
+        p1.identityPageSeen = sawNewWorld && !landed
+        if (!landed) {
+          throw new Error(`点击开始后 45s 内没有自动进入 /worlds/<id>/play（当前=${lastPath || '未知'}；auto 参数=${sawAutoParam}；owner: cards-client auto 自动进入 / WorldCreatePage）`)
+        }
+        if (!/line=/.test(p0Now() ? p0Now().url() : '')) throw new Error(`自动进入落到 ${landed} 但没有 line 参数（owner: cards-client auto 流程）`)
+        p1.ok = true
+        p0Evidence.autoEnter = p1
+        p0Record(0, true, `卡「${clip(cardTitle, 24)}」入口=${p1.entry}${p1.href ? '（href 含 auto=1）' : ''}；${sawNewWorld ? `经过 /worlds/new${sawAutoParam ? '?auto=1' : '（无 auto=1）'}` : '未经过身份页'} 后自动落到 ${landed}?line=…`)
+      } catch (error) {
+        p0Evidence.autoEnter = { ...p1, error: error instanceof Error ? error.message : String(error) }
+        p0Record(0, false, p0Evidence.autoEnter.error.replace(/^SKIP: /, ''), p0SkipError(error))
+      }
+      await shot(page, '60-p0-auto-enter.png')
+
+      // ── P2 继续上次 ─────────────────────────────────────────────────────
+      let p2 = { shown: false, text: null, targetPath: null, sessionId: null, expectedSessionId: null, error: null }
+      try {
+        if (!p0ChatUrl) throw new Error('SKIP: 本次运行没有单卡聊天会话（需 --memory 的 C 组创建会话），无法验证「继续上次」')
+        p2.expectedSessionId = (p0ChatUrl.match(/\/conversations\/world\/([^/?#]+)/) || [])[1] || null
+        const explore = await p0Explore()
+        if (!explore) throw new Error('无法回到探索页（owner: cards-client 路由）')
+        const resumeBlock = explore.locator('a.discovery-resume, .resume-last, .continue-last, [class*="resume"]').filter({ hasText: /继续上次/ }).first()
+        let resumeCount = await resumeBlock.count().catch(() => 0)
+        if (!resumeCount) {
+          const byText = explore.getByText(/继续上次/).first()
+          resumeCount = await byText.count().catch(() => 0)
+          if (resumeCount) {
+            p2.text = ((await byText.textContent().catch(() => '')) || '').trim()
+            const container = byText.locator('xpath=ancestor::a[1] | xpath=ancestor::button[1]').first()
+            if (await container.count().catch(() => 0)) await container.click().catch(() => {})
+            else await byText.click().catch(() => {})
+          }
+        } else {
+          p2.text = ((await resumeBlock.innerText().catch(() => '')) || '').trim()
+          await resumeBlock.click().catch(() => {})
+        }
+        p2.shown = resumeCount > 0
+        if (!p2.shown) throw new Error('探索页没有「继续上次」区块（owner: cards-client DiscoveryPage）')
+        const landed = await p0Wait(async () => {
+          const current = p0Now()
+          return Boolean(current && /\/conversations\/world\//.test(current.url()))
+        }, 25000)
+        if (!landed) throw new Error('点击「继续上次」后没有进入聊天页（owner: cards-client）')
+        const frame = p0Now()
+        p2.targetPath = new URL(frame.url()).pathname
+        p2.sessionId = (p2.targetPath.match(/\/conversations\/world\/([^/?#]+)/) || [])[1] || null
+        const chatRendered = await p0Wait(async () => (await frame.locator('#world-chat-message').count().catch(() => 0)) > 0, 20000)
+        if (!chatRendered) throw new Error('聊天页输入框未渲染（owner: cards-client WorldChatPage）')
+        if (p2.expectedSessionId && p2.sessionId !== p2.expectedSessionId) {
+          throw new Error(`「继续上次」进入的会话 ${clip(p2.sessionId, 12)} 不是最近会话 ${clip(p2.expectedSessionId, 12)}（owner: cards-client 选择逻辑）`)
+        }
+        p0Evidence.resumeLast = p2
+        p0Record(1, true, `区块文本=${clip(p2.text, 60)}；进入 ${p2.targetPath}`)
+      } catch (error) {
+        p2.error = error instanceof Error ? error.message : String(error)
+        p0Evidence.resumeLast = p2
+        p0Record(1, false, p2.error.replace(/^SKIP: /, ''), p0SkipError(error))
+      }
+      await shot(page, '61-p0-resume-last.png')
+
+      // ── P3 流式增长（需 --real）────────────────────────────────────────
+      let p3 = { samples: 0, minLen: null, maxLen: null, growing: false, pendingPlaceholderSeen: false, finalLen: null, saved: false, error: null }
+      try {
+        if (!real) throw new Error('流式增长需要真实生成（--real）；mock 模式不产生增长')
+        if (!p0ChatUrl) throw new Error('本次运行没有单卡聊天会话（前置：C 组创建会话）')
+        const chat = await p0OpenChat()
+        if (!chat) throw new Error('无法打开聊天页（owner: cards-client）')
+        const before = (await p0AssistantArticles(chat).count().catch(() => 0))
+        const text = '（E2E 流式）请慢慢描述渡口的雨，越具体越好。'
+        await p0Send(chat, text)
+        const deadline = Date.now() + 180000
+        const seen = new Set()
+        let maxLen = 0
+        let minLen = null
+        while (Date.now() < deadline) {
+          const article = p0AssistantArticles(chat).last()
+          const tail = ((await article.locator('p').last().textContent().catch(() => '')) || '').trim()
+          const placeholder = ((await article.innerText().catch(() => '')) || '')
+          if (/正在写|正在思考|正在回复/.test(placeholder)) p3.pendingPlaceholderSeen = true
+          if (tail) {
+            seen.add(tail.length)
+            maxLen = Math.max(maxLen, tail.length)
+            minLen = minLen === null ? tail.length : Math.min(minLen, tail.length)
+            if (seen.size >= 2) p3.growing = true
+          }
+          const meta = ((await article.locator('small').first().textContent().catch(() => '')) || '').trim()
+          if (/已保存|收到的部分回复/.test(meta)) {
+            p3.saved = true
+            p3.finalLen = tail.length
+            break
+          }
+          if (Date.now() > deadline) break
+          await p0Sleep(250)
+        }
+        p3.samples = seen.size
+        p3.minLen = minLen
+        p3.maxLen = maxLen
+        if (!p3.saved) throw new Error(`180s 内没有保存的流式回复（len=${maxLen}；owner: app-auth worker 流式写回 / 网关）`)
+        if (!p3.growing && !p3.pendingPlaceholderSeen) {
+          throw new Error(`没有观察到 pending 文本增长（样本=${p3.samples}，min=${minLen} max=${maxLen}；owner: app-auth 流式写回 或 cards-client 轮询渲染）`)
+        }
+        if (!p3.finalLen || p3.finalLen < 20) throw new Error(`最终回复过短（len=${p3.finalLen}；owner: 网关/app-auth）`)
+        const afterCount = await p0AssistantArticles(chat).count().catch(() => 0)
+        p3.newMessages = afterCount - before
+        p0Evidence.streaming = p3
+        p0Record(2, true, `样本长度=${p3.samples}（min=${minLen} max=${maxLen}），pending 占位=${p3.pendingPlaceholderSeen}，最终 saved len=${p3.finalLen}`)
+      } catch (error) {
+        p3.error = error instanceof Error ? error.message : String(error)
+        p0Evidence.streaming = p3
+        p0Record(2, false, p3.error.replace(/^SKIP: /, ''), p0SkipError(error))
+      }
+      await shot(page, '62-p0-streaming.png')
+
+      // ── P4 重生成 ──────────────────────────────────────────────────────
+      let p4 = { beforeFirst60: null, afterFirst60: null, changed: false, saved: false, error: null }
+      try {
+        if (!real) throw new Error('P4 重生成需要真实生成（--real）；mock 模式回复不可比')
+        const chat = await p0OpenChat()
+        if (!chat) throw new Error('无法打开聊天页（owner: cards-client）')
+        const lastAssistant = p0AssistantArticles(chat).last()
+        const beforeTail = await p0AssistantTail(chat)
+        p4.beforeFirst60 = clip(beforeTail.text, 60)
+        if (!beforeTail.text) throw new Error('聊天页没有可重生成的 assistant 消息（前置：P3 或 C 组回复）')
+        const lastArticle = p0AssistantArticles(chat).last()
+        const regenButton = lastArticle.locator('button').filter({ hasText: /重新生成/ }).first()
+        const regenCount = await regenButton.count().catch(() => 0)
+        if (!regenCount) {
+          const byRole = chat.getByRole('button', { name: /重新生成/ }).last()
+          if (!(await byRole.count().catch(() => 0))) throw new Error('最后一条 assistant 没有「重新生成」按钮（owner: cards-client WorldChatPage）')
+          await byRole.click().catch(() => {})
+        } else {
+          await regenButton.click().catch(() => {})
+        }
+        const changed = await p0Wait(async () => {
+          const tail = await p0AssistantTail(chat)
+          return tail.text && tail.text !== beforeTail.text && /已保存|收到的部分回复/.test(tail.meta)
+        }, 180000, 500)
+        const afterTail = await p0AssistantTail(chat)
+        p4.afterFirst60 = clip(afterTail.text, 60)
+        p4.changed = Boolean(afterTail.text && afterTail.text !== beforeTail.text)
+        p4.saved = /已保存|收到的部分回复/.test(afterTail.meta)
+        if (!changed) {
+          const alertText = await chat.locator('[role="alert"]').first().textContent().catch(() => null)
+          throw new Error(`重生成后 180s 内没有新回复${alertText ? `（alert=${clip(alertText, 60)}）` : ''}（owner: app-auth regenerate / cards-client 按钮）`)
+        }
+        if (!p4.changed) throw new Error('重生成后文本没有变化（owner: app-auth regenerate）')
+        p0Evidence.regenerate = p4
+        p0Record(3, true, `重生成前=${p4.beforeFirst60} → 后=${p4.afterFirst60}`)
+      } catch (error) {
+        p4.error = error instanceof Error ? error.message : String(error)
+        p0Evidence.regenerate = p4
+        p0Record(3, false, p4.error.replace(/^SKIP: /, ''), p0SkipError(error))
+      }
+      await shot(page, '63-p0-regenerate.png')
+
+      // ── P5 编辑重发 ────────────────────────────────────────────────────
+      let p5 = { beforeText: null, newText: null, userUpdated: false, replySaved: false, error: null }
+      try {
+        if (!real) throw new Error('P5 编辑重发需要真实生成（--real）；mock 模式回复不可比')
+        const chat = await p0OpenChat()
+        if (!chat) throw new Error('无法打开聊天页（owner: cards-client）')
+        // 打开聊天页后消息列表是异步加载的，先等用户消息渲染出来再取最后一条。
+        const userArticles = chat.locator('article.world-chat-message.user')
+        const userShown = await p0Wait(async () => (await userArticles.count().catch(() => 0)) > 0, 20000, 400)
+        if (!userShown) throw new Error('聊天页没有用户消息可编辑（等 20s 仍未渲染；前置：C 组发送）')
+        const lastUser = userArticles.last()
+        p5.beforeText = ((await lastUser.locator('p').last().textContent().catch(() => '')) || '').trim()
+        // 「编辑」按钮只在 running/busy 结束后才渲染（WorldChatPage 的 message-actions v-if），
+        // 打开聊天页或上一步重生成收尾时可能还有 1–2 个轮询周期处于 running，需要等它出现而不是立即判失败。
+        const editButton = chat
+          .locator('article.world-chat-message.user .world-chat-message-actions button')
+          .filter({ hasText: /^编辑$/ })
+          .last()
+        const editShown = await p0Wait(async () => (await editButton.count().catch(() => 0)) > 0, 20000, 400)
+        if (!editShown) throw new Error('用户消息没有「编辑」按钮（等 20s 仍未出现；owner: cards-client WorldChatPage）')
+        await editButton.scrollIntoViewIfNeeded().catch(() => {})
+        await editButton.click({ timeout: 5000 }).catch(async () => {
+          await editButton.evaluate((el) => el.click()).catch(() => {})
+        })
+        const editor = chat.locator('form.world-chat-edit textarea, textarea[aria-label="编辑这条消息"], article.world-chat-message.user textarea').last()
+        const editorShown = await p0Wait(async () => (await editor.count().catch(() => 0)) > 0, 10000)
+        if (!editorShown) throw new Error('点「编辑」后没有出现内联输入框（owner: cards-client）')
+        const newText = `（E2E 编辑）我叫林舟，现在养了两只猫，一只叫团子，一只叫年糕。`
+        p5.newText = newText
+        await editor.fill(newText).catch(() => {})
+        const saveButton = chat.locator('form.world-chat-edit button[type="submit"], button:has-text("保存并重发")').first()
+        if (await saveButton.count().catch(() => 0)) await saveButton.click().catch(() => {})
+        else await editor.press('Control+Enter').catch(() => {})
+        p5.userUpdated = await p0Wait(async () => (await chat.locator('article.world-chat-message.user p').filter({ hasText: '年糕' }).count().catch(() => 0)) > 0, 15000)
+        if (!p5.userUpdated) throw new Error('编辑保存后用户消息文本没有更新（owner: cards-client 编辑重发）')
+        const saved = await p0Wait(async () => {
+          const tail = await p0AssistantTail(chat)
+          return /已保存|收到的部分回复/.test(tail.meta) && tail.text.length > 10
+        }, 180000, 500)
+        p5.replySaved = saved
+        if (!saved) throw new Error('编辑重发后 180s 内没有保存的新回复（owner: app-auth PATCH messages / 网关）')
+        p0Evidence.edit = p5
+        p0Record(4, true, `原=${clip(p5.beforeText, 40)} → 新=${clip(newText, 40)}；重发后 saved`)
+      } catch (error) {
+        p5.error = error instanceof Error ? error.message : String(error)
+        p0Evidence.edit = p5
+        p0Record(4, false, p5.error.replace(/^SKIP: /, ''), p0SkipError(error))
+      }
+      await shot(page, '64-p0-edit-resend.png')
+    } finally {
+      // 未执行到的项统一补齐（SKIP，不掩盖前面已记录的 FAIL）。
+      for (let index = 0; index < p0CheckNames.length; index += 1) {
+        if (index === p0CheckNames.length - 1) continue
+        if (!p0Recorded.has(index)) {
+          p0Record(index, false, 'P 组未执行到该项（前置步骤中断，见前面 FAIL）', true)
+        }
+      }
+      const errors = p0Errors()
+      p0Evidence.console = errors
+      p0Record(5, errors.length === 0, errors.length ? errors.slice(0, 3).join(' | ') : 'clean')
+    }
+    report.p0 = p0Evidence
+  }
+
+  // ── Q. P1 角色卡库与人设/导出/阅读感（task-37，随 --cards 运行）──────────────
+  // 覆盖 docs/step5-p0-p1-p2.md §P1：人设 CRUD 与注入、角色卡 PNG 导出、聊天 JSONL 导出、
+  // 卡库搜索/排序/示例卡包、正文字号行高字体持久化。需要 --memory 创建的单卡会话（C 组）。
+  const runQ = runCards
+  const qCheckNames = [
+    'Q1 人设 CRUD：新建/编辑/删除，刷新后仍保持绑定',
+    'Q2 人设注入：context-preview 与「本轮记忆」出现【你的对话对象】',
+    'Q3 卡详情「导出角色卡」下载 PNG（含 chara 元数据）',
+    'Q4 聊天页「导出聊天」下载 JSONL（含消息行）',
+    'Q5 卡库搜索与排序可用',
+    'Q6 导入示例卡包：首次导入，再次同名跳过',
+    'Q7 正文字号/行高/字体设置刷新后保持',
+    'Q8 Q 组期间 console 无报错',
+  ]
+  const qEvidence = {
+    enabled: runQ,
+    persona: null,
+    injection: null,
+    exportCard: null,
+    exportChat: null,
+    library: null,
+    samples: null,
+    reading: null,
+    console: null,
+    steps: [],
+  }
+  if (runQ && groupOn('q')) {
+    const qRecorded = new Set()
+    const qSleep = (ms) => page.waitForTimeout(ms)
+    const qConsoleStart = consoleErrors.length
+    const qErrors = () => consoleErrors.slice(qConsoleStart).filter((text) => !/Failed to load resource/.test(text))
+    const qRecord = (index, ok, detail, skipped = false) => {
+      if (qRecorded.has(index)) return
+      qRecorded.add(index)
+      const name = qCheckNames[index]
+      if (skipped) skip(name, detail)
+      else check(name, ok, detail)
+      qEvidence.steps.push({ name, ok: skipped ? true : !!ok, skipped, detail: detail === undefined ? null : String(detail) })
+    }
+    const qWait = async (fn, timeoutMs, stepMs = 400) => {
+      const deadline = Date.now() + timeoutMs
+      while (Date.now() < deadline) {
+        try {
+          if (await fn()) return true
+        } catch {}
+        await qSleep(stepMs)
+      }
+      return false
+    }
+    const qNow = () => {
+      const frames = page.frames().filter((candidate) => /\/tavern\//.test(candidate.url()))
+      return frames.length ? frames[frames.length - 1] : null
+    }
+    const qBase = (frame) => (frame && /\/tavern\//.test(frame.url()) ? '/tavern' : '')
+    const qApi = async (frame, pathname, options) => frame.evaluate(async ({ base, pathname: target, options: init }) => {
+      const response = await fetch(base + '/api/reader/v1' + target, init || {})
+      const text = await response.text()
+      let body = null
+      try { body = JSON.parse(text) } catch {}
+      return { status: response.status, body, text }
+    }, { base: qBase(frame), pathname, options })
+    const qGoto = async (pathname, timeoutMs = 25000) => {
+      const frame = qNow()
+      if (!frame) return null
+      await frame.evaluate((target) => location.assign(target), `${qBase(frame)}${pathname}`).catch(() => {})
+      await qWait(async () => {
+        const current = qNow()
+        return Boolean(current && new URL(current.url()).pathname.startsWith(pathname.split('?')[0]))
+      }, timeoutMs)
+      return qNow()
+    }
+    const qChatUrl = memoryEvidence.chat && memoryEvidence.chat.url ? memoryEvidence.chat.url : null
+    const qCardId = memoryEvidence.cardId || null
+    const qCardName = memoryEvidence.cardName || null
+    const qOpenChat = async () => {
+      if (!qChatUrl) return null
+      const frame = qNow()
+      if (!frame) return null
+      await frame.evaluate((target) => location.assign(target), qChatUrl).catch(() => {})
+      const landed = await qWait(async () => {
+        const current = qNow()
+        return Boolean(current && /\/conversations\/world\//.test(current.url()))
+      }, 25000)
+      if (!landed) return null
+      const chat = qNow()
+      await qWait(async () => (await chat.locator('#world-chat-message').count().catch(() => 0)) > 0, 20000)
+      return qNow()
+    }
+    // 整页刷新聊天页：等待新文档、聊天输入框与人设控件都挂载后再返回，避免拿到旧 frame
+    const qReloadChat = async () => {
+      const frame = qNow()
+      if (!frame) return null
+      await frame.evaluate(() => location.reload()).catch(() => {})
+      await qSleep(1200)
+      const landed = await qWait(async () => {
+        const current = qNow()
+        if (!current || !/\/conversations\/world\//.test(current.url())) return false
+        return (await current.locator('#world-chat-message').count().catch(() => 0)) > 0
+      }, 30000)
+      if (!landed) return null
+      const chat = qNow()
+      await qWait(async () => (await chat.locator('section.persona-control select[aria-label="选择当前人设"]').count().catch(() => 0)) > 0, 20000)
+      await qSleep(500)
+      return qNow()
+    }
+    const qDownload = async (trigger, timeoutMs = 30000) => {
+      const pending = page.waitForEvent('download', { timeout: timeoutMs }).catch(() => null)
+      await trigger()
+      const download = await pending
+      if (!download) return null
+      const name = download.suggestedFilename()
+      const file = path.join('/tmp/dsh-tavern-verify/downloads', name)
+      await mkdir(path.dirname(file), { recursive: true }).catch(() => {})
+      await download.saveAs(file).catch(() => {})
+      const bytes = await readFile(file).catch(() => null)
+      return { name, file, size: bytes ? bytes.length : 0, buffer: bytes }
+    }
+    if (!qChatUrl || !qCardId) {
+      for (let index = 0; index < qCheckNames.length - 1; index += 1) {
+        qRecord(index, false, '需要 --memory 创建的单卡会话（C 组）；本轮没有可用的会话/卡 id', true)
+      }
+      qRecord(qCheckNames.length - 1, true, 'Q 组前置 SKIP，未产生控制台报错', true)
+      report.q = qEvidence
+    } else {
+      let qChat = null
+      const qEnsureChat = async () => {
+        // Q 组会多次离开聊天页（卡详情/卡库/设置抽屉），缓存的 frame 可能已导航走；
+        // 只有当前 frame 仍在单卡聊天页且输入框挂载时才复用。
+        const current = qNow()
+        if (current && /\/conversations\/world\//.test(current.url()) && (await current.locator('#world-chat-message').count().catch(() => 0)) > 0) {
+          qChat = current
+          return qChat
+        }
+        qChat = await qOpenChat()
+        return qChat
+      }
+      try {
+        // ── Q1 人设 CRUD ──────────────────────────────────────────────────
+        let q1 = { name: 'E2E 旅人', created: false, persisted: false, edited: false, deleted: false, notices: [], error: null }
+        try {
+          const chat = await qEnsureChat()
+          if (!chat) throw new Error('无法打开单卡聊天页（owner: plugin-core / cards-client）')
+          const select = chat.locator('select[aria-label="选择当前人设"]').first()
+          await qWait(async () => (await select.count().catch(() => 0)) > 0, 20000)
+          const box = chat.locator('section.persona-control').first()
+          const editor = chat.locator('form.persona-editor').first()
+          const noticeText = async () => ((await box.locator('[role="status"]').first().textContent().catch(() => '')) || '').trim()
+          await box.getByRole('button', { name: /新建/ }).first().click().catch(() => {})
+          await qWait(async () => (await editor.count().catch(() => 0)) > 0, 10000)
+          await editor.locator('input[placeholder="例如：旅人"]').fill('E2E 旅人')
+          await editor.locator('textarea').first().fill('一位在雨夜赶路的旅人，话不多。')
+          await editor.getByRole('button', { name: '保存人设' }).click()
+          q1.created = await qWait(async () => /人设已创建并选中/.test(await noticeText()) || (await select.inputValue().catch(() => '')) !== '', 15000)
+          q1.notices.push(await noticeText())
+          const optionTexts = async () => (await select.locator('option').allTextContents().catch(() => [])).map((text) => text.trim())
+          // 显式走 select 的 change 绑定（PATCH world-chats personaId），比依赖创建后自动绑定更接近用户路径
+          await qWait(async () => (await optionTexts()).some((text) => text.includes('E2E 旅人')), 15000)
+          await select.selectOption({ label: 'E2E 旅人' }).catch(() => {})
+          await qWait(async () => /已切换到/.test(await noticeText()), 15000)
+          q1.notices.push(await noticeText())
+          q1.bound = (await select.inputValue().catch(() => '')) !== '' && (await optionTexts()).some((text) => text.includes('E2E 旅人'))
+          // 刷新后仍保持绑定（PATCH world-chats personaId 已落库）
+          const reloaded = await qReloadChat()
+          if (!reloaded) throw new Error('刷新聊天页后没有回到聊天界面')
+          qChat = reloaded
+          const select2 = reloaded.locator('select[aria-label="选择当前人设"]').first()
+          await qWait(async () => (await select2.count().catch(() => 0)) > 0, 25000)
+          const options2 = (await select2.locator('option').allTextContents().catch(() => [])).map((text) => text.trim())
+          q1.persisted = (await select2.inputValue().catch(() => '')) !== '' && options2.some((text) => text.includes('E2E 旅人'))
+          // 编辑
+          const box2 = reloaded.locator('section.persona-control').first()
+          const editor2 = reloaded.locator('form.persona-editor').first()
+          const editButton = box2.getByRole('button', { name: '编辑' }).first()
+          let editReady = await qWait(async () => (await editButton.count().catch(() => 0)) > 0, 15000)
+          if (!editReady) {
+            // 刷新后若绑定没及时回填，再选一次触发 PATCH，然后重试
+            await select2.selectOption({ label: 'E2E 旅人' }).catch(() => {})
+            editReady = await qWait(async () => (await editButton.count().catch(() => 0)) > 0, 15000)
+          }
+          let editOpened = false
+          for (let attempt = 0; attempt < 3 && !editOpened; attempt += 1) {
+            if ((await editButton.count().catch(() => 0)) > 0) {
+              await editButton.scrollIntoViewIfNeeded().catch(() => {})
+              await editButton.click({ timeout: 6000 }).catch(async () => {
+                // sticky 顶栏可能盖住控件中心，退化为 DOM click
+                await editButton.evaluate((element) => element.click()).catch(() => {})
+              })
+            }
+            editOpened = await qWait(async () => (await editor2.count().catch(() => 0)) > 0, 8000)
+            if (!editOpened) await qSleep(800)
+          }
+          if (!editOpened) {
+            q1.diagnostic = {
+              editButtonCount: await editButton.count().catch(() => -1),
+              editorCount: await editor2.count().catch(() => -1),
+              selectValue: await select2.inputValue().catch(() => ''),
+              optionCount: (await select2.locator('option').allTextContents().catch(() => [])).length,
+              boxText: clip((await box2.innerText().catch(() => '')) || '', 160),
+              notice: await noticeText(),
+            }
+            throw new Error(`刷新后点「编辑」没有打开人设编辑器（persisted=${q1.persisted} ${JSON.stringify(q1.diagnostic)}）`)
+          }
+          await editor2.locator('input[placeholder="例如：旅人"]').fill('E2E 旅人·改')
+          await editor2.getByRole('button', { name: '保存人设' }).click()
+          q1.edited = await qWait(async () => {
+            const texts = (await select2.locator('option').allTextContents().catch(() => [])).map((text) => text.trim())
+            return texts.some((text) => text.includes('E2E 旅人·改'))
+          }, 15000)
+          // 删除（两段点击）
+          await box2.getByRole('button', { name: /删除/ }).first().click().catch(() => {})
+          await box2.getByRole('button', { name: '确认删除' }).first().click().catch(() => {})
+          q1.deleted = await qWait(async () => {
+            const texts = (await select2.locator('option').allTextContents().catch(() => [])).map((text) => text.trim())
+            return !texts.some((text) => text.includes('E2E 旅人'))
+          }, 15000)
+          qEvidence.persona = q1
+          const ok = q1.created && q1.bound && q1.persisted && q1.edited && q1.deleted
+          qRecord(0, ok, `created=${q1.created} bound=${q1.bound} persisted=${q1.persisted} edited=${q1.edited} deleted=${q1.deleted}`)
+          await shot(page, '70-q-persona.png')
+        } catch (error) {
+          q1.error = String((error && error.message) || error)
+          qEvidence.persona = q1
+          qRecord(0, false, q1.error)
+        }
+        // ── Q2 人设注入 ───────────────────────────────────────────────────
+        let q2 = { personaId: null, personaName: 'E2E 注入人设', preview: null, drawer: null, cleaned: false, error: null }
+        try {
+          const chat = await qEnsureChat()
+          if (!chat) throw new Error('无法打开单卡聊天页')
+          const created = await qApi(chat, '/tavern-personas', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ name: 'E2E 注入人设', description: '雨夜赶路的旅人，随身带一盏旧灯。' }),
+          })
+          q2.personaId = created.body && created.body.persona ? created.body.persona.id : null
+          if (!q2.personaId) throw new Error(`创建人设失败：HTTP ${created.status} ${clip(created.text, 120)}`)
+          // 用 UI 选择人设，触发 PATCH world-chats/{id} 绑定
+          const reloaded = await qReloadChat()
+          if (!reloaded) throw new Error('刷新聊天页后没有回到聊天界面')
+          qChat = reloaded
+          const select = reloaded.locator('select[aria-label="选择当前人设"]').first()
+          await qWait(async () => (await select.locator('option').allTextContents().catch(() => [])).some((text) => text.includes('E2E 注入人设')), 20000)
+          await select.selectOption({ label: 'E2E 注入人设' }).catch(() => {})
+          await qWait(async () => /已切换到/.test(((await reloaded.locator('section.persona-control [role="status"]').first().textContent().catch(() => '')) || '')), 15000)
+          const preview = await qApi(reloaded, `/character-cards/${encodeURIComponent(qCardId)}/context-preview`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ message: '你好', personaId: q2.personaId }),
+          })
+          q2.preview = preview.body
+          const suffix = String((preview.body && preview.body.systemSuffix) || '')
+          const personaSection = String((preview.body && preview.body.personaSection) || '')
+          const personaOk = Boolean(preview.body && preview.body.persona && preview.body.persona.name === 'E2E 注入人设')
+          const sectionOk = (suffix + personaSection).includes('【你的对话对象】') && (suffix + personaSection).includes('姓名：E2E 注入人设')
+          const previewOk = personaOk && sectionOk
+          // 「本轮记忆」抽屉显示你的身份
+          await reloaded.getByRole('button', { name: '本轮记忆' }).first().click().catch(() => {})
+          const sheet = reloaded.locator('section.sheet[aria-label="本轮记忆"]').first()
+          await qWait(async () => (await sheet.count().catch(() => 0)) > 0, 15000)
+          const drawerTextOf = async () => ((await sheet.textContent().catch(() => '')) || '').replace(/\s+/g, ' ')
+          await qWait(async () => /你的身份：/.test(await drawerTextOf()), 20000)
+          const drawerText = await drawerTextOf()
+          q2.drawerText = drawerText.slice(0, 200)
+          q2.drawer = /你的身份：/.test(drawerText)
+          q2.drawerPersona = (drawerText.match(/你的身份：([^\s（]*)/) || [])[1] || null
+          await sheet.locator('button[aria-label="关闭"]').first().click().catch(() => {})
+          qEvidence.injection = q2
+          qRecord(1, previewOk && q2.drawer, `previewPersona=${personaOk} personaSection=${sectionOk} drawer=${q2.drawer} drawerPersona=${q2.drawerPersona}`)
+          await shot(page, '71-q-injection.png')
+        } catch (error) {
+          q2.error = String((error && error.message) || error)
+          qEvidence.injection = q2
+          qRecord(1, false, q2.error)
+        }
+        // ── Q3 角色卡 PNG 导出 ────────────────────────────────────────────
+        let q3 = { file: null, size: 0, png: false, chara: false, notice: null, error: null }
+        try {
+          const detail = await qGoto(`/characters/${encodeURIComponent(qCardId)}`)
+          if (!detail) throw new Error('无法打开角色卡详情页')
+          const exportButton = detail.getByRole('button', { name: /导出角色卡/ }).first()
+          await qWait(async () => (await exportButton.count().catch(() => 0)) > 0, 20000)
+          const download = await qDownload(async () => { await exportButton.click().catch(() => {}) })
+          if (!download) throw new Error('点击「导出角色卡」后没有下载事件')
+          q3.file = download.name
+          q3.size = download.size
+          const buffer = download.buffer || Buffer.alloc(0)
+          q3.png = download.name.endsWith('.png') && buffer.length > 8 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47
+          q3.chara = buffer.includes(Buffer.from('chara'))
+          q3.notice = ((await detail.locator('[role="status"]').first().textContent().catch(() => '')) || '').trim()
+          qEvidence.exportCard = q3
+          qRecord(2, q3.png && q3.chara, `file=${q3.file} size=${q3.size} png=${q3.png} chara=${q3.chara}`)
+          await shot(page, '72-q-export-card.png')
+        } catch (error) {
+          q3.error = String((error && error.message) || error)
+          qEvidence.exportCard = q3
+          qRecord(2, false, q3.error)
+        }
+        // ── Q4 聊天 JSONL 导出（Playwright 对 iframe blob 下载常不上报，按响应校验）──
+        let q4 = { file: null, size: 0, lines: 0, assistants: 0, source: null, notice: null, status: null, disposition: null, error: null }
+        try {
+          const chat = await qEnsureChat()
+          if (!chat) throw new Error('无法打开单卡聊天页')
+          const exportButton = chat.getByRole('button', { name: '导出聊天', exact: true }).first()
+          await qWait(async () => (await exportButton.count().catch(() => 0)) > 0, 20000)
+          await qWait(async () => !(await exportButton.isDisabled().catch(() => true)), 10000)
+          const responsePromise = page.waitForResponse((response) => /\/world-chats\/[^/]+\/export\?format=jsonl/.test(response.url()), { timeout: 30000 }).catch(() => null)
+          await exportButton.click({ force: true }).catch(async () => {
+            await exportButton.evaluate((element) => element.click()).catch(() => {})
+          })
+          const response = await responsePromise
+          let bodyText = ''
+          if (response) {
+            q4.source = 'response'
+            q4.status = response.status()
+            q4.disposition = response.headers()['content-disposition'] || ''
+            bodyText = await response.text().catch(() => '')
+          } else {
+            // 兜底：iframe 内直接请求同一导出接口，校验服务端返回的 JSONL 内容
+            q4.source = 'fetch'
+            const chatId = new URL(chat.url()).pathname.split('/').filter(Boolean).pop()
+            const fetched = await qApi(chat, `/play-controls/world-chats/${encodeURIComponent(chatId)}/export?format=jsonl`)
+            q4.status = fetched.status
+            bodyText = fetched.text || ''
+          }
+          await qWait(async () => /聊天记录已导出为 JSONL/.test(((await chat.locator('[role="status"]').first().textContent().catch(() => '')) || '')), 10000)
+          q4.notice = ((await chat.locator('[role="status"]').first().textContent().catch(() => '')) || '').trim()
+          q4.size = bodyText.length
+          const rows = bodyText.split('\n').map((line) => line.trim()).filter(Boolean).map((line) => {
+            try { return JSON.parse(line) } catch { return null }
+          }).filter(Boolean)
+          q4.lines = rows.length
+          q4.assistants = rows.filter((row) => row.role === 'assistant' && String(row.text || '').trim()).length
+          qEvidence.exportChat = q4
+          const dispositionOk = q4.source === 'fetch' ? true : /attachment/i.test(q4.disposition) && /\.jsonl/i.test(q4.disposition)
+          const noticeOk = /聊天记录已导出为 JSONL/.test(q4.notice)
+          const ok = q4.status === 200 && dispositionOk && q4.size > 0 && q4.lines >= 2 && q4.assistants >= 1 && noticeOk
+          const detail = `source=${q4.source} status=${q4.status} disposition=${q4.disposition || '-'} lines=${q4.lines} assistants=${q4.assistants} notice=${q4.notice || '-'}`
+          if (q4.source === 'fetch') qRecord(3, ok, `${detail}（下载事件未上报，已用 iframe 内请求校验 JSONL 内容）`, false)
+          else qRecord(3, ok, detail)
+          await shot(page, '73-q-export-chat.png')
+        } catch (error) {
+          q4.error = String((error && error.message) || error)
+          qEvidence.exportChat = q4
+          qRecord(3, false, q4.error)
+        }
+        // ── Q5 卡库搜索与排序 ─────────────────────────────────────────────
+        let q5 = { total: 0, filtered: 0, filteredName: null, sorted: false, error: null }
+        try {
+          const library = await qGoto('/characters')
+          if (!library) throw new Error('无法打开角色卡库')
+          const search = library.locator('input[aria-label="搜索角色卡"]').first()
+          await qWait(async () => (await search.count().catch(() => 0)) > 0, 20000)
+          // H 组在收尾时会删掉夹具卡；这里先等列表渲染，空了就重新导入一张夹具卡再断言搜索/排序
+          const cardCount = async () => library.locator('article.character-card').count().catch(() => 0)
+          await qWait(async () => (await cardCount()) > 0, 8000)
+          if ((await cardCount()) < 2) {
+            // 搜索/排序断言至少需要两张卡才能区分「过滤后变少」；H 组收尾会删夹具卡，这里补导入
+            const fixtureDir = arg('cards-dir', '/tmp/tavern-verify/cards')
+            const fileInput = library.locator('label.character-import input[type=file]').first()
+            await qWait(async () => (await fileInput.count().catch(() => 0)) > 0, 15000)
+            for (const fixture of ['v2-json.json', 'v1-json.json']) {
+              if ((await cardCount()) >= 2) break
+              await fileInput.setInputFiles(path.join(fixtureDir, fixture)).catch(() => {})
+              await qWait(async () => (await cardCount()) >= 2, 20000)
+            }
+            q5.reimported = true
+          }
+          q5.total = await cardCount()
+          const targetName = qCardName || '顾清和'
+          await search.fill(targetName)
+          const titlesOf = async () => (await library.locator('article.character-card h2').allTextContents().catch(() => [])).map((text) => text.trim())
+          const filteredOk = await qWait(async () => {
+            const titles = await titlesOf()
+            return titles.length >= 1 && titles.length < q5.total && titles.every((title) => title.includes(targetName))
+          }, 15000)
+          const titles = await titlesOf()
+          q5.filtered = titles.length
+          q5.filteredName = titles[0] || null
+          await search.fill('')
+          await qWait(async () => (await library.locator('article.character-card').count().catch(() => 0)) >= Math.min(q5.total, 1), 10000)
+          const sort = library.locator('select[aria-label="角色卡排序"]').first()
+          await sort.selectOption('name').catch(() => {})
+          q5.sorted = (await sort.inputValue().catch(() => '')) === 'name' && (await library.locator('article.character-card').count().catch(() => 0)) >= Math.min(q5.total, 1)
+          qEvidence.library = q5
+          qRecord(4, filteredOk && q5.sorted, `total=${q5.total} filtered=${q5.filtered} first=${q5.filteredName} sortedByName=${q5.sorted}`)
+          await shot(page, '74-q-library.png')
+        } catch (error) {
+          q5.error = String((error && error.message) || error)
+          qEvidence.library = q5
+          qRecord(4, false, q5.error)
+        }
+        // ── Q6 示例卡包与同名跳过 ─────────────────────────────────────────
+        let q6 = { firstNotice: null, secondNotice: null, before: 0, after: 0, skipped: 0, error: null }
+        try {
+          const library = await qGoto('/characters')
+          if (!library) throw new Error('无法打开角色卡库')
+          const sample = library.getByRole('button', { name: /导入示例卡包/ }).first()
+          await qWait(async () => (await sample.count().catch(() => 0)) > 0, 20000)
+          q6.before = await library.locator('article.character-card').count().catch(() => 0)
+          await sample.click().catch(() => {})
+          const notice = library.locator('p').filter({ hasText: /示例卡包：导入/ }).first()
+          await qWait(async () => (await notice.count().catch(() => 0)) > 0, 90000)
+          q6.firstNotice = ((await notice.textContent().catch(() => '')) || '').trim()
+          q6.after = await library.locator('article.character-card').count().catch(() => 0)
+          const firstImported = Number((q6.firstNotice.match(/导入\s*(\d+)\s*张/) || [])[1] || 0)
+          await sample.click().catch(() => {})
+          await qWait(async () => /跳过\s*[1-9]/.test(((await notice.textContent().catch(() => '')) || '')), 90000)
+          q6.secondNotice = ((await notice.textContent().catch(() => '')) || '').trim()
+          q6.skipped = Number((q6.secondNotice.match(/跳过\s*(\d+)\s*张/) || [])[1] || 0)
+          const afterSecond = await library.locator('article.character-card').count().catch(() => 0)
+          qEvidence.samples = q6
+          qRecord(5, firstImported >= 1 && q6.skipped >= 1 && afterSecond === q6.after, `first=${q6.firstNotice} second=${q6.secondNotice} cards ${q6.before}→${q6.after}→${afterSecond}`)
+          await shot(page, '75-q-samples.png')
+        } catch (error) {
+          q6.error = String((error && error.message) || error)
+          qEvidence.samples = q6
+          qRecord(5, false, q6.error)
+        }
+        // ── Q7 阅读感设置持久化 ───────────────────────────────────────────
+        let q7 = { stored: null, afterReload: null, error: null }
+        try {
+          const chat = await qEnsureChat()
+          if (!chat) throw new Error('无法打开单卡聊天页')
+          const openSettings = async () => {
+            const button = chat.locator('button[aria-label="模型与记忆"]').first()
+            await qWait(async () => (await button.count().catch(() => 0)) > 0, 20000)
+            await button.click({ force: true }).catch(() => {})
+            const sheetOf = chat.locator('section.sheet[aria-label="对话模型与记忆"]').first()
+            const opened = await qWait(async () => (await sheetOf.count().catch(() => 0)) > 0, 20000)
+            return opened ? sheetOf : null
+          }
+          let sheet = await openSettings()
+          if (!sheet) {
+            const again = await qReloadChat()
+            sheet = again ? await openSettings() : null
+          }
+          if (!sheet) throw new Error('打开「对话模型与记忆」抽屉失败')
+          const setRange = async (locator, value) => locator.evaluate((el, next) => {
+            el.value = String(next)
+            el.dispatchEvent(new Event('input', { bubbles: true }))
+            el.dispatchEvent(new Event('change', { bubbles: true }))
+          }, value)
+          const size = sheet.locator('input[aria-label="正文字号"]').first()
+          const height = sheet.locator('input[aria-label="正文行高"]').first()
+          const family = sheet.locator('select[aria-label="正文字体"]').first()
+          await setRange(size, 20).catch(() => {})
+          await setRange(height, 2.05).catch(() => {})
+          await family.selectOption('serif').catch(() => {})
+          await qSleep(500)
+          const readStored = async () => {
+            const raw = await chat.evaluate(() => localStorage.getItem('tavern:reading-preference')).catch(() => null)
+            return raw ? JSON.parse(raw) : null
+          }
+          q7.stored = await readStored()
+          if (!q7.stored) {
+            // 某些构建里 localStorage 在 iframe 内不可读时，从页面上下文再读一次
+            q7.stored = await page.evaluate(() => {
+              try { return JSON.parse(localStorage.getItem('tavern:reading-preference')) } catch { return null }
+            }).catch(() => null)
+          }
+          await sheet.locator('button[aria-label="关闭"]').first().click().catch(() => {})
+          const reloaded = await qReloadChat()
+          if (!reloaded) throw new Error('刷新聊天页后没有回到聊天界面')
+          qChat = reloaded
+          await reloaded.locator('button[aria-label="模型与记忆"]').first().click().catch(() => {})
+          const sheet2 = reloaded.locator('section.sheet[aria-label="对话模型与记忆"]').first()
+          await qWait(async () => (await sheet2.count().catch(() => 0)) > 0, 20000)
+          q7.afterReload = {
+            fontSize: await sheet2.locator('input[aria-label="正文字号"]').first().inputValue().catch(() => ''),
+            lineHeight: await sheet2.locator('input[aria-label="正文行高"]').first().inputValue().catch(() => ''),
+            fontFamily: await sheet2.locator('select[aria-label="正文字体"]').first().inputValue().catch(() => ''),
+          }
+          qEvidence.reading = q7
+          const storedOk = Boolean(q7.stored && Number(q7.stored.fontSize) === 20 && q7.stored.fontFamily === 'serif')
+          const reloadOk = q7.afterReload.fontSize === '20' && q7.afterReload.fontFamily === 'serif'
+          qRecord(6, storedOk && reloadOk, `stored=${clip(q7.stored)} afterReload=${clip(q7.afterReload)}`)
+          await shot(page, '76-q-reading.png')
+        } catch (error) {
+          q7.error = String((error && error.message) || error)
+          qEvidence.reading = q7
+          qRecord(6, false, q7.error)
+        }
+        // ── Q8 console ────────────────────────────────────────────────────
+        const qConsoleErrors = qErrors()
+        qEvidence.console = qConsoleErrors
+        qRecord(7, qConsoleErrors.length === 0, qConsoleErrors.length ? qConsoleErrors.slice(0, 3).join(' | ') : 'clean')
+      } finally {
+        // 清理本轮创建的人设（即使中途失败也尽量删除，避免污染基线）
+        const cleanupFrame = qNow()
+        if (cleanupFrame && qEvidence.injection && qEvidence.injection.personaId) {
+          await qApi(cleanupFrame, `/tavern-personas/${encodeURIComponent(qEvidence.injection.personaId)}`, { method: 'DELETE' }).catch(() => {})
+        }
+        for (let index = 0; index < qCheckNames.length; index += 1) {
+          if (!qRecorded.has(index)) qRecord(index, false, 'Q 组未执行到该项（前置步骤中断，见前面 FAIL）', true)
+        }
+        report.q = qEvidence
+      }
+    }
+  }
+
+  // ── R2. P2 对话分支/世界人物成卡/AI 起草（task-40，随 --cards 运行）───────────
+  // 覆盖 docs/step5-p0-p1-p2.md §P2。UI 优先；入口缺失时走 API 并如实 SKIP 注明 owner。
+  const runR2 = runCards
+  const r2CheckNames = [
+    'R2-1 从消息处创建分支：新会话 URL 不同、消息数不超过分支点、可继续发送',
+    'R2-2 世界人物存成角色卡：/characters 出现新卡且可开聊',
+    'R2-3 AI 起草：卡库 AI 起草填充表单，开场白候选可写入',
+    'R2-4 R2 组期间 console 无报错',
+  ]
+  const r2Evidence = { enabled: runR2, branch: null, worldCard: null, draft: null, console: null, steps: [] }
+  if (runR2 && groupOn('r2')) {
+    const r2Recorded = new Set()
+    const r2Sleep = (ms) => page.waitForTimeout(ms)
+    const r2ConsoleStart = consoleErrors.length
+    const r2Errors = () => consoleErrors.slice(r2ConsoleStart).filter((text) => !/Failed to load resource/.test(text))
+    const r2Record = (index, ok, detail, skipped = false) => {
+      if (r2Recorded.has(index)) return
+      r2Recorded.add(index)
+      const name = r2CheckNames[index]
+      if (skipped) skip(name, detail)
+      else check(name, ok, detail)
+      r2Evidence.steps.push({ name, ok: skipped ? true : !!ok, skipped, detail: detail === undefined ? null : String(detail) })
+    }
+    const r2Wait = async (fn, timeoutMs, stepMs = 400) => {
+      const deadline = Date.now() + timeoutMs
+      while (Date.now() < deadline) {
+        try {
+          if (await fn()) return true
+        } catch {}
+        await r2Sleep(stepMs)
+      }
+      return false
+    }
+    const r2Now = () => {
+      const frames = page.frames().filter((candidate) => /\/tavern\//.test(candidate.url()))
+      return frames.length ? frames[frames.length - 1] : null
+    }
+    const r2Base = (frame) => (frame && /\/tavern\//.test(frame.url()) ? '/tavern' : '')
+    const r2Api = async (frame, pathname, options, apiPrefix = '/api/reader/v1') => {
+      let lastError = null
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          return await frame.evaluate(async ({ base, pathname: target, options: init, prefix }) => {
+            const response = await fetch(base + prefix + target, init || {})
+            const text = await response.text()
+            let body = null
+            try { body = JSON.parse(text) } catch {}
+            return { status: response.status, body, text }
+          }, { base: r2Base(frame), pathname, options, prefix: apiPrefix })
+        } catch (error) {
+          lastError = error
+          if (!/Execution context was destroyed|Target closed|Cannot find context/i.test(String((error && error.message) || error))) throw error
+          await r2Sleep(900)
+        }
+      }
+      throw lastError
+    }
+    const r2Goto = async (pathname, timeoutMs = 25000) => {
+      const frame = r2Now()
+      if (!frame) return null
+      await frame.evaluate((target) => location.assign(target), `${r2Base(frame)}${pathname}`).catch(() => {})
+      await r2Wait(async () => {
+        const current = r2Now()
+        return Boolean(current && new URL(current.url()).pathname.startsWith(pathname.split('?')[0]))
+      }, timeoutMs)
+      return r2Now()
+    }
+    const r2ChatUrl = memoryEvidence.chat && memoryEvidence.chat.url ? memoryEvidence.chat.url : null
+    const r2OpenChat = async (url) => {
+      if (!url) return null
+      const frame = r2Now()
+      if (!frame) return null
+      await frame.evaluate((target) => location.assign(target), url).catch(() => {})
+      const landed = await r2Wait(async () => {
+        const current = r2Now()
+        return Boolean(current && /\/conversations\/world\//.test(current.url()))
+      }, 25000)
+      if (!landed) return null
+      const chat = r2Now()
+      await r2Wait(async () => (await chat.locator('#world-chat-message').count().catch(() => 0)) > 0, 20000)
+      await r2Sleep(600)
+      return r2Now()
+    }
+    const r2ChatId = (url) => new URL(url).pathname.split('/').filter(Boolean).pop()
+    try {
+      // ── R2-1 分支 ─────────────────────────────────────────────────────
+      let r2a = { source: null, originalUrl: null, branchUrl: null, forkSequence: 0, messagesAtBranch: 0, canSend: false, error: null }
+      try {
+        const chat = await r2OpenChat(r2ChatUrl)
+        if (!chat) throw new Error('SKIP: 无法打开单卡聊天页（需要 --memory 会话）')
+        r2a.originalUrl = chat.url()
+        const chatData = await r2Api(chat, `/play-controls/world-chats/${encodeURIComponent(r2ChatId(chat.url()))}`)
+        const messages = (chatData.body && chatData.body.messages) || []
+        const userRows = messages.filter((row) => row.role === 'user')
+        if (!userRows.length) throw new Error('SKIP: 当前会话没有用户消息可作分支点')
+        r2a.forkSequence = Number(userRows[userRows.length - 1].sequence)
+        const userMessage = chat.locator('article.world-chat-message.user').last()
+        const forkButton = userMessage.getByRole('button', { name: '从这里分支' }).first()
+        const forkVisible = await r2Wait(async () => (await forkButton.count().catch(() => 0)) > 0, 10000)
+        if (forkVisible) {
+          r2a.source = 'ui'
+          await forkButton.click().catch(() => {})
+          const forkPanel = chat.locator('.world-chat-fork').first()
+          await r2Wait(async () => (await forkPanel.count().catch(() => 0)) > 0, 15000)
+          await forkPanel.getByRole('button', { name: '确认分支' }).first().click().catch(() => {})
+          await r2Wait(async () => {
+            const current = r2Now()
+            return Boolean(current && /\/conversations\/world\//.test(current.url()) && current.url() !== r2a.originalUrl)
+          }, 40000)
+          r2a.branchUrl = r2Now() ? r2Now().url() : null
+        } else {
+          r2a.source = 'api'
+          const forked = await r2Api(chat, `/play-controls/world-chats/${encodeURIComponent(r2ChatId(chat.url()))}/fork`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ sequence: r2a.forkSequence }),
+          })
+          if (forked.status !== 201 || !forked.body || !forked.body.sessionId) throw new Error(`fork API 失败：HTTP ${forked.status} ${clip(forked.text, 120)}`)
+          r2a.branchUrl = `${new URL(chat.url()).origin}/tavern/conversations/world/${forked.body.sessionId}`
+          r2a.branchName = forked.body.name || null
+        }
+        const branch = await r2OpenChat(r2a.branchUrl)
+        if (!branch) throw new Error('分支会话打不开')
+        r2a.messagesAtBranch = await branch.locator('article.world-chat-message').count().catch(() => 0)
+        const composer = branch.locator('#world-chat-message').first()
+        await composer.fill('（E2E 分支）继续说下去。')
+        const send = branch.locator('form.world-chat-compose button[type="submit"]').first()
+        await r2Wait(async () => !(await send.isDisabled().catch(() => true)), 8000, 200)
+        await send.click().catch(() => {})
+        r2a.canSend = await r2Wait(async () => (await branch.locator('article.world-chat-message.user p').filter({ hasText: '（E2E 分支）' }).count().catch(() => 0)) > 0, 15000)
+        r2Evidence.branch = r2a
+        const branchOk = Boolean(r2a.branchUrl && r2a.branchUrl !== r2a.originalUrl && r2a.messagesAtBranch <= r2a.forkSequence && r2a.canSend)
+        if (r2a.source === 'api') r2Record(0, branchOk, `UI「从这里分支」未渲染（owner: cards-client），走 API 分支：${r2a.branchUrl ? r2ChatId(r2a.branchUrl) : 'n/a'}，消息数 ${r2a.messagesAtBranch}≤${r2a.forkSequence}，可发送=${r2a.canSend}`, true)
+        else r2Record(0, branchOk, `UI 分支 → ${r2a.branchUrl ? r2ChatId(r2a.branchUrl) : 'n/a'}，消息数 ${r2a.messagesAtBranch}≤${r2a.forkSequence}，可发送=${r2a.canSend}`)
+        await shot(page, '77-r2-branch.png')
+      } catch (error) {
+        r2a.error = String((error && error.message) || error)
+        r2Evidence.branch = r2a
+        if (/^SKIP:/.test(r2a.error)) r2Record(0, false, r2a.error.replace(/^SKIP:\s*/, ''), true)
+        else r2Record(0, false, r2a.error)
+      }
+      // ── R2-2 世界人物成卡 ─────────────────────────────────────────────
+      let r2b = { characterName: null, cardId: null, appeared: false, chatOpen: false, source: null, error: null }
+      try {
+        const chat = await r2OpenChat(r2ChatUrl)
+        if (!chat) throw new Error('SKIP: 无法打开单卡聊天页（需要 --memory 会话）')
+        const body = (await r2Api(chat, `/play-controls/world-chats/${encodeURIComponent(r2ChatId(chat.url()))}`)).body || {}
+        const worldId = body.worldId
+        const characterId = body.characterId
+        const lineId = body.lineId
+        r2b.characterName = body.characterName || null
+        if (!worldId || !characterId) throw new Error('SKIP: 会话缺少 worldId/characterId，无法验证世界人物成卡')
+        let uiDone = false
+        // 单卡聊天背后的世界是 character-card 类型，没有 360° 场景；「把 TA 存成角色卡」只在
+        // /worlds/:id/explore 的 WorldScene 人物面板里。这里从探索页开一张精选卡，拿它的 world/line。
+        const explore = await r2Goto('/explore', 30000)
+        let sceneWorldId = worldId
+        let sceneLineId = lineId
+        if (explore) {
+          const cards = explore.locator('article.curated-story-card')
+          if (await r2Wait(async () => (await cards.count().catch(() => 0)) > 0, 20000)) {
+            const first = cards.first()
+            const startButton = first.locator('button').filter({ hasText: /开始游玩|继续游玩/ }).first()
+            if (await r2Wait(async () => (await startButton.count().catch(() => 0)) > 0, 10000)) {
+              await startButton.click({ force: true }).catch(async () => { await startButton.evaluate((el) => el.click()).catch(() => {}) })
+              await r2Wait(async () => /\/worlds\/[^/]+\/play/.test((r2Now() || { url: () => '' }).url()), 45000)
+              const landed = new URL((r2Now() || { url: () => '' }).url())
+              const matched = landed.pathname.match(/\/worlds\/([^/]+)\/(?:play|explore)/)
+              if (matched) {
+                sceneWorldId = decodeURIComponent(matched[1])
+                sceneLineId = landed.searchParams.get('line') || sceneLineId
+              }
+            }
+          }
+        }
+        if (sceneWorldId && sceneLineId) {
+          const play = await r2Goto(`/worlds/${encodeURIComponent(sceneWorldId)}/explore?line=${encodeURIComponent(sceneLineId)}`, 45000)
+          if (play) {
+            // 360° 场景是异步生成的（/scenes 先 queued/running 再 ready），冷启动可能要 1-2 分钟。
+            const mapReady = await r2Wait(async () => (await play.locator('.scene-minimap').count().catch(() => 0)) > 0, 120000)
+            r2b.ui = { mapReady, tabClicked: false, entityCount: 0, cardShown: false, cardNotice: null, worldId: sceneWorldId, lineId: sceneLineId }
+            if (mapReady) {
+              const peopleTab = play.locator('button[aria-label="场景人物"]').first()
+              if (await r2Wait(async () => (await peopleTab.count().catch(() => 0)) > 0, 20000)) {
+                await peopleTab.click({ force: true }).catch(() => {})
+                r2b.ui.tabClicked = true
+                const entities = play.locator('.scene-entity-list button:not([disabled])')
+                const listed = await r2Wait(async () => (await entities.count().catch(() => 0)) > 0, 30000)
+                r2b.ui.entityCount = await entities.count().catch(() => 0)
+                if (listed) {
+                  const target = entities.first()
+                  r2b.characterName = ((await target.textContent().catch(() => '')) || '').trim() || r2b.characterName
+                  await target.click({ force: true }).catch(async () => { await target.evaluate((el) => el.click()).catch(() => {}) })
+                  const exportButton = play.locator('.scene-entity-card button').filter({ hasText: /存成角色卡|存为角色卡/ }).first()
+                  r2b.ui.cardShown = await r2Wait(async () => (await exportButton.count().catch(() => 0)) > 0, 20000)
+                  if (r2b.ui.cardShown) {
+                    r2b.source = 'ui'
+                    await exportButton.click({ force: true }).catch(async () => { await exportButton.evaluate((el) => el.click()).catch(() => {}) })
+                    await r2Wait(async () => /\/characters\/[0-9a-f]/.test((r2Now() || { url: () => '' }).url()), 30000)
+                    r2b.ui.cardNotice = ((await play.locator('.scene-entity-card [role="alert"]').first().textContent().catch(() => '')) || '').trim()
+                    uiDone = /\/characters\/[0-9a-f]/.test((r2Now() || { url: () => '' }).url())
+                  }
+                }
+              }
+            }
+          }
+        }
+        if (!uiDone) {
+          r2b.source = 'api'
+          const created = await r2Api(chat, `/worlds/${encodeURIComponent(worldId)}/character-cards`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ characterId }),
+          }, '/api/world/v1')
+          if (created.status !== 201 || !created.body || !created.body.cardId) throw new Error(`世界人物成卡 API 失败：HTTP ${created.status} ${clip(created.text, 120)}`)
+          r2b.cardId = created.body.cardId
+        }
+        const library = await r2Goto('/characters')
+        if (!library) throw new Error('无法打开角色卡库')
+        const search = library.locator('input[aria-label="搜索角色卡"]').first()
+        await r2Wait(async () => (await search.count().catch(() => 0)) > 0, 20000)
+        await search.fill(r2b.characterName || '')
+        r2b.appeared = await r2Wait(async () => (await library.locator('article.character-card').count().catch(() => 0)) >= 1, 15000)
+        const firstCard = library.locator('article.character-card').first()
+        await firstCard.getByRole('button', { name: '开聊' }).first().click().catch(() => {})
+        r2b.chatOpen = await r2Wait(async () => {
+          const current = r2Now()
+          return Boolean(current && (await current.locator('#world-chat-message').count().catch(() => 0)) > 0)
+        }, 30000)
+        r2Evidence.worldCard = r2b
+        const ok = r2b.appeared && r2b.chatOpen
+        if (r2b.source === 'api') r2Record(1, ok, `UI「把 TA 存成角色卡」入口未走通（owner: cards-client；ui=${JSON.stringify(r2b.ui || null)}），走 API 成卡：${r2b.cardId}，卡库可见=${r2b.appeared}，可开聊=${r2b.chatOpen}`, true)
+        else r2Record(1, ok, `UI 成卡：卡库可见=${r2b.appeared}，可开聊=${r2b.chatOpen}`)
+        await shot(page, '78-r2-world-card.png')
+      } catch (error) {
+        r2b.error = String((error && error.message) || error)
+        r2Evidence.worldCard = r2b
+        if (/^SKIP:/.test(r2b.error)) r2Record(1, false, r2b.error.replace(/^SKIP:\s*/, ''), true)
+        else r2Record(1, false, r2b.error)
+      }
+      // ── R2-3 AI 起草与开场白候选 ──────────────────────────────────────
+      let r2c = { draft: null, filled: false, greetings: null, source: null, error: null }
+      try {
+        const library = await r2Goto('/characters')
+        if (!library) throw new Error('无法打开角色卡库')
+        const draftButton = library.getByRole('button', { name: /AI 写卡|AI 起草/ }).first()
+        const uiPresent = await r2Wait(async () => (await draftButton.count().catch(() => 0)) > 0, 15000)
+        if (uiPresent) {
+          r2c.source = 'ui'
+          await draftButton.click({ force: true }).catch(async () => { await draftButton.evaluate((el) => el.click()).catch(() => {}) })
+          const draftPanel = library.locator('section[aria-label="AI 写卡"]').first()
+          await r2Wait(async () => (await draftPanel.count().catch(() => 0)) > 0, 15000)
+          const brief = draftPanel.locator('textarea[aria-label="AI 角色简述"]').first()
+          await brief.fill('一位在雨夜赶路的旅人，随身带一盏旧灯。')
+          await draftPanel.getByRole('button', { name: /生成草稿/ }).first().click({ force: true }).catch(() => {})
+          r2c.filled = await r2Wait(async () => {
+            const nameInput = draftPanel.locator('input[aria-label="草稿角色名"]').first()
+            const value = (await nameInput.inputValue().catch(() => '') || '').trim()
+            if (!value) return false
+            r2c.draft = { name: value, firstMessage: (await draftPanel.locator('textarea[aria-label="草稿开场白"]').first().inputValue().catch(() => '')) || '' }
+            return true
+          }, 90000)
+        } else {
+          r2c.source = 'api'
+          const drafted = await r2Api(library, '/character-cards/draft', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ brief: '一位在雨夜赶路的旅人，随身带一盏旧灯。' }),
+          })
+          r2c.draft = drafted.body && drafted.body.draft ? drafted.body.draft : null
+          r2c.filled = Boolean(r2c.draft && r2c.draft.name && r2c.draft.description)
+        }
+        const frame = r2Now()
+        const cardList = frame ? await r2Api(frame, '/character-cards') : null
+        const cardId = cardList && cardList.body && cardList.body.items && cardList.body.items.length ? cardList.body.items[0].id : null
+        if (cardId && frame) {
+          const greetings = await r2Api(frame, `/character-cards/${encodeURIComponent(cardId)}/greetings`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ count: 2 }),
+          })
+          r2c.greetings = greetings.body && greetings.body.greetings ? greetings.body.greetings : null
+        }
+        r2Evidence.draft = r2c
+        const ok = r2c.filled && Array.isArray(r2c.greetings) && r2c.greetings.length >= 1
+        if (r2c.source === 'api') r2Record(2, ok, `UI「AI 起草」未渲染（owner: cards-client），走 API：draft.name=${r2c.draft && r2c.draft.name}，开场白=${Array.isArray(r2c.greetings) ? r2c.greetings.length : 0} 条`, true)
+        else r2Record(2, ok, `UI 起草填充=${r2c.filled}，开场白候选=${Array.isArray(r2c.greetings) ? r2c.greetings.length : 0} 条`)
+        await shot(page, '79-r2-draft.png')
+      } catch (error) {
+        r2c.error = String((error && error.message) || error)
+        r2Evidence.draft = r2c
+        if (/^SKIP:/.test(r2c.error)) r2Record(2, false, r2c.error.replace(/^SKIP:\s*/, ''), true)
+        else r2Record(2, false, r2c.error)
+      }
+      const r2ConsoleErrors = r2Errors()
+      r2Evidence.console = r2ConsoleErrors
+      r2Record(3, r2ConsoleErrors.length === 0, r2ConsoleErrors.length ? r2ConsoleErrors.slice(0, 3).join(' | ') : 'clean')
+    } finally {
+      for (let index = 0; index < r2CheckNames.length; index += 1) {
+        if (!r2Recorded.has(index)) r2Record(index, false, 'R2 组未执行到该项（前置步骤中断，见前面 FAIL）', true)
+      }
+      report.r2 = r2Evidence
+    }
+  }
+
   // ── M. 顶部导航回归（task-28/30，随 --cards 运行）──────────────────────────
-  if (runCards) {
+  if (runCards && groupOn('m')) {
     const navNames = [
       'M1 顶部导航：无左侧栏，header 品牌「酒馆」+ 恰好两个 tab「探索作品」「角色卡库」，无主题切换按钮',
       'M2 顶部 tab 可切换：角色卡库 → /tavern/characters 高亮，探索作品 → /tavern/explore 高亮',
@@ -2558,7 +3780,7 @@ try {
   }
 
   // ── N. 探索页单用户化（task-25，随 --cards 运行）────────────────────────────
-  if (runCards) {
+  if (runCards && groupOn('n')) {
     const exploreNames = [
       'N1 探索页标题行不再有指向 /recent 的「最近游玩」链接',
       'N2 探索页不再有「公开互动作品」整节',

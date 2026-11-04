@@ -14,12 +14,17 @@ vi.mock('./api',()=>({
   getCard:vi.fn(),updateCard:vi.fn(),listLore:vi.fn(),createLore:vi.fn(),updateLore:vi.fn(),deleteLore:vi.fn(),
   listPresets:vi.fn(),createPreset:vi.fn(),startCardChat:vi.fn(),cardAvatarBlob:vi.fn(),contextPreview:vi.fn(),
   listMemories:vi.fn(),createMemory:vi.fn(),updateMemory:vi.fn(),deleteMemory:vi.fn(),extractMemories:vi.fn(),setCompanion:vi.fn(),
+  exportCardBlob:vi.fn(),cardGreetings:vi.fn(),listPersonas:vi.fn(),createPersona:vi.fn(),updatePersona:vi.fn(),deletePersona:vi.fn(),
 }))
+vi.mock('../api',()=>({api:vi.fn(),newKey:()=> 'fixture-key'}))
+vi.mock('../platform/bridge',()=>({backendBase:()=>'http://localhost',cacheGet:vi.fn(),cacheSet:vi.fn()}))
+vi.mock('../platform/download',()=>({saveBlob:vi.fn(),safeFileName:(name:string,fallback:string)=>name||fallback,authorizedBlob:vi.fn()}))
+import {saveBlob} from '../platform/download'
 vi.mock('../platform/request-scope',()=>({useRequestScope:()=>{let disposed=false;onUnmounted(()=>{disposed=true});return()=>({valid:()=>!disposed})}}))
 vi.mock('../workspace/PageHeader.vue',()=>({default:defineComponent({props:{title:String,description:String,eyebrow:String},setup:(p,{slots})=>()=>h('header',[p.title,slots.default?.()])})}))
 vi.mock('lucide-vue-next',()=>{
   const stub=defineComponent({setup:()=>()=>null})
-  return{ArrowLeft:stub,Brain:stub,BookOpen:stub,Eye:stub,Heart:stub,MessageSquareText:stub,Pencil:stub,Plus:stub,Replace:stub,Save:stub,Sparkles:stub,Trash2:stub}
+  return{ArrowLeft:stub,Brain:stub,BookOpen:stub,Download:stub,Eye:stub,Heart:stub,MessageSquareText:stub,Pencil:stub,Plus:stub,Replace:stub,Save:stub,Sparkles:stub,Trash2:stub,UserRound:stub}
 })
 compileRender(CardDetailPage,new URL('./CardDetailPage.vue',import.meta.url))
 
@@ -57,6 +62,7 @@ beforeEach(()=>{
   vi.mocked(cardApi.updateMemory).mockReset()
   vi.mocked(cardApi.deleteMemory).mockReset().mockResolvedValue(undefined)
   vi.mocked(cardApi.extractMemories).mockReset()
+  vi.mocked(cardApi.cardGreetings).mockReset()
   vi.mocked(cardApi.setCompanion).mockReset().mockImplementation(async(_id,companion)=>({...card,companion}))
   harness.push.mockReset().mockResolvedValue(undefined)
   harness.route=reactive({params:{id:'c1'}})
@@ -292,4 +298,57 @@ it('removes the companion flag again',async()=>{
   await flush()
   expect(cardApi.setCompanion).toHaveBeenCalledWith('c1',false)
   expect(text(root)).toContain('已取消长期伙伴')
+})
+
+it('exports the card as a PNG blob through the download helper',async()=>{
+  const blob=new Blob(['png'])
+  vi.mocked(cardApi.exportCardBlob).mockResolvedValueOnce(blob)
+  mount();await flush()
+  button('导出角色卡').props.onClick()
+  await flush()
+  expect(cardApi.exportCardBlob).toHaveBeenCalledWith('c1','png')
+  expect(saveBlob).toHaveBeenCalledWith(blob,'林渡.png')
+  expect(text(root)).toContain('角色卡已导出为 PNG')
+})
+
+it('shows the backend hint when card export is not deployed yet',async()=>{
+  vi.mocked(cardApi.exportCardBlob).mockRejectedValueOnce(new Error('服务端暂不支持导出角色卡，请稍后重试。'))
+  mount();await flush()
+  button('导出角色卡').props.onClick()
+  await flush()
+  expect(text(root)).toContain('服务端暂不支持导出角色卡，请稍后重试。')
+})
+
+it('renders the persona section and the persona that the preview injects',async()=>{
+  vi.mocked(cardApi.listPersonas).mockResolvedValueOnce([{id:'p1',name:'旅人',description:'雨夜赶路的人。'}] as never)
+  vi.mocked(cardApi.contextPreview).mockResolvedValueOnce({loreMatched:[],preset:null,systemSuffix:'',persona:{id:'p1',name:'旅人'}})
+  mount();await flush()
+  expect(text(root)).toContain('我是谁')
+  const messageInput=descendants(root,item=>item.tag==='input'&&item.props.placeholder==='例如：外面下雨了，我们在屋里待一会儿吧')[0]
+  fire(messageInput,'onUpdate:modelValue','你来了')
+  await flush()
+  button('预览').props.onClick()
+  await flush()
+  expect(text(root)).toContain('注入的人设：旅人')
+})
+
+it('opens the interactive world for a card exported from a world',async()=>{
+  vi.mocked(cardApi.getCard).mockResolvedValueOnce({...card,chatTarget:{worldId:'w1',lineId:'l1',checkpointId:'cp1',characterId:'ch1'}} as never)
+  mount();await flush()
+  await button('进入互动世界')!.props.onClick();await flush()
+  expect(harness.push).toHaveBeenCalledWith('/worlds/w1/play?line=l1')
+})
+
+it('generates opening candidates and writes the chosen one into the saved first message',async()=>{
+  vi.mocked(cardApi.cardGreetings).mockResolvedValueOnce(['雨停了吗？','进来看看书吧。'])
+  mount();await flush()
+  await button('生成候选')!.props.onClick();await flush()
+  expect(cardApi.cardGreetings).toHaveBeenCalledWith('c1',3)
+  expect(text(root)).toContain('雨停了吗？')
+  const use=descendants(root,item=>item.tag==='button'&&text(item).trim()==='用作开场白')[0]
+  await use.props.onClick();await flush()
+  expect(text(root)).toContain('已填入开场白')
+  const settingsForm=descendants(root,item=>item.tag==='form'&&text(item).includes('保存设定'))[0]
+  await settingsForm.props.onSubmit({preventDefault(){}});await flush()
+  expect(cardApi.updateCard).toHaveBeenLastCalledWith('c1',expect.objectContaining({firstMessage:'雨停了吗？'}))
 })

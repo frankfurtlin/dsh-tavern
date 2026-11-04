@@ -41,6 +41,11 @@ def list_memories(db, owner, card_id):
     ).order_by(CardMemory.salience.desc(), CardMemory.updated_at.desc(), CardMemory.id.desc())))
 
 
+def matched(db, owner, card):
+    """Enabled memories in injection order (salience desc, updated desc), capped."""
+    return [row for row in list_memories(db, owner, card.id) if row.enabled][:INJECT_LIMIT]
+
+
 def get_memory(db, owner, card_id, memory_id):
     row = db.scalar(select(CardMemory).where(
         CardMemory.id == memory_id, CardMemory.owner_id == owner, CardMemory.card_id == card_id))
@@ -242,7 +247,7 @@ def extract(db, owner, card, profile):
 # --- injection -------------------------------------------------------------
 
 def injection(db, owner, card):
-    rows = [row for row in list_memories(db, owner, card.id) if row.enabled][:INJECT_LIMIT]
+    rows = matched(db, owner, card)
     lines, total = [], 0
     for row in rows:
         line = f"- {row.title}：{row.content}"
@@ -258,7 +263,7 @@ def injection(db, owner, card):
 
 
 def preview_payload(db, owner, card):
-    rows = [row for row in list_memories(db, owner, card.id) if row.enabled][:INJECT_LIMIT]
+    rows = matched(db, owner, card)
     return {"memories": [{"id": row.id, "title": row.title, "salience": row.salience} for row in rows],
             "memorySection": injection(db, owner, card)}
 

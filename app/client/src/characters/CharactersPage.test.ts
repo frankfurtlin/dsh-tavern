@@ -5,11 +5,12 @@ import * as cardApi from './api'
 import {compileRender,descendants,flush,node,provideSfc,renderer,text,type Host} from '../test/host-renderer'
 
 const harness=vi.hoisted(()=>({push:vi.fn(),message:vi.fn()}))
-vi.mock('./api',()=>({listCards:vi.fn(),importCard:vi.fn(),startCardChat:vi.fn(),deleteCard:vi.fn(),cardAvatarBlob:vi.fn()}))
+vi.mock('./api',()=>({listCards:vi.fn(),importCard:vi.fn(),startCardChat:vi.fn(),deleteCard:vi.fn(),cardAvatarBlob:vi.fn(),draftCard:vi.fn()}))
 vi.mock('vue-router',()=>({useRouter:()=>({push:harness.push})}))
 vi.mock('../stores/app',()=>({useApp:()=>({message:harness.message})}))
 vi.mock('../platform/request-scope',()=>({useRequestScope:()=>{let disposed=false;onUnmounted(()=>{disposed=true});return()=>({valid:()=>!disposed})}}))
-vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{Upload:stub,Users:stub,MessageCircle:stub,Pencil:stub,Replace:stub,Trash2:stub,Heart:stub}})
+vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{PackagePlus:stub,Search:stub,Sparkles:stub,Upload:stub,Users:stub,MessageCircle:stub,Pencil:stub,Replace:stub,Trash2:stub,Heart:stub,RotateCcw:stub,Type:stub}})
+vi.mock('../components/ReadingPreferencePanel.vue',()=>({default:defineComponent({setup:()=>()=>h('section',{'aria-label':'正文阅读感设置'},'正文阅读感')})}))
 vi.mock('../workspace/PageHeader.vue',()=>({default:defineComponent({props:{title:String},setup:(p,{slots})=>()=>h('header',[p.title,slots.default?.()])})}))
 compileRender(CharactersPage,new URL('./CharactersPage.vue',import.meta.url))
 
@@ -24,12 +25,14 @@ beforeEach(()=>{
   vi.mocked(cardApi.startCardChat).mockReset()
   vi.mocked(cardApi.deleteCard).mockReset().mockResolvedValue(undefined)
   vi.mocked(cardApi.cardAvatarBlob).mockReset().mockResolvedValue(null)
+  vi.mocked(cardApi.draftCard).mockReset()
   harness.push.mockReset().mockResolvedValue(undefined)
   harness.message.mockReset()
   vi.spyOn(URL,'createObjectURL').mockReturnValue('blob:card-c1')
   vi.spyOn(URL,'revokeObjectURL').mockImplementation(()=>{})
+  vi.stubGlobal('document',{activeElement:null})
 })
-afterEach(()=>{app?.unmount();app=undefined;vi.restoreAllMocks()})
+afterEach(()=>{app?.unmount();app=undefined;vi.restoreAllMocks();vi.unstubAllGlobals()})
 
 it('shows the empty state until a SillyTavern card exists',async()=>{
   mount();await flush()
@@ -116,4 +119,86 @@ it('groups long-term companions in a pinned section above the rest',async()=>{
   expect(body).toContain('全部角色卡')
   expect(body.indexOf('沈青')).toBeLessThan(body.indexOf('林渡'))
   expect(descendants(root,item=>Boolean(item.props['data-card-id'])).length).toBe(2)
+})
+
+it('searches the library through the documented q parameter after a short debounce',async()=>{
+  vi.useFakeTimers()
+  try{
+    vi.mocked(cardApi.listCards).mockResolvedValueOnce([card]).mockResolvedValueOnce([])
+    mount();await flush()
+    const entity=(app!._instance as unknown as {setupState:{query:string}}).setupState
+    entity.query='雨'
+    await flush()
+    vi.advanceTimersByTime(320)
+    await flush()
+    expect(cardApi.listCards).toHaveBeenLastCalledWith('雨')
+    expect(text(root)).toContain('没有匹配的角色卡')
+  }finally{
+    vi.useRealTimers()
+  }
+})
+
+it('sorts companions and the rest by the chosen order',async()=>{
+  const older={...card,id:'c2',name:'阿青',updatedAt:'2025-01-01T00:00:00Z'}
+  const newer={...card,id:'c3',name:'周野',updatedAt:'2026-10-01T00:00:00Z'}
+  vi.mocked(cardApi.listCards).mockResolvedValueOnce([older,newer])
+  mount();await flush()
+  expect(text(root).indexOf('周野')).toBeLessThan(text(root).indexOf('阿青'))
+  const select=descendants(root,item=>item.tag==='select'&&item.props['aria-label']==='角色卡排序')[0]
+  select.props['onUpdate:modelValue']('name')
+  await flush()
+  // 名称排序按 zh-CN：阿青在周野之前
+  expect(text(root).indexOf('阿青')).toBeLessThan(text(root).indexOf('周野'))
+})
+
+it('imports the built-in sample pack while skipping cards that already exist',async()=>{
+  vi.mocked(cardApi.listCards).mockResolvedValueOnce([{...card,name:'雨夜侦探'}]).mockResolvedValueOnce([card])
+  vi.mocked(cardApi.importCard).mockResolvedValue({card})
+  mount();await flush()
+  button('导入示例卡包').props.onClick()
+  await flush()
+  // 6 张示例中 1 张同名被跳过，其余 5 张逐个导入
+  expect(cardApi.importCard).toHaveBeenCalledTimes(5)
+  expect(text(root)).toContain('示例卡包：导入 5 张，跳过 1 张同名卡')
+})
+
+it('imports several picked files in one batch',async()=>{
+  vi.mocked(cardApi.listCards).mockResolvedValue([])
+  vi.mocked(cardApi.importCard).mockResolvedValue({card})
+  mount();await flush()
+  const batch=descendants(root,item=>item.tag==='input'&&item.props.multiple!==undefined)[0]
+  const files=[new File(['{}'],'a.json',{type:'application/json'}),new File(['{}'],'b.json',{type:'application/json'})]
+  batch.props.onChange({target:{files,value:''}})
+  await flush()
+  expect(cardApi.importCard).toHaveBeenCalledTimes(2)
+  expect(text(root)).toContain('批量导入完成：成功 2 张')
+})
+
+it('toggles the reading preference panel for the chat body preview',async()=>{
+  vi.mocked(cardApi.listCards).mockResolvedValueOnce([card])
+  mount();await flush()
+  button('正文阅读感').props.onClick()
+  await flush()
+  expect(descendants(root,item=>item.props['aria-label']==='正文阅读感设置').length).toBe(1)
+})
+
+it('drafts a card with AI and imports it only after confirmation',async()=>{
+  vi.mocked(cardApi.draftCard).mockResolvedValueOnce({name:'林渡',description:'旧书摊主',personality:'温和',scenario:'雨夜书店',firstMessage:'来了？',tags:['旧书']})
+  vi.mocked(cardApi.importCard).mockResolvedValueOnce({card:{...card,id:'c9',name:'林渡'}} as never)
+  mount();await flush()
+  await button('AI 写卡')!.props.onClick();await flush()
+  const brief=descendants(root,item=>item.tag==='textarea'&&item.props['aria-label']==='AI 角色简述')[0]
+  expect(brief).toBeDefined()
+  const update=brief.props['onUpdate:modelValue'];Array.isArray(update)?update.forEach(fn=>fn('雨夜旧书店的青年')):update?.('雨夜旧书店的青年');await flush()
+  expect(cardApi.draftCard).not.toHaveBeenCalled()
+  await button('生成草稿')!.props.onClick();await flush()
+  expect(cardApi.draftCard).toHaveBeenCalledWith('雨夜旧书店的青年')
+  expect(cardApi.importCard).not.toHaveBeenCalled()
+  expect(descendants(root,item=>item.tag==='input'&&item.props['aria-label']==='草稿角色名')).toHaveLength(1)
+  const draftForm=descendants(root,item=>item.tag==='form'&&text(item).includes('导入这张卡'))[0]
+  await draftForm.props.onSubmit({preventDefault(){}});await flush()
+  expect(cardApi.importCard).toHaveBeenCalledTimes(1)
+  const file=vi.mocked(cardApi.importCard).mock.calls[0][0]
+  expect(file.name).toBe('林渡.json')
+  expect(harness.message).toHaveBeenCalled()
 })

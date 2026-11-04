@@ -78,6 +78,9 @@
 
 iframe → 父（主动，节流）：
 - `{type:'dsh-tavern:state', appPath, hasContext:boolean}`
+  > 一次成功的 `context-request` 会立即把 `hasContext` 置为 true 并触发一次 state
+  > 上报：故事页数据加载完成、`context` 已可用时，面板无需等 store 自身变化就能
+  > 把提示从「读取故事内容失败」恢复为正常。
 
 附加消息（契约之外、可选）：
 - `{type:'dsh-tavern:theme', theme:'light'|'dark'}`：宿主切主题时推给 iframe。
