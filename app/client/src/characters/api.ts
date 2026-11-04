@@ -1,4 +1,4 @@
-import {api,authorizationHeaders} from '../api'
+import {api,authorizationHeaders,newKey} from '../api'
 import {backendBase} from '../platform/bridge'
 
 export interface CardOut {
@@ -80,6 +80,8 @@ export interface ContextPreview {
   systemSuffix:string
   memories?:{id:string;title:string;salience:number}[]
   memorySection?:string
+  persona?:{id?:string;name:string}|null
+  personaSection?:string
 }
 
 export type MemoryKind='fact'|'preference'|'relationship'|'event'
@@ -132,7 +134,7 @@ export async function listCards(q=''):Promise<CardOut[]>{
 export async function importCard(file:File):Promise<{card:CardOut}>{
   const form=new FormData()
   form.append('file',file)
-  return api<{card:CardOut}>(PREFIX+'/imports',{method:'POST',body:form})
+  return api<{card:CardOut}>(PREFIX+'/imports',{method:'POST',key:newKey(),body:form})
 }
 
 export async function getCard(id:string):Promise<CardOut>{
@@ -141,16 +143,16 @@ export async function getCard(id:string):Promise<CardOut>{
 }
 
 export async function updateCard(id:string,patch:CardUpdate):Promise<CardOut>{
-  const result=await api<CardOut|CardEnvelope>(PREFIX+'/'+encodeURIComponent(id),{method:'PATCH',body:patch})
+  const result=await api<CardOut|CardEnvelope>(PREFIX+'/'+encodeURIComponent(id),{method:'PATCH',key:newKey(),body:patch})
   return unwrap<CardOut>(result,'card')
 }
 
 export async function startCardChat(id:string):Promise<{sessionId:string;cardId:string}>{
-  return api<{sessionId:string;cardId:string}>(PREFIX+'/'+encodeURIComponent(id)+'/chats',{method:'POST'})
+  return api<{sessionId:string;cardId:string}>(PREFIX+'/'+encodeURIComponent(id)+'/chats',{method:'POST',key:newKey()})
 }
 
 export async function deleteCard(id:string):Promise<void>{
-  await api<unknown>(PREFIX+'/'+encodeURIComponent(id),{method:'DELETE'})
+  await api<unknown>(PREFIX+'/'+encodeURIComponent(id),{method:'DELETE',key:newKey()})
 }
 
 export async function listLore(cardId:string):Promise<LoreEntry[]>{
@@ -159,17 +161,17 @@ export async function listLore(cardId:string):Promise<LoreEntry[]>{
 }
 
 export async function createLore(cardId:string,input:LoreInput):Promise<LoreEntry>{
-  const result=await api<LoreEntry|{lore:LoreEntry}>(PREFIX+'/'+encodeURIComponent(cardId)+'/lore',{method:'POST',body:input})
+  const result=await api<LoreEntry|{lore:LoreEntry}>(PREFIX+'/'+encodeURIComponent(cardId)+'/lore',{method:'POST',key:newKey(),body:input})
   return unwrap<LoreEntry>(result,'lore')
 }
 
 export async function updateLore(cardId:string,loreId:string,patch:Partial<LoreInput>):Promise<LoreEntry>{
-  const result=await api<LoreEntry|{lore:LoreEntry}>(PREFIX+'/'+encodeURIComponent(cardId)+'/lore/'+encodeURIComponent(loreId),{method:'PATCH',body:patch})
+  const result=await api<LoreEntry|{lore:LoreEntry}>(PREFIX+'/'+encodeURIComponent(cardId)+'/lore/'+encodeURIComponent(loreId),{method:'PATCH',key:newKey(),body:patch})
   return unwrap<LoreEntry>(result,'lore')
 }
 
 export async function deleteLore(cardId:string,loreId:string):Promise<void>{
-  await api<unknown>(PREFIX+'/'+encodeURIComponent(cardId)+'/lore/'+encodeURIComponent(loreId),{method:'DELETE'})
+  await api<unknown>(PREFIX+'/'+encodeURIComponent(cardId)+'/lore/'+encodeURIComponent(loreId),{method:'DELETE',key:newKey()})
 }
 
 export async function listPresets():Promise<Preset[]>{
@@ -178,17 +180,17 @@ export async function listPresets():Promise<Preset[]>{
 }
 
 export async function createPreset(input:PresetInput):Promise<Preset>{
-  const result=await api<Preset|{preset:Preset}>(PRESETS,{method:'POST',body:input})
+  const result=await api<Preset|{preset:Preset}>(PRESETS,{method:'POST',key:newKey(),body:input})
   return unwrap<Preset>(result,'preset')
 }
 
 export async function updatePreset(id:string,patch:Partial<PresetInput>):Promise<Preset>{
-  const result=await api<Preset|{preset:Preset}>(PRESETS+'/'+encodeURIComponent(id),{method:'PATCH',body:patch})
+  const result=await api<Preset|{preset:Preset}>(PRESETS+'/'+encodeURIComponent(id),{method:'PATCH',key:newKey(),body:patch})
   return unwrap<Preset>(result,'preset')
 }
 
 export async function deletePreset(id:string):Promise<void>{
-  await api<unknown>(PRESETS+'/'+encodeURIComponent(id),{method:'DELETE'})
+  await api<unknown>(PRESETS+'/'+encodeURIComponent(id),{method:'DELETE',key:newKey()})
 }
 
 export async function listRegexScripts():Promise<RegexScript[]>{
@@ -197,17 +199,17 @@ export async function listRegexScripts():Promise<RegexScript[]>{
 }
 
 export async function createRegexScript(input:RegexScriptInput):Promise<RegexScript>{
-  const result=await api<RegexScript|{regex:RegexScript}>(REGEX,{method:'POST',body:input})
+  const result=await api<RegexScript|{regex:RegexScript}>(REGEX,{method:'POST',key:newKey(),body:input})
   return unwrap<RegexScript>(result,'regex')
 }
 
 export async function updateRegexScript(id:string,patch:Partial<RegexScriptInput>):Promise<RegexScript>{
-  const result=await api<RegexScript|{regex:RegexScript}>(REGEX+'/'+encodeURIComponent(id),{method:'PATCH',body:patch})
+  const result=await api<RegexScript|{regex:RegexScript}>(REGEX+'/'+encodeURIComponent(id),{method:'PATCH',key:newKey(),body:patch})
   return unwrap<RegexScript>(result,'regex')
 }
 
 export async function deleteRegexScript(id:string):Promise<void>{
-  await api<unknown>(REGEX+'/'+encodeURIComponent(id),{method:'DELETE'})
+  await api<unknown>(REGEX+'/'+encodeURIComponent(id),{method:'DELETE',key:newKey()})
 }
 
 export async function contextPreview(cardId:string,message:string):Promise<ContextPreview>{
@@ -221,32 +223,88 @@ export async function listMemories(cardId:string):Promise<Memory[]>{
 }
 
 export async function createMemory(cardId:string,input:MemoryInput):Promise<Memory>{
-  const result=await api<Memory|{memory:Memory}>(PREFIX+'/'+encodeURIComponent(cardId)+'/memories',{method:'POST',body:input})
+  const result=await api<Memory|{memory:Memory}>(PREFIX+'/'+encodeURIComponent(cardId)+'/memories',{method:'POST',key:newKey(),body:input})
   return unwrap<Memory>(result,'memory')
 }
 
 export async function updateMemory(cardId:string,memoryId:string,patch:Partial<MemoryInput>):Promise<Memory>{
-  const result=await api<Memory|{memory:Memory}>(PREFIX+'/'+encodeURIComponent(cardId)+'/memories/'+encodeURIComponent(memoryId),{method:'PATCH',body:patch})
+  const result=await api<Memory|{memory:Memory}>(PREFIX+'/'+encodeURIComponent(cardId)+'/memories/'+encodeURIComponent(memoryId),{method:'PATCH',key:newKey(),body:patch})
   return unwrap<Memory>(result,'memory')
 }
 
 export async function deleteMemory(cardId:string,memoryId:string):Promise<void>{
-  await api<unknown>(PREFIX+'/'+encodeURIComponent(cardId)+'/memories/'+encodeURIComponent(memoryId),{method:'DELETE'})
+  await api<unknown>(PREFIX+'/'+encodeURIComponent(cardId)+'/memories/'+encodeURIComponent(memoryId),{method:'DELETE',key:newKey()})
 }
 
 // Synchronous model-assisted extraction; the server returns {added,skipped}
 // and reports model/parse failures as 502 MEMORY_EXTRACT_FAILED.
 export async function extractMemories(cardId:string):Promise<MemoryExtractResult>{
-  return api<MemoryExtractResult>(PREFIX+'/'+encodeURIComponent(cardId)+'/memories/extract',{method:'POST'})
+  return api<MemoryExtractResult>(PREFIX+'/'+encodeURIComponent(cardId)+'/memories/extract',{method:'POST',key:newKey()})
 }
 
 export async function setCompanion(cardId:string,companion:boolean):Promise<CardOut>{
-  const result=await api<CardOut|CardEnvelope>(PREFIX+'/'+encodeURIComponent(cardId)+'/companion',{method:'POST',body:{companion}})
+  const result=await api<CardOut|CardEnvelope>(PREFIX+'/'+encodeURIComponent(cardId)+'/companion',{method:'POST',key:newKey(),body:{companion}})
   return unwrap<CardOut>(result,'card')
+}
+
+export interface Persona{
+  id:string
+  name:string
+  description:string
+  createdAt?:string
+  updatedAt?:string
+}
+
+export interface PersonaInput{name:string;description?:string}
+export interface PersonaPage{items:Persona[]}
+
+const PERSONAS='/tavern-personas'
+
+export async function listPersonas():Promise<Persona[]>{
+  const result=await api<PersonaPage|Persona[]>(PERSONAS)
+  return itemsOf<Persona>(result)
+}
+
+export async function createPersona(input:PersonaInput):Promise<Persona>{
+  const result=await api<Persona|{persona:Persona}>(PERSONAS,{method:'POST',key:newKey(),body:input})
+  return unwrap<Persona>(result,'persona')
+}
+
+export async function updatePersona(id:string,patch:Partial<PersonaInput>):Promise<Persona>{
+  const result=await api<Persona|{persona:Persona}>(PERSONAS+'/'+encodeURIComponent(id),{method:'PATCH',key:newKey(),body:patch})
+  return unwrap<Persona>(result,'persona')
+}
+
+export async function deletePersona(id:string):Promise<void>{
+  await api<unknown>(PERSONAS+'/'+encodeURIComponent(id),{method:'DELETE',key:newKey()})
+}
+
+// 角色卡导出返回二进制（PNG 或 JSON），<a href> 不能带 Bearer，先取 blob。
+export async function exportCardBlob(id:string,format:'png'|'json'='png'):Promise<Blob>{
+  const query=format==='json'?'?format=json':''
+  const response=await fetch(backendBase()+'/api/reader/v1'+PREFIX+'/'+encodeURIComponent(id)+'/export'+query,{credentials:'include',headers:authorizationHeaders()})
+  if(!response.ok){
+    if(response.status===404)throw new Error('服务端暂不支持导出角色卡，请稍后重试。')
+    throw new Error('导出角色卡失败（'+response.status+'），请稍后重试。')
+  }
+  return response.blob()
 }
 
 // <img src> cannot carry the Bearer token, so avatars are fetched as blobs.
 export async function cardAvatarBlob(id:string):Promise<Blob|null>{
   const response=await fetch(backendBase()+'/api/reader/v1'+PREFIX+'/'+encodeURIComponent(id)+'/avatar',{credentials:'include',headers:authorizationHeaders()})
   return response.ok?response.blob():null
+}
+
+export interface CardDraft{name:string;description:string;personality:string;scenario:string;firstMessage:string;tags:string[]}
+
+export async function draftCard(brief:string):Promise<CardDraft>{
+  const result=await api<CardDraft|{draft:CardDraft}>(PREFIX+'/draft',{method:'POST',key:newKey(),body:{brief}})
+  return unwrap<CardDraft>(result,'draft')
+}
+
+export async function cardGreetings(id:string,count=3):Promise<string[]>{
+  const result=await api<{greetings?:string[]}|string[]>(PREFIX+'/'+encodeURIComponent(id)+'/greetings',{method:'POST',key:newKey(),body:{count}})
+  const list=Array.isArray(result)?result:result.greetings
+  return Array.isArray(list)?list.filter(item=>typeof item==='string'):[]
 }

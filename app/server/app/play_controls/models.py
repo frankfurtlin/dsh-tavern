@@ -31,6 +31,7 @@ class WorldChatSession(Owned, Base):
     checkpoint_id: Mapped[str]=mapped_column(String(32))
     character_id: Mapped[str]=mapped_column(String(80))
     character_name: Mapped[str]=mapped_column(String(100))
+    persona_id: Mapped[str|None]=mapped_column(String(32))
     name: Mapped[str]=mapped_column(String(120))
     version: Mapped[int]=mapped_column(Integer,default=1)
     snapshot: Mapped[dict]=mapped_column(JSONB)

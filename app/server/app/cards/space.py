@@ -13,6 +13,7 @@ logger = logging.getLogger("reader")
 CARD_SECTION_LIMIT = 6000
 LORE_SECTION_LIMIT = 6000
 PRESET_SECTION_LIMIT = 4000
+PERSONA_SECTION_LIMIT = 600
 MAX_MATCHED_LORE = 6
 RECENT_USER_MESSAGES = 4
 MAX_KEYS = 20
@@ -299,19 +300,40 @@ def _preset_section(db, owner, card):
     return "【预设】\n" + suffix, preset
 
 
-def injection(db, owner, card, message, recent=()):
-    """Render the appended system-prompt text for a card chat turn."""
+def persona_section(persona):
+    """The 【你的对话对象】 block for a selected persona, if any."""
+    if persona is None:
+        return ""
+    name = _text(getattr(persona, "name", ""), 80)
+    description = _text(getattr(persona, "description", ""), PERSONA_SECTION_LIMIT)
+    lines = []
+    if name:
+        lines.append("姓名：" + name)
+    if description:
+        lines.append(description)
+    body = "\n".join(lines)[:PERSONA_SECTION_LIMIT]
+    return "【你的对话对象】\n" + body if body else ""
+
+
+def injection_report(db, owner, card, message, recent=(), persona=None):
+    """Render the appended system prompt plus the structured match summary."""
     matched = _match_text(db, owner, card.id, message, recent)
-    sections = [_card_section(card), _lore_section(matched)]
-    preset_text, _preset = _preset_section(db, owner, card)
-    if preset_text:
-        sections.append(preset_text)
+    preset_text, preset = _preset_section(db, owner, card)
     from . import memory
-    memory_text = memory.injection(db, owner, card)
-    if memory_text:
-        sections.append(memory_text)
+    memory_rows = memory.matched(db, owner, card)
+    sections = [_card_section(card), _lore_section(matched), preset_text,
+                memory.injection(db, owner, card), persona_section(persona)]
     body = "\n\n".join(section for section in sections if section)
-    return INJECTION_HEADER + "\n\n" + body if body else ""
+    return {"systemSuffix": INJECTION_HEADER + "\n\n" + body if body else "",
+            "lore": [{"id": row.id, "title": row.name, "keys": list(row.keys or [])} for row in matched],
+            "memories": [{"id": row.id, "kind": row.kind, "title": row.title} for row in memory_rows],
+            "persona": {"id": persona.id, "name": persona.name} if persona is not None else None,
+            "preset": {"id": preset.id, "name": preset.name} if preset is not None else None}
+
+
+def injection(db, owner, card, message, recent=(), persona=None):
+    """Render the appended system-prompt text for a card chat turn."""
+    return injection_report(db, owner, card, message, recent, persona)["systemSuffix"]
 
 
 def recent_user_messages(payload):
@@ -342,15 +364,19 @@ def chat_injection(db, task):
     card = card_for_world(db, task.owner_id, payload.get("worldId"))
     if card is None:
         return ""
+    from . import personas
+    persona = personas.persona_for_chat(db, task.owner_id, payload.get("chatId") or "")
     return injection(db, task.owner_id, card, payload.get("message") or "",
-                     recent_user_messages(payload))
+                     recent_user_messages(payload), persona)
 
 
-def preview(db, owner, card, message):
+def preview(db, owner, card, message, persona=None):
     matched = _match_text(db, owner, card.id, message)
     preset_text, preset = _preset_section(db, owner, card)
     from . import memory
     return {"loreMatched": [{"id": row.id, "name": row.name, "keys": list(row.keys or [])} for row in matched],
             "preset": {"id": preset.id, "name": preset.name} if preset else None,
             "systemSuffix": _text(preset.system_suffix, PRESET_SECTION_LIMIT) if preset else "",
+            "persona": {"id": persona.id, "name": persona.name} if persona is not None else None,
+            "personaSection": persona_section(persona),
             **memory.preview_payload(db, owner, card)}

@@ -1,18 +1,22 @@
 from sqlalchemy import select, func, delete
+import json
 from copy import deepcopy
-from fastapi import APIRouter, Depends, Request, Query
+from fastapi import APIRouter, Depends, Request, Query, Response
 from pydantic import Field
 from ..db import get_db
 from ..models import Task, uid, now
 from ..security import current_user
 from ..schemas import Strict
-from ..domain import owned, idempotent
+from ..domain import owned, idempotent, digest
 from ..errors import Problem
 from ..world.api import available
 from ..world.models import World, WorldLine
 from ..world.service import require_line, checked_checkpoint
 from ..world.state import public_view, public_payload, ancestry
 from ..world.jobs import create_job, TERMINAL
+from ..cards import exporting as card_exporting
+from ..cards import personas as card_personas
+from ..cards import space as card_space
 from .models import PlayControl, MemoryRevision, WorldChatSession, WorldChatMessage
 from .service import save,presentation
 from . import chat
@@ -40,10 +44,17 @@ class ChatUpdate(Strict):
     name:str|None=Field(default=None,min_length=1,max_length=120)
     updateSource:bool=False
     status:str|None=Field(default=None,pattern=r'^(active|archived)$')
+    personaId:str|None=Field(default=None,max_length=32)
 
 class SendInput(Strict):
     message:str=Field(min_length=1,max_length=4000)
     turnId:str=Field(min_length=1,max_length=100)
+
+class MessageEditInput(Strict):
+    text:str=Field(max_length=4000)
+
+class ForkInput(Strict):
+    sequence:int=Field(ge=1)
 
 def scope(db,owner,kind,identity):
     if kind=='chats':
@@ -214,6 +225,8 @@ def update_chat(identity:str,data:ChatUpdate,request:Request,user=Depends(curren
             if not data.name.strip():raise Problem('CHAT_NAME_REQUIRED','请填写对话名称',422)
             session.name=data.name.strip()
         if data.status is not None:session.status=data.status
+        if 'personaId' in data.model_fields_set:
+            session.persona_id=card_personas.get_persona(db,user.id,data.personaId).id if data.personaId else None
         if data.updateSource:
             _,line=require_line(db,user.id,world.id,session.line_id)
             head=checked_checkpoint(db,user.id,world.id,line.head_checkpoint_id)
@@ -221,6 +234,62 @@ def update_chat(identity:str,data:ChatUpdate,request:Request,user=Depends(curren
             session.snapshot,session.denied_phrases=chat.snapshot(db,user.id,world,line,head.id,session.character_id);session.checkpoint_id=head.id
         session.version+=1;session.updated_at=now();db.flush();return chat.present(db,session)
     return idempotent(db,user.id,'play-controls:update-chat:'+identity,request.headers.get('idempotency-key'),data.model_dump(),update)
+
+def ensure_idle(db,session):
+    if session.pending_task_id:
+        pending=db.get(Task,session.pending_task_id)
+        if pending and (pending.state not in TERMINAL or pending.persistence_state=='recoverable'):
+            raise Problem('CHAT_PENDING','当前回复还在处理中',409)
+
+def next_sequence(db,identity):
+    return (db.scalar(select(func.max(WorldChatMessage.sequence)).where(WorldChatMessage.session_id==identity)) or 0)+1
+
+def add_placeholder(db,user,identity,session,task,turn_key,sequence):
+    db.add(WorldChatMessage(owner_id=user.id,session_id=identity,task_id=task.id,turn_key=turn_key,sequence=sequence,
+        role='assistant',text='',status='pending',checkpoint_id=session.checkpoint_id,model_name=task.payload.get('modelName','')))
+
+def queue_reply(db,user,world,session,message,turn_key,history):
+    from .recall import recollect
+    _,line=require_line(db,user.id,world.id,session.line_id)
+    session.snapshot,session.denied_phrases=chat.snapshot(db,user.id,world,line,session.checkpoint_id,session.character_id)
+    recalled=recollect(db,session,message)
+    task=create_job(db,user.id,'world_character_chat',{'worldId':world.id,'lineId':session.line_id,'chatId':session.id,
+        'chatTurnKey':turn_key,'parentCheckpointId':session.checkpoint_id,'sourceVersion':session.version,
+        'chatSnapshot':session.snapshot,'messages':[{'role':m['role'],'text':m['text']} for m in history],
+        'message':message,'conversationMemory':recalled},['generation','validation'])
+    task.checkpoint={**task.checkpoint,'worldDeniedPhrases':session.denied_phrases}
+    session.pending_task_id=task.id;session.updated_at=now()
+    return task
+
+@router.get('/world-chats/{identity}/injection')
+def chat_injection_view(identity:str,before:int|None=Query(None,ge=1),user=Depends(current_user),db=Depends(get_db)):
+    _,session=chat.source(db,user.id,identity)
+    card=card_space.card_for_world(db,user.id,session.world_id)
+    persona=card_personas.persona_for_chat(db,user.id,session.id)
+    persona_view={'id':persona.id,'name':persona.name} if persona is not None else None
+    if card is None:
+        return {'cardId':None,'lore':[],'memories':[],'persona':persona_view,'preset':None,'systemSuffix':''}
+    rows=chat.messages(db,user.id,identity,before=before,limit=60)
+    texts=[row['text'] for row in rows if row['role']=='user' and (row.get('text') or '').strip()]
+    report=card_space.injection_report(db,user.id,card,texts[-1] if texts else '',
+        list(reversed(texts))[:4],persona)
+    report['cardId']=card.id
+    return report
+
+@router.get('/world-chats/{identity}/export')
+def export_chat(identity:str,format:str=Query('jsonl',pattern='^(jsonl|json)$'),
+                user=Depends(current_user),db=Depends(get_db)):
+    _,session=chat.source(db,user.id,identity)
+    rows=list(db.scalars(select(WorldChatMessage).where(WorldChatMessage.owner_id==user.id,
+        WorldChatMessage.session_id==identity).order_by(WorldChatMessage.sequence.asc())))
+    if format=='json':
+        body=json.dumps([{'role':row.role,'text':row.text,'sequence':row.sequence,
+            'modelName':row.model_name or '','createdAt':row.created_at.isoformat()} for row in rows],
+            ensure_ascii=False,indent=2)
+        return Response(content=body,media_type='application/json',
+            headers=card_exporting.filename_header(session.name,'.json'))
+    return Response(content=card_exporting.chat_jsonl(rows),media_type='application/x-ndjson',
+        headers=card_exporting.filename_header(session.name,'.jsonl'))
 
 @router.post('/world-chats/{identity}/send',status_code=202)
 def send_chat(identity:str,data:SendInput,request:Request,user=Depends(current_user),db=Depends(get_db)):
@@ -232,9 +301,7 @@ def send_chat(identity:str,data:SendInput,request:Request,user=Depends(current_u
         if previous:
             if previous.text!=data.message.strip():raise Problem('IDEMPOTENCY_CONFLICT','同一条消息的内容发生变化',409)
             return {'taskId':previous.task_id,'chatId':identity,'worldId':world.id,'reused':True}
-        if session.pending_task_id:
-            pending=db.get(Task,session.pending_task_id)
-            if pending and (pending.state not in TERMINAL or pending.persistence_state=='recoverable'):raise Problem('CHAT_PENDING','当前回复还在处理中',409)
+        ensure_idle(db,session)
         if world.status!='active':raise Problem('WORLD_ARCHIVED','世界已归档，可先阅读已有聊天',409)
         # Upgrade old conversations at their original frozen timepoint. This
         # never advances the source to the line head or writes canon state.
@@ -248,8 +315,84 @@ def send_chat(identity:str,data:SendInput,request:Request,user=Depends(current_u
             'chatSnapshot':session.snapshot,'messages':[{'role':m['role'],'text':m['text']} for m in history],
             'message':data.message.strip(),'conversationMemory':recalled},['generation','validation'])
         task.checkpoint={**task.checkpoint,'worldDeniedPhrases':session.denied_phrases}
-        sequence=(db.scalar(select(func.max(WorldChatMessage.sequence)).where(WorldChatMessage.session_id==identity)) or 0)+1
+        sequence=next_sequence(db,identity)
         db.add(WorldChatMessage(owner_id=user.id,session_id=identity,task_id=task.id,turn_key=data.turnId,sequence=sequence,
             role='user',text=data.message.strip(),status='saved',checkpoint_id=session.checkpoint_id,model_name=task.payload.get('modelName','')))
-        session.pending_task_id=task.id;session.updated_at=now();db.flush();return {'taskId':task.id,'chatId':identity,'worldId':world.id}
+        add_placeholder(db,user,identity,session,task,data.turnId,sequence+1)
+        session.pending_task_id=task.id;session.updated_at=now();db.flush()
+        return {'taskId':task.id,'chatId':identity,'worldId':world.id}
     return idempotent(db,user.id,'play-controls:send-chat:'+identity,request.headers.get('idempotency-key'),data.model_dump(),send)
+
+@router.post('/world-chats/{identity}/regenerate',status_code=202)
+def regenerate_chat(identity:str,request:Request,user=Depends(current_user),db=Depends(get_db)):
+    world,session=chat.source(db,user.id,identity,lock=True)
+    if session.status!='active':raise Problem('CHAT_ARCHIVED','请先恢复这段对话再生成回复',409)
+    ensure_idle(db,session)
+    pending=db.scalar(select(WorldChatMessage).where(WorldChatMessage.session_id==identity,WorldChatMessage.role=='assistant',WorldChatMessage.status=='pending'))
+    if pending:raise Problem('CHAT_PENDING','当前回复还在处理中',409)
+    last=db.scalar(select(WorldChatMessage).where(WorldChatMessage.session_id==identity,WorldChatMessage.owner_id==user.id,
+        WorldChatMessage.role=='assistant',WorldChatMessage.status!='pending').order_by(WorldChatMessage.sequence.desc()).limit(1))
+    if not last:raise Problem('NOTHING_TO_REGENERATE','没有可重新生成的回复',409)
+    def regenerate():
+        current=db.get(WorldChatMessage,last.id)
+        if not current:raise Problem('NOTHING_TO_REGENERATE','没有可重新生成的回复',409)
+        user_message=db.scalar(select(WorldChatMessage).where(WorldChatMessage.session_id==identity,WorldChatMessage.turn_key==current.turn_key,
+            WorldChatMessage.role=='user').with_for_update())
+        if not user_message:raise Problem('NOTHING_TO_REGENERATE','没有可重新生成的回复',409)
+        history=chat.messages(db,user.id,identity,before=user_message.sequence)
+        db.delete(current);db.flush()
+        task=queue_reply(db,user,world,session,user_message.text,current.turn_key,history)
+        user_message.task_id=task.id
+        add_placeholder(db,user,identity,session,task,current.turn_key,next_sequence(db,identity))
+        db.flush()
+        return {'taskId':task.id}
+    return idempotent(db,user.id,'play-controls:regenerate:'+identity,request.headers.get('idempotency-key') or 'last:'+last.id,{},regenerate)
+
+@router.patch('/world-chats/{identity}/messages/{sequence}',status_code=202)
+def edit_message(identity:str,sequence:int,data:MessageEditInput,request:Request,user=Depends(current_user),db=Depends(get_db)):
+    world,session=chat.source(db,user.id,identity,lock=True)
+    if session.status!='active':raise Problem('CHAT_ARCHIVED','请先恢复这段对话再编辑消息',409)
+    text=data.text.strip()
+    if not text:raise Problem('MESSAGE_REQUIRED','请输入消息',422)
+    row=db.scalar(select(WorldChatMessage).where(WorldChatMessage.session_id==identity,WorldChatMessage.owner_id==user.id,WorldChatMessage.sequence==sequence))
+    if not row:raise Problem('RESOURCE_NOT_FOUND','消息不存在或不可访问',404)
+    if row.role!='user':raise Problem('MESSAGE_NOT_EDITABLE','只能编辑自己发送的消息',422)
+    pending=db.scalar(select(WorldChatMessage).where(WorldChatMessage.session_id==identity,WorldChatMessage.role=='assistant',WorldChatMessage.status=='pending'))
+    if pending:raise Problem('CHAT_PENDING','当前回复还在处理中',409)
+    def edit():
+        current=db.get(WorldChatMessage,row.id)
+        if not current:raise Problem('RESOURCE_NOT_FOUND','消息不存在或不可访问',404)
+        db.execute(delete(WorldChatMessage).where(WorldChatMessage.session_id==identity,WorldChatMessage.sequence>sequence))
+        db.flush()
+        current.text=text
+        history=chat.messages(db,user.id,identity,before=sequence)
+        task=queue_reply(db,user,world,session,text,current.turn_key,history)
+        current.task_id=task.id
+        add_placeholder(db,user,identity,session,task,current.turn_key,sequence+1)
+        db.flush()
+        return {'taskId':task.id,'sequence':sequence}
+    return idempotent(db,user.id,'play-controls:edit-message:'+identity+':'+str(sequence),request.headers.get('idempotency-key') or 'edit:'+digest(text)[:16],data.model_dump(),edit)
+
+@router.post('/world-chats/{identity}/fork',status_code=201)
+def fork_chat(identity:str,data:ForkInput,request:Request,user=Depends(current_user),db=Depends(get_db)):
+    world,session=chat.source(db,user.id,identity,lock=True)
+    if session.status!='active':raise Problem('CHAT_ARCHIVED','请先恢复这段对话再创建分支',409)
+    def fork():
+        rows=list(db.scalars(select(WorldChatMessage).where(WorldChatMessage.owner_id==user.id,
+            WorldChatMessage.session_id==identity,WorldChatMessage.sequence<=data.sequence).order_by(WorldChatMessage.sequence)))
+        if not rows:raise Problem('FORK_POINT_INVALID','分支位置不存在，请选择一条已有消息',422)
+        if any(row.status=='pending' for row in rows):raise Problem('CHAT_PENDING','当前回复还在处理中',409)
+        name=session.name+'（分支）'
+        if len(name)>120:name=name[:120-len('（分支）')]+'（分支）'
+        branch=WorldChatSession(id=uid(),owner_id=user.id,world_id=session.world_id,line_id=session.line_id,
+            checkpoint_id=session.checkpoint_id,character_id=session.character_id,character_name=session.character_name,
+            persona_id=session.persona_id,name=name,snapshot=deepcopy(session.snapshot),
+            denied_phrases=deepcopy(session.denied_phrases or []),version=1)
+        db.add(branch);db.flush()
+        for row in rows:
+            db.add(WorldChatMessage(owner_id=user.id,session_id=branch.id,task_id=row.task_id,turn_key=row.turn_key,
+                sequence=row.sequence,role=row.role,text=row.text,status=row.status,checkpoint_id=row.checkpoint_id,
+                model_name=row.model_name or ''))
+        db.flush()
+        return {'sessionId':branch.id,'name':branch.name}
+    return idempotent(db,user.id,'play-controls:fork:'+identity,request.headers.get('idempotency-key') or 'fork:'+str(data.sequence),data.model_dump(),fork)

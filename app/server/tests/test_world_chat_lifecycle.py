@@ -52,7 +52,8 @@ def test_cancel_before_dispatch_and_replay_never_creates_a_second_call(client,re
     w,line=world(client);s=create_chat(client,w,line);before=fingerprint();body={'message':'你好','turnId':'stop'}
     sent=post(client,API+'/world-chats/'+s['id']+'/send',body,'send')
     assert client.post(WORLD+'/tasks/'+sent['taskId']+'/cancel').status_code==200;process(sent['taskId'])
-    current=client.get(API+'/world-chats/'+s['id']).json();assert current['pendingTaskId'] is None and len(current['messages'])==1
+    current=client.get(API+'/world-chats/'+s['id']).json();assert current['pendingTaskId'] is None
+    rows=current['messages'];assert len(rows)==2 and rows[1]['role']=='assistant' and rows[1]['status'] in ('failed','interrupted')
     replay=post(client,API+'/world-chats/'+s['id']+'/send',body,'replay');assert replay['taskId']==sent['taskId']
     assert fingerprint()==before
     with SessionLocal() as db:assert not db.scalar(select(UsageRecord.id).where(UsageRecord.task_id==sent['taskId']))

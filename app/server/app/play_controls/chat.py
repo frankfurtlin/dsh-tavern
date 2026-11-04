@@ -1,4 +1,6 @@
 import logging
+import threading
+import time
 from copy import deepcopy
 from sqlalchemy import select, func
 from ..models import Task, uid, now
@@ -68,7 +70,7 @@ def present(db,session):
     world=owned(db,World,session.world_id,session.owner_id)
     return {'id':session.id,'worldId':session.world_id,'worldTitle':world.name,'lineId':session.line_id,
         'checkpointId':session.checkpoint_id,'characterId':session.character_id,'characterName':session.character_name,
-        'name':session.name,'version':session.version,'snapshot':session.snapshot,'pendingTaskId':session.pending_task_id,
+        'name':session.name,'version':session.version,'snapshot':session.snapshot,'pendingTaskId':session.pending_task_id,'personaId':session.persona_id,
         'createdAt':session.created_at.isoformat(),'status':session.status,'updatedAt':session.updated_at.isoformat(),
         'lastMessage':(db.scalar(select(WorldChatMessage.text).where(WorldChatMessage.session_id==session.id,WorldChatMessage.owner_id==session.owner_id).order_by(WorldChatMessage.sequence.desc()).limit(1)) or '')[:180]}
 
@@ -84,8 +86,9 @@ def save_reply(db,task,text,status):
     if not session or session.owner_id!=task.owner_id:return
     existing=db.scalar(select(WorldChatMessage).where(WorldChatMessage.session_id==session.id,
         WorldChatMessage.turn_key==task.payload['chatTurnKey'],WorldChatMessage.role=='assistant'))
-    if existing and text.strip():
-        existing.text=text;existing.status=status
+    if existing:
+        if text.strip():existing.text=text
+        existing.status=status
     elif text.strip():
         sequence=(db.scalar(select(func.max(WorldChatMessage.sequence)).where(WorldChatMessage.session_id==session.id)) or 0)+1
         db.add(WorldChatMessage(owner_id=task.owner_id,session_id=session.id,task_id=task.id,turn_key=task.payload['chatTurnKey'],
@@ -94,8 +97,34 @@ def save_reply(db,task,text,status):
     session.updated_at=now()
     if session.pending_task_id==task.id and task.persistence_state!='recoverable':session.pending_task_id=None
 
+PARTIAL_SECONDS=.6
+PARTIAL_CHARS=40
+_partial_writes={}
+_partial_lock=threading.Lock()
+
+def clear_partial(task_id):
+    with _partial_lock:_partial_writes.pop(task_id,None)
+
+def write_partial(db,task,text,*,final=False):
+    """Mirror the sanitized stream buffer into the pending assistant row."""
+    session=db.get(WorldChatSession,task.payload.get('chatId'))
+    if not session or session.owner_id!=task.owner_id:return
+    row=db.scalar(select(WorldChatMessage).where(WorldChatMessage.session_id==session.id,
+        WorldChatMessage.turn_key==task.payload['chatTurnKey'],WorldChatMessage.role=='assistant').with_for_update())
+    if not row or row.status!='pending':return
+    if not final:
+        with _partial_lock:
+            last=_partial_writes.get(task.id)
+            moment=time.monotonic()
+            if last and moment-last[0]<PARTIAL_SECONDS and len(text)-last[1]<PARTIAL_CHARS:return
+            _partial_writes[task.id]=(moment,len(text))
+    else:
+        clear_partial(task.id)
+    row.text=text
+
 def finish_failure(db,task):
     text=task.checkpoint.get('worldStream',{}).get('text','')
+    clear_partial(task.id)
     save_reply(db,task,text,'interrupted' if text else 'failed')
 
 def process(task_id):

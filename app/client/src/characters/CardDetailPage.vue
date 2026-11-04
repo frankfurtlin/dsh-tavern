@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import {ref,reactive,computed,onMounted,onUnmounted,watch} from 'vue'
 import {useRoute,useRouter,RouterLink} from 'vue-router'
-import {ArrowLeft,Brain,BookOpen,Eye,Heart,MessageSquareText,Pencil,Plus,Replace,Save,Sparkles,Trash2} from 'lucide-vue-next'
+import {ArrowLeft,Brain,BookOpen,Download,Eye,Heart,MessageSquareText,Pencil,Plus,Replace,Save,Sparkles,Trash2,UserRound} from 'lucide-vue-next'
 import PageHeader from '../workspace/PageHeader.vue'
+import PersonaControl from './PersonaControl.vue'
+import {saveBlob,safeFileName} from '../platform/download'
 import {useRequestScope} from '../platform/request-scope'
-import {cardAvatarBlob,contextPreview,createLore,createMemory,createPreset,deleteLore,deleteMemory,extractMemories,getCard,listLore,listMemories,listPresets,setCompanion,startCardChat,updateCard,updateLore,updateMemory,type CardOut,type CardUpdate,type ContextPreview,type LoreEntry,type Memory,type Preset} from './api'
+import {cardAvatarBlob,cardGreetings,contextPreview,createLore,createMemory,createPreset,deleteLore,deleteMemory,exportCardBlob,extractMemories,getCard,listLore,listMemories,listPresets,setCompanion,startCardChat,updateCard,updateLore,updateMemory,type CardOut,type CardUpdate,type ContextPreview,type LoreEntry,type Memory,type Preset} from './api'
 
 const route=useRoute(),router=useRouter(),capture=useRequestScope()
 const cardId=computed(()=>String(route.params.id||''))
@@ -19,6 +21,8 @@ const loreForm=reactive({name:'',keys:'',content:'',enabled:true,order:100})
 const previewMessage=ref(''),preview=ref<ContextPreview|null>(null),previewLoading=ref(false),previewError=ref('')
 const memories=ref<Memory[]>([]),memoryError=ref(''),memoryEditing=ref(''),memorySaving=ref(false),memoryBusy=ref(''),deletingMemory=ref('')
 const extracting=ref(false),extractNotice=ref(''),companionBusy=ref(false),companionNotice=ref('')
+const exporting=ref(false),exportError=ref(''),personaId=ref<string|null>(null)
+const greetings=ref<string[]>([]),greetingsBusy=ref(false),greetingsError=ref('')
 const memoryForm=reactive({kind:'fact' as Memory['kind'],title:'',content:'',salience:50,enabled:true})
 const memoryKinds:{value:Memory['kind'];label:string}[]=[
   {value:'fact',label:'事实'},{value:'preference',label:'偏好'},{value:'relationship',label:'关系'},{value:'event',label:'事件'},
@@ -241,6 +245,44 @@ async function openChat(){
     if(scope.valid())opening.value=false
   }
 }
+function enterWorld(){
+  const target=card.value?.chatTarget
+  if(target)void router.push('/worlds/'+target.worldId+'/play?line='+target.lineId)
+}
+async function generateGreetings(){
+  const sid=cardId.value
+  if(!sid||greetingsBusy.value)return
+  const scope=capture()
+  greetingsBusy.value=true;greetingsError.value=''
+  try{
+    const list=await cardGreetings(sid,3)
+    if(scope.valid()){greetings.value=list;if(!list.length)greetingsError.value='这次没有生成新的开场白，再试一次。'}
+  }catch(cause){
+    if(scope.valid())greetingsError.value=(cause as Error).message
+  }finally{
+    if(scope.valid())greetingsBusy.value=false
+  }
+}
+function useGreeting(text:string){
+  form.firstMessage=text
+  notice.value='已填入开场白，保存设定后生效。'
+}
+async function exportCard(){
+  const id=cardId.value
+  if(!id||exporting.value)return
+  const scope=capture()
+  exporting.value=true;exportError.value=''
+  try{
+    const blob=await exportCardBlob(id,'png')
+    if(!scope.valid())return
+    saveBlob(blob,safeFileName(card.value?.name||'character-card')+'.png')
+    notice.value='角色卡已导出为 PNG，可以再次导入其他客户端。'
+  }catch(cause){
+    if(scope.valid())exportError.value=(cause as Error).message||'导出失败，请稍后重试。'
+  }finally{
+    if(scope.valid())exporting.value=false
+  }
+}
 function sortMemories(items:Memory[]):Memory[]{
   return [...items].sort((a,b)=>(b.salience-a.salience)||String(b.updatedAt||'').localeCompare(String(a.updatedAt||'')))
 }
@@ -357,8 +399,11 @@ onUnmounted(revokeAvatar)
     <PageHeader :title="card?.name||'角色卡详情'" eyebrow="角色卡" description="编辑角色设定、世界书、预设与长期记忆，并预览下一轮对话会注入什么。">
       <RouterLink class="inline-link" to="/characters"><ArrowLeft :size="17"/>角色卡库</RouterLink>
       <RouterLink class="inline-link" to="/characters/regex"><Replace :size="17"/>输出替换规则</RouterLink>
+      <button :disabled="exporting||!card" @click="exportCard"><Download :size="17"/>{{exporting?'正在导出…':'导出角色卡'}}</button>
+      <button v-if="card?.chatTarget" :disabled="opening||!card" @click="enterWorld"><MessageSquareText :size="17"/>进入互动世界</button>
       <button class="primary" :disabled="opening||!card" @click="openChat"><MessageSquareText :size="17"/>{{opening?'正在开聊…':'开聊'}}</button>
     </PageHeader>
+    <p v-if="exportError" class="error" role="alert">{{exportError}}</p>
     <p v-if="error" class="error" role="alert">{{error}} <button v-if="!card" @click="load">重新加载</button></p>
     <p v-if="notice" class="product-hint" role="status">{{notice}}</p>
     <p v-if="loading" class="workspace-loading" role="status">正在加载角色卡…</p>
@@ -389,6 +434,11 @@ onUnmounted(revokeAvatar)
             <label>场景<textarea v-model="form.scenario" rows="3" maxlength="4000" :disabled="saving"></textarea></label>
           </div>
           <label>开场白<textarea v-model="form.firstMessage" rows="3" maxlength="8000" :disabled="saving"></textarea></label>
+          <div class="greeting-candidates">
+            <div class="greeting-head"><small>开场白候选</small><button type="button" :disabled="greetingsBusy" @click="generateGreetings"><Sparkles :size="15"/>{{greetingsBusy?'正在生成…':'生成候选'}}</button></div>
+            <p v-if="greetingsError" class="error" role="alert">{{greetingsError}}</p>
+            <ul v-if="greetings.length"><li v-for="(item,index) in greetings" :key="index"><span>{{item}}</span><button type="button" @click="useGreeting(item)">用作开场白</button></li></ul>
+          </div>
           <label>系统提示<textarea v-model="form.systemPrompt" rows="3" maxlength="8000" :disabled="saving" placeholder="角色的行为约束，会拼在系统提示前部"></textarea></label>
           <label>历史后指令<textarea v-model="form.postHistoryInstructions" rows="3" maxlength="8000" :disabled="saving" placeholder="追加在对话历史之后的指令"></textarea></label>
           <label>标签<input v-model="form.tagsText" maxlength="300" :disabled="saving" placeholder="用逗号分隔，例如：奇幻，骑士"></label>
@@ -460,6 +510,14 @@ onUnmounted(revokeAvatar)
       </section>
       <section class="workspace-card">
         <div class="workspace-section-title">
+          <h2><UserRound :size="18"/>我是谁</h2>
+          <small>聊天时注入你的身份；在聊天页顶部可随时切换</small>
+        </div>
+        <PersonaControl v-model="personaId"/>
+        <p class="product-hint">人设在聊天开始时注入【你的对话对象】姓名与简介。这里只管理人设内容；具体使用哪一个人设由聊天页顶部选择。</p>
+      </section>
+      <section class="workspace-card">
+        <div class="workspace-section-title">
           <h2><Brain :size="18"/>长期记忆</h2>
           <span class="row">
             <button :disabled="extracting||memorySaving" @click="runExtract">{{extracting?'正在整理…':'立即整理'}}</button>
@@ -517,6 +575,7 @@ onUnmounted(revokeAvatar)
         <div v-if="preview" class="preview-result">
           <p><strong>命中的世界书：</strong>{{preview.loreMatched.length?preview.loreMatched.map(item=>item.name).join('、'):'无'}}</p>
           <p><strong>预设：</strong>{{preview.preset?.name||'未绑定'}}</p>
+          <p><strong>注入的人设：</strong>{{preview.persona?.name||'未选择'}}</p>
           <p><strong>系统提示后缀：</strong></p>
           <pre class="preview-suffix">{{preview.systemSuffix||'（空）'}}</pre>
           <p><strong>注入的长期记忆：</strong>{{preview.memories?.length?preview.memories.map(item=>item.title).join('、'):'无'}}</p>
@@ -555,6 +614,13 @@ onUnmounted(revokeAvatar)
 .companion-line small{color:var(--quiet);font-size:12px}
 .memory-item .lore-content{-webkit-line-clamp:6}
 .preview-suffix{white-space:pre-wrap;font-size:13px;line-height:1.8;max-height:220px;overflow:auto;background:var(--canvas);border:1px solid var(--edge);border-radius:10px;padding:10px;margin:0}
+.greeting-candidates{margin:-6px 0 14px}
+.greeting-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:4px 0 8px}
+.greeting-head small{color:var(--quiet)}
+.greeting-candidates ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.greeting-candidates li{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;background:var(--wash);border:1px solid var(--edge);border-radius:10px;padding:10px 12px}
+.greeting-candidates li span{white-space:pre-wrap;font-size:14px;line-height:1.6;color:var(--ink)}
+.greeting-candidates li button{flex:none}
 @media(max-width:767px){
   .card-hero{flex-direction:column;gap:14px}
   .card-avatar{width:72px;height:72px;font-size:26px}

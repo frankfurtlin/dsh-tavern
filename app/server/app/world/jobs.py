@@ -114,9 +114,15 @@ def persist_stream(task_id, stage, content, final=False, segments=None):
             if not line or line.status != "active" or line.pending_task_id != task.id or line.head_checkpoint_id != turn.parent_checkpoint_id:
                 raise Problem("WORLD_CHECKPOINT_CONFLICT", "行动入口已改变", 409)
         content = story_text(content, streaming=not final)
+        if task.task_type == "world_character_chat":
+            from ..cards.space import apply_regex
+            content = apply_regex(db, task.owner_id, content)
         content = public_stream(content, task.checkpoint.get("worldDeniedPhrases", []), final)
         stream = durable_stream.persist(db, task, "worldStream", content,
             "complete" if final else "streaming", stage=stage)
+        if task.task_type == "world_character_chat":
+            from ..play_controls.chat import write_partial
+            write_partial(db, task, content, final=final)
         if turn:
             turn.draft_text = stream["text"]
             if final and segments is not None:

@@ -111,6 +111,24 @@ console 是否干净；不记录 prompt / 回复全文。
 | C4 | 记忆「读者养猫」→「停用」→ 再预览；再「删除记忆」→「确认删除」→ 再预览 | 停用后 preview 的注入记忆不含该标题；删除后再预览仍不含（`report.memory.disabled/deleted`） | app-auth（enabled 过滤）+ cards-client |
 | C5 | 卡详情勾选「设为长期伙伴」→ 回角色卡库 | 卡库顶部出现「长期伙伴」分组，该卡是分组第一张（`data-card-id` 一致）且带「长期伙伴」badge（`report.memory.companion`） | cards-client（分组/置顶）+ app-auth（companion 字段） |
 | C6 | C 组操作后 console | 0 条 JS 报错（资源加载失败不算） | plugin-core / cards-client |
+| P1 | 探索页点未玩过的精选卡「开始游玩」（随 `--cards` 运行） | 入口跳 `/worlds/new?world=…&auto=1` 后**不停留**在身份页，45s 内自动 begin 并落到 `/tavern/worlds/<id>/play?line=…`；停在 `/worlds/new` 即 FAIL（`report.p0.autoEnter.sawAutoParam/landedPath`） | cards-client（DiscoveryPage + WorldCreatePage auto） |
+| P2 | 探索页顶部「继续上次」→ 点击 | 区块显示角色名/摘要；点击进入 `/tavern/conversations/world/<最近 sessionId>`（与 C 组会话一致）且聊天输入框渲染（`report.p0.resumeLast`） | cards-client |
+| P3 | 开聊发一条消息，每 250ms 采样最后一条 assistant 的 pending 文本（需 `--real`） | 观察到 ≥2 个不同长度（增长）或「正在写…」占位，最终 `已保存` 且正文 ≥20 字（`report.p0.streaming`） | app-auth（worker 流式写回）+ cards-client（轮询渲染） |
+| P4 | 最后一条 assistant 点「重新生成」（需 `--real`） | 180s 内出现新文本、与旧文本不同且 `已保存`（`report.p0.regenerate`） | app-auth（regenerate）+ cards-client |
+| P5 | 最后一条 user 消息点「编辑」→ 改文本保存（需 `--real`） | 用户消息更新为新文本，旧 assistant 被替换，重发后新回复 `已保存`（`report.p0.edit`） | app-auth（PATCH messages）+ cards-client |
+| P6 | P 组期间 console | 0 条 JS 报错（资源加载失败不算） | plugin-core / cards-client |
+| Q1 | 聊天页「我是谁 · 人设」：新建「E2E 旅人」→ 保存人设 → 刷新 → 编辑为「E2E 旅人·改」→ 删除（两段确认） | 创建后 `select[aria-label="选择当前人设"]` 选中新值且 option 出现；刷新后仍保持绑定；编辑后 option 变为「E2E 旅人·改」；删除后 option 消失（`report.q.persona`） | cards-client（PersonaControl）+ app-auth（tavern-personas/PATCH world-chats） |
+| Q2 | API 创建人设「E2E 注入人设」→ UI 选择该人设 → 卡详情 `POST context-preview` → 打开「本轮记忆」抽屉 | preview 的 `persona.name` 一致且 `systemSuffix` 含「【你的对话对象】」「姓名：E2E 注入人设」；抽屉含「你的身份：E2E 注入人设」；finally 删除该人设（`report.q.injection`） | app-auth（persona_section/injection_report）+ cards-client |
+| Q3 | 卡详情点「导出角色卡」 | 触发下载 `.png`，文件头为 PNG 魔数且字节内含 `chara` 元数据（`report.q.exportCard`） | app-auth（GET export）+ cards-client（saveBlob） |
+| Q4 | 聊天页点「导出聊天」 | 触发下载 `.jsonl`，≥2 行且至少 1 条 assistant 文本（`report.q.exportChat`） | app-auth（GET export?format=jsonl）+ cards-client |
+| Q5 | 卡库搜索框输入卡名、排序切到「名称」 | 过滤后卡片标题都包含关键词；排序切换成功且卡片仍在（`report.q.library`） | cards-client（CharactersPage） |
+| Q6 | 点「导入示例卡包」两次 | 首次 `[role=status]` 出现「示例卡包：导入 N 张…」（N≥1）；再次出现「跳过 M 张同名卡」（M≥1）且卡片数不变（`report.q.samples`） | cards-client（sample-cards）+ app-auth（批量导入） |
+| Q7 | 聊天页 `button[aria-label="模型与记忆"]` 打开 Sheet → 字号 20 / 行高 2.05 / 字体 serif → 刷新 | `localStorage['tavern:reading-preference']` 同步更新；刷新后重开 Sheet 值保持（`report.q.reading`） | cards-client（ReadingPreferencePanel） |
+| Q8 | Q 组期间 console | 0 条 JS 报错（资源加载失败不算） | plugin-core / cards-client |
+| R2-1 | 最后一条 user 消息处「从这里分支」；UI 未交付时走 API `POST /world-chats/{id}/fork {sequence}` | 新会话 URL 与原会话不同；消息数 ≤ 分支点 sequence；可在新会话继续发送并出现用户消息（`report.r2.branch`；API 兜底时记 SKIP 并注明 owner） | cards-client（分支按钮）+ app-auth（fork） |
+| R2-2 | 聊天页人物操作「存成角色卡」；UI 未交付时走 API `POST /worlds/{id}/character-cards {characterId}` | `/characters` 搜索出现该角色名的新卡，点「开聊」能进入聊天页（`report.r2.worldCard`；API 兜底时记 SKIP） | cards-client（世界人物操作）+ app-auth（world_export） |
+| R2-3 | 卡库「AI 起草」输入 brief；UI 未交付时走 API `POST /character-cards/draft` + `POST /{id}/greetings` | 表单被填充（或 draft.name/description 非空）；开场白候选 ≥1 条（`report.r2.draft`；API 兜底时记 SKIP） | cards-client（AI 起草 UI）+ app-auth（assist） |
+| R2-4 | R2 组期间 console | 0 条 JS 报错（资源加载失败不算） | plugin-core / cards-client |
 | M1 | 顶部导航结构（随 `--cards` 运行；task-28 起无左侧栏） | 无 `.shell-sidebar`（count=0）；header 品牌含「酒馆」；`.shell-tabs a` 文本**恰好** `['探索作品','角色卡库']`；无明暗主题控件（Sun/Moon 图标）；无「打开全部功能」；已删入口文本不存在（`report.nav.topNav`） | cards-client（AppShell/导航配置） |
 | M2 | 点顶部 tab「角色卡库」「探索作品」 | 分别落到 `/tavern/characters`、`/tavern/explore`，对应 tab 高亮（`router-link-active`）正确（`report.nav.tabSwitch`） | cards-client |
 | M3 | 点首张卡「编辑」进 `/characters/:id`；用 `GET /api/reader/v1/stories` 取 storyId 进 `/stories/:id` | 卡详情时「角色卡库」高亮；故事页时「探索作品」高亮（`report.nav.highlight`） | cards-client（page-location 高亮归属） |
@@ -447,6 +465,115 @@ PASS（cardName=林小满）；真生成 118 字 / DSH 模型 / 30.7s。N1–N5 
 - N4 打开精选故事会真实写一条 line/世界（与「不写应用数据」原则冲突），本轮测试后会按基线清理，
   清理 SQL 需额外删除 `source->>'publicationId' IS NOT NULL` 的世界及其 turns/events/lines。
 
+## P0 体验升级回归（P 组 / task-34，docs/step5-p0-p1-p2.md §P0）
+
+P 组随 `--cards` 自动运行（全量命令必然包含），覆盖 5 项 P0 验收 + console：
+
+```bash
+scripts/check.sh --instance --open-story --cards --space --real --memory   # 全量（P3–P5 需 --real）
+scripts/check.sh --instance --cards --real                                  # 只回归 H+P+C+R
+```
+
+通过标准：
+
+- P1：探索页未玩过的精选卡点「开始游玩」→ 跳 `/worlds/new?world=…&auto=1` 后不停留在身份页，
+  45s 内自动 begin 落 `/worlds/<id>/play?line=…`；停在身份页（无 auto 或 begin 失败）即 FAIL；
+- P2：「继续上次」区块存在（角色名+摘要），点击进入最近会话（与 C 组会话 id 一致）；
+- P3：pending 气泡文本随时间增长（≥2 个不同长度）或出现「正在写…」，最终 `已保存` 且 ≥20 字；
+- P4：重生成后新文本与旧文本不同且 `已保存`；P5：编辑用户消息后按新文本重发并 `已保存`；
+- P6：P 组 console clean。
+- `report.p0`：`autoEnter{title,entry,href,landedPath,identityPageSeen}`、
+  `resumeLast{shown,text,targetPath,sessionId,expectedSessionId}`、
+  `streaming{samples,minLen,maxLen,growing,pendingPlaceholderSeen,finalLen,saved}`、
+  `regenerate{beforeFirst60,afterFirst60,changed,saved}`、`edit{beforeText,newText,userUpdated,replySaved}`、
+  `console[]`、`steps[]`。
+- 截图：`60-p0-auto-enter.png`、`61-p0-resume-last.png`、`62-p0-streaming.png`、`63-p0-regenerate.png`、
+  `64-p0-edit-resend.png`。
+- 计数：P0 就绪后全量 **101 PASS / 0 FAIL / 1 SKIP**（总 102 项；95 + P 组 6 项，SKIP = R5）。
+  未带 `--real` 时 P3–P5 记 SKIP（原因写明需要真实生成），不误报 FAIL。
+
+失败归因：auto 进入/继续上次/重生成/编辑按钮与渲染 → cards-client；流式写回/regenerate/PATCH 接口、
+真实生成 → app-auth / 网关；只有等待与选择器问题算 verifier。
+
+**实测（2026-11-04，P0 服务端/客户端就绪后）**：
+`bash scripts/check.sh --instance --open-story --cards --space --real --memory` →
+浏览器 **101 PASS / 0 FAIL / 1 SKIP**（总 102 项，SKIP=R5），静态 7/0/0，`report.ok=true`，
+报告 `/tmp/dsh-tavern-verify/check/report.json`。P 组证据：
+P1 卡「钟楼失约」入口「开始游玩」→ 未经过身份页，落 `/tavern/worlds/65e54feb…/play`；
+P2「继续上次」→ `/tavern/conversations/world/c9563052…`（与 C 组会话一致）；
+P3 samples=4、minLen=13、maxLen=290、pending 占位可见、最终 `已保存`；
+P4 重生成前后文本不同且 `已保存`；P5 用户消息更新为「…一只叫年糕。」且重发后 `已保存`；P6 clean。
+真生成（R 组）95 字 / DSH 模型 / 30.7s。截图 60–64 已生成。
+跑完已清库回基线：cards=0、worlds=6、chats=0、memories=0、lore=0、presets=0、regex=0；
+3099 释放、隔离 home 删除。
+
+**踩坑（已在 harness 处理）**：
+- P 组依赖 C 组创建的单卡会话（`memoryEvidence.chat.url`）；C 组 SKIP 时 P2–P5 记 SKIP 而不是 FAIL；
+- P1 会真实创建一条 curated 世界/line，P3–P5 会真实写消息，跑完按基线清理（见清理 SQL）；
+- 流式采样要按「最后一条 assistant」读取，且以 `small` 的「已保存」为终态，不能只看文本变化；
+- P2 的「继续上次」是 `a.discovery-resume`（内含 `.resume-label`=继续上次、`strong`=角色名、`small`=摘要）；
+- P4「重新生成」在最后一条 assistant 的 `.world-chat-message-actions` 内；P5「编辑」后表单为
+  `form.world-chat-edit`（textarea aria-label=「编辑这条消息」，提交按钮=「保存并重发」），不要用页面最后一个按钮。
+- 「编辑」按钮只在 `!running && !busy` 时渲染；重生成刚保存、页面还在收尾时点击会拿不到按钮。
+  P5 必须最多等 20s 让 `article.world-chat-message.user .world-chat-message-actions button:has-text("编辑")`
+  出现，再做点击（首次实测即因此失败，属时序不是产品缺陷）。
+
+
+## P1/P2 体验升级回归（Q/R2 组 / task-37/40，docs/step5-p0-p1-p2.md §P1/§P2）
+
+Q 组（P1）与 R2 组（P2）随 `--cards` 自动运行；Q 组依赖 C 组（`--memory`）创建的单卡会话，
+没有会话/卡 id 时 Q1–Q7 记 SKIP 并写明前置，不误报 FAIL。
+
+```bash
+scripts/check.sh --instance --open-story --cards --space --real --memory   # 全量（含 Q/R2）
+```
+
+通过标准：
+
+- Q1 人设新建/绑定/刷新保持/编辑/删除全部生效（`report.q.persona`）；
+- Q2 context-preview 的 `persona` 与 `systemSuffix` 出现【你的对话对象】，「本轮记忆」抽屉显示「你的身份：…」；
+- Q3 导出的 PNG 是合法 PNG 且含 `chara`；Q4 导出的 JSONL ≥2 行且含 assistant 文本；
+- Q5 搜索过滤、排序切换正常；Q6 示例卡包首次导入 N≥1、再次跳过 M≥1 且卡数不变；
+- Q7 字号/行高/字体写入 `localStorage['tavern:reading-preference']`，刷新后保持；
+- Q8/R2-4 console clean；
+- R2-1 分支：新会话 URL 不同、消息数 ≤ 分支点、可继续发送；R2-2 世界人物成卡后卡库可见且可开聊；
+  R2-3 AI 起草填充表单/开场白候选 ≥1 条。**UI 入口未交付时**，R2 走 API 兜底并记 SKIP（owner: cards-client），
+  不把「能力已存在但入口未上线」记成 PASS 或 FAIL。
+- 证据字段：`report.q{persona,injection,exportCard,exportChat,library,samples,reading,console,steps}`、
+  `report.r2{branch,worldCard,draft,console,steps}`。
+- 计数：P1/P2 就绪后全量实测 **110 PASS / 0 FAIL / 4 SKIP**（R5、R2-2、F 组剪贴板兜底 2 项）；
+  R2 走 API 兜底时对应项记 SKIP（总数不变，PASS 相应减少）。
+- 截图：`70-q-persona.png`、`71-q-injection.png`、`72-q-export-card.png`、`73-q-export-chat.png`、
+  `74-q-library.png`、`75-q-samples.png`、`76-q-reading.png`、`77-r2-branch.png`、`78-r2-world-card.png`、
+  `79-r2-draft.png`；导出文件存 `/tmp/dsh-tavern-verify/downloads/`。
+
+失败归因：人设表单/导出按钮/卡库搜索/AI 起草 UI/分支按钮/世界人物操作 → cards-client；
+personas/export/fork/world_export/assist 接口与注入文本 → app-auth；等待与选择器 → verifier。
+
+**踩坑（已在 harness 处理）**：
+- Q1 的「删除」是两段点击（`删除` → `确认删除`），且删除后 option 列表才会更新，必须轮询；
+- Q7 的 range 输入用 `el.value + dispatchEvent('input')` 设置（Playwright `fill` 不支持 range）；
+- Q6 第二次导入要等「跳过 M 张同名卡」文案出现（不是等固定时长），否则会读到上一次 notice；
+- R2 的 UI 入口在 cards-client 交付前不存在，`r2FindButton` 会跨 iframe 搜索，找不到才走 API 兜底。
+
+### 实测记录（task-37/40，2026-11-04 23:33Z 起）
+
+命令：`bash scripts/check.sh --instance --open-story --cards --space --real --memory`（隔离 3099 + 生产网关）
+结果：浏览器 **110 PASS / 0 FAIL / 4 SKIP**，静态 7 PASS / 0 FAIL / 0 SKIP，`report.ok=true`；
+报告 `/tmp/dsh-tavern-verify/check/report.json`，截图 01–19、25–29、40–44、50–55、60–64、70–79。
+
+- Q1 `report.q.persona={name:'E2E 旅人',created:true,bound:true,persisted:true,edited:true,deleted:true}`；
+- Q2 `previewPersona=true`、`personaSection=true`（含「【你的对话对象】/姓名：…」）、抽屉出现「你的身份：E2E 注入人设」；
+- Q3 林小满.png 13111B，PNG 魔数 + `chara`；Q4 `source=response status=200 disposition=attachment; filename=tavern.jsonl lines=4 assistants=2`；
+- Q5 `total=3 filtered=1 first=林小满 sortedByName=true`；Q6 首次导入 6 张、再次跳过 6 张同名（3→9→9）；
+- Q7 `{fontSize:20,lineHeight:2.05,fontFamily:'serif'}` 刷新后保持；Q8 clean；
+- R2-1 UI 分支成功（新会话 URL 不同、3≤3、可发送=true）；R2-3 UI AI 起草填充=true、开场白 2 条；
+- P3 流式证据 `report.p0.streaming={samples:4,minLen:13,maxLen:334,growing:true,pendingPlaceholderSeen:true,finalLen:334,saved:true}`。
+- **SKIP 说明**：R2-2 的「把 TA 存成角色卡」按钮只在 `/worlds/:id/explore` 的 360° 场景人物面板里，
+  场景由异步任务生成，隔离实例内 120s 内未 ready（`ui.mapReady=false`），因此 UI 路径记 SKIP；
+  同一能力的 API 路径已验证成功（`POST /api/world/v1/worlds/{id}/character-cards` → 卡库可见 + 可开聊），
+  owner 归 cards-client（场景生成时序，非接口缺陷）。其余 3 个 SKIP 为 F 组剪贴板兜底 2 项 + R5 负向演练。
+
 ## 手工探针（不启浏览器）
 
 ```bash
@@ -487,6 +614,8 @@ curl -s -o /dev/null -w 'trusted refresh=%{http_code}\n' \
 
 ## 已知缺口（随进度更新）
 
+- [x] **P1/P2（task-37/40）**：Q/R2 组已上线并实测 **110 PASS / 0 FAIL / 4 SKIP**（2026-11-04）；
+  R2-2 UI 入口受 360° 场景异步生成影响记 SKIP（API 路径已验证），其余全绿。
 - [x] **app-auth**：trusted 登录 + P2 桥（`dsh-tavern:ping/pong/state/context`）已部署；
   隔离实例 E2E **43 PASS / 0 FAIL / 0 SKIP**（`--open-story`，含位置记忆 G1–G3）；
   加 `--open-story --cards` 后 **55 PASS / 0 FAIL / 0 SKIP**（含 H 组角色卡导入 + 单卡聊天）；

@@ -90,9 +90,14 @@ def card_out(card):
         "personality": card.personality,
         "scenario": card.scenario,
         "firstMessage": card.first_message,
+        "alternateGreetings": list(card.alternate_greetings or []),
         "tags": list(card.tags or []),
         "creator": card.creator,
         "source": card.source,
+        "worldId": card.world_id,
+        "lineId": card.line_id,
+        "checkpointId": card.checkpoint_id,
+        "characterId": card.character_id,
         "hasAvatar": bool(card.avatar_path),
         "presetId": card.preset_id,
         "companion": bool(card.companion),
@@ -111,6 +116,8 @@ def update_card(db, owner, card, values):
         card.first_message = values["firstMessage"]
     if values.get("tags") is not None:
         card.tags = list(values["tags"])[:200]
+    if "alternateGreetings" in values:
+        card.alternate_greetings = [item for item in (values["alternateGreetings"] or []) if item][:10]
     if "presetId" in values:
         space.bind_preset(db, owner, card, values["presetId"])
     if values.get("companion") is not None:

@@ -1,5 +1,8 @@
-"""Character card HTTP API (import, list, edit, avatar, delete, card chats),
+"""Character card HTTP API (import, list, edit, avatar, export, delete, card chats),
 plus the card-space endpoints for lorebooks, presets and regex scripts."""
+import json
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import Field
@@ -10,7 +13,7 @@ from ..errors import Problem
 from ..schemas import Strict
 from ..security import current_user
 from ..world.api import available
-from . import memory, parse, service, space
+from . import assist, exporting, memory, parse, personas, service, space
 
 router = APIRouter(prefix="/character-cards", dependencies=[Depends(available)])
 presets = APIRouter(prefix="/presets", dependencies=[Depends(available)])
@@ -26,6 +29,8 @@ class CardUpdate(Strict):
     systemPrompt: str | None = Field(default=None, max_length=20000)
     postHistoryInstructions: str | None = Field(default=None, max_length=20000)
     tags: list[str] | None = Field(default=None, max_length=200)
+    alternateGreetings: list[Annotated[str, Field(max_length=2000)]] | None = Field(
+        default=None, max_length=10)
     presetId: str | None = Field(default=None, max_length=32)
     companion: bool | None = None
 
@@ -76,6 +81,20 @@ class RegexUpdate(Strict):
 
 class PreviewInput(Strict):
     message: str = Field(default="", max_length=20000)
+    personaId: str | None = Field(default=None, max_length=32)
+
+
+class DraftInput(Strict):
+    brief: str = Field(default="", max_length=2000)
+
+
+class GreetingsInput(Strict):
+    count: int = Field(default=3, ge=1, le=5)
+
+
+@router.post("/draft")
+def draft_card(payload: DraftInput, user=Depends(current_user), db=Depends(get_db)):
+    return {"draft": assist.draft(db, user.id, payload.brief)}
 
 
 @router.post("/imports", status_code=201)
@@ -94,6 +113,13 @@ def list_cards(q: str = Query("", max_length=100), user=Depends(current_user), d
     return {"items": [service.card_out(card) for card in service.list_cards(db, user.id, q)]}
 
 
+@router.post("/{card_id}/greetings")
+def card_greetings(card_id: str, payload: GreetingsInput,
+                   user=Depends(current_user), db=Depends(get_db)):
+    card = service.get_card(db, user.id, card_id)
+    return {"greetings": assist.greetings(db, user.id, card, payload.count)}
+
+
 @router.get("/{card_id}")
 def read_card(card_id: str, user=Depends(current_user), db=Depends(get_db)):
     return service.card_out(service.get_card(db, user.id, card_id))
@@ -107,6 +133,8 @@ def patch_card(card_id: str, payload: CardUpdate, user=Depends(current_user), db
         "systemPrompt", "postHistoryInstructions", "tags")}
     if "presetId" in payload.model_fields_set:
         values["presetId"] = payload.presetId
+    if "alternateGreetings" in payload.model_fields_set:
+        values["alternateGreetings"] = payload.alternateGreetings
     if "companion" in payload.model_fields_set:
         values["companion"] = payload.companion
     card = service.update_card(db, user.id, card, values)
@@ -117,6 +145,20 @@ def patch_card(card_id: str, payload: CardUpdate, user=Depends(current_user), db
 def read_avatar(card_id: str, user=Depends(current_user), db=Depends(get_db)):
     card = service.get_card(db, user.id, card_id)
     return FileResponse(service.avatar_file(card, user.id), media_type="image/png")
+
+
+@router.get("/{card_id}/export")
+def export_card(card_id: str, format: str = Query("png", pattern="^(png|json)$"),
+                user=Depends(current_user), db=Depends(get_db)):
+    card = service.get_card(db, user.id, card_id)
+    lore = space.list_lore(db, user.id, card.id)
+    if format == "json":
+        document = exporting.card_document(card, lore)
+        return Response(content=json.dumps(document, ensure_ascii=False, indent=2),
+                        media_type="application/json",
+                        headers=exporting.filename_header(card.name, ".json"))
+    return Response(content=exporting.card_png(card, lore, user.id), media_type="image/png",
+                    headers=exporting.filename_header(card.name, ".png"))
 
 
 @router.delete("/{card_id}", status_code=204)
@@ -156,7 +198,8 @@ def delete_lore(card_id: str, lore_id: str, user=Depends(current_user), db=Depen
 @router.post("/{card_id}/context-preview")
 def context_preview(card_id: str, payload: PreviewInput, user=Depends(current_user), db=Depends(get_db)):
     card = service.get_card(db, user.id, card_id)
-    return space.preview(db, user.id, card, payload.message)
+    persona = personas.get_persona(db, user.id, payload.personaId) if payload.personaId else None
+    return space.preview(db, user.id, card, payload.message, persona)
 
 
 @router.post("/{card_id}/chats", status_code=201)

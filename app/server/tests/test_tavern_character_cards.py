@@ -12,6 +12,7 @@ from copy import deepcopy
 from PIL import Image, PngImagePlugin
 from sqlalchemy import select
 
+from app.cards.models import CharacterCard
 from app.db import SessionLocal
 from app.models import User
 from app.play_controls.models import WorldChatSession
@@ -220,3 +221,29 @@ def test_other_user_cannot_read_or_delete_card(client, reader):
     assert client.post(CARDS + "/" + card["id"] + "/chats", headers=headers).status_code == 404
     with SessionLocal() as db:
         assert db.get(User, other["user"]["id"]) is not None
+
+
+def test_patch_updates_alternate_greetings(client, reader):
+    card = import_card(client)
+    greetings = ["天黑了，旅店只为你留灯。", "雨还没停，进来坐吧。"]
+    patched = client.patch(CARDS + "/" + card["id"], json={"alternateGreetings": greetings})
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["card"]["alternateGreetings"] == greetings
+    fetched = client.get(CARDS + "/" + card["id"]).json()
+    assert fetched["alternateGreetings"] == greetings
+    cleared = client.patch(CARDS + "/" + card["id"], json={"alternateGreetings": []})
+    assert cleared.status_code == 200 and cleared.json()["card"]["alternateGreetings"] == []
+    nulled = client.patch(CARDS + "/" + card["id"], json={"alternateGreetings": None})
+    assert nulled.status_code == 200 and nulled.json()["card"]["alternateGreetings"] == []
+    with SessionLocal() as db:
+        assert db.get(CharacterCard, card["id"]).alternate_greetings == []
+
+
+def test_alternate_greetings_validation(client, reader):
+    card = import_card(client)
+    too_many = client.patch(CARDS + "/" + card["id"], json={"alternateGreetings": ["你好。"] * 11})
+    assert too_many.status_code == 422
+    too_long = client.patch(CARDS + "/" + card["id"], json={"alternateGreetings": ["长" * 2001]})
+    assert too_long.status_code == 422
+    unchanged = client.get(CARDS + "/" + card["id"]).json()
+    assert unchanged["alternateGreetings"] == card["alternateGreetings"]
