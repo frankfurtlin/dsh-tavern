@@ -3,8 +3,6 @@ from sqlalchemy import text
 from ..db import engine
 from .models import WorldBase
 from ..cards.models import (  # noqa: F401  (registers the world.card_* tables)
-    CardGroupChat,
-    CardGroupMessage,
     CardLore,
     CardMemory,
     CharacterCard,

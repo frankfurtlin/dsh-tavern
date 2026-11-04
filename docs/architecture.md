@@ -7,8 +7,9 @@
 登录态后面，并另外注册 `prefix /tavern-agent` 模型网关给应用 worker 调 DSH 模型；
 `client.js`（client 半）在浏览器里注册侧栏入口与主面板，用同源 iframe 展示应用，
 并用 `postMessage`（P2 桥）把当前故事上下文交给 DSH Agent 续写 / 角色扮演。
-应用本体按单用户精简（导航只有「探索作品」「角色卡库」），提供角色卡空间与
-长期记忆，生成任务在应用 worker 里跑；群聊 UI 已移除，服务端接口保留。
+应用本体按单用户精简（顶部导航只有「探索作品」「角色卡库」两个 tab，无左侧栏，
+界面固定浅色），提供角色卡空间与长期记忆，生成任务在应用 worker 里跑；
+群聊已从 UI 与服务端一并删除。
 
 ```
 ┌────────────────────────── DSH Web (127.0.0.1:3080) ──────────────────────────┐
@@ -198,17 +199,57 @@ provider 的原始报错文本只取 `code`/`name` 进日志，不会回显给�
 `DSH_AGENT_URL=http://127.0.0.1:3080/tavern-agent/v1`，`DSH_AGENT_SECRET` 与
 `DSH_TAVERN_AGENT_SECRET` 配同一个值；回滚时把 `AI_MODE` 改回 `mock`。
 
-## 应用内功能：角色卡空间与长期记忆（群聊已移除）
+## 应用内界面与功能：角色卡空间、长期记忆（群聊已删除）
 
 host 半只做反向代理，以下链路都在应用侧。记在这里是为了让「面板里看到什么、
 模型收到什么」可追溯；表结构与验收点以 `docs/step3*.md`、`docs/step4*.md` 为准。
 
-应用按**单用户精简**：导航只有「探索作品」（`/explore`）与「角色卡库」
-（`/characters`）两项；`/works`、`/recent`、`/my-prompts`、`/product/knowledge`、
-`/published/*`、`/authors/*`、`/creators`、`/community`、`/characters/groups`
-等旧路由全部 redirect `/explore`。创作工作台不再占导航，从探索页「创作作品」
-按钮（`/worlds/scripts`）进入。探索页去掉了「最近游玩 → /recent」链接与
-「公开互动作品」整节，改为对有 `lineId` 的精选卡显示「最近游玩」徽标。
+### 界面结构（单用户精简后）
+
+- **顶部 sticky header**（`presentation/AppShell.vue` 的 `.shell-top`，min-height 66px，
+  scoped 样式在 `AppShell.vue` 里，不含左侧栏）：左侧「酒馆」品牌（`BookOpen` 图标，
+  链 `/explore`）+ 两个 tab「探索作品」`/explore`、「角色卡库」`/characters`
+  （`workspace/navigation.ts` 的 `workspaceGroups` 拍平去重）；右侧
+  `.shell-top-right` 放 `#sidebar-footer` 槽位（仅 LocalApplication 兼容，移动端隐藏）
+  与 `#header-actions`（`workspace/HeaderActions.vue`，当前只有「酒馆 · 内测体验」）。
+- **无左侧栏、无面包屑**：旧 sidebar 与 breadcrumb 已删；页面内的「返回上一级」
+  由 `AppShell` 的 `.shell-page-return` 按 `pageLocation` 计算（有父级且非自有返回时显示）。
+- **移动端**（≤767px）：header 只留品牌 + actions，`shell-tabs` 隐藏，底部
+  `.shell-mobile-nav` 固定显示两项导航。
+- **创作工作台**：路由 `work-entry`（`/stories/:storyId`）时内容区高度按
+  `calc(100dvh - 66px)` 铺满，导航仍从探索页「创作作品」按钮进入。
+- **固定浅色主题**：`App.vue` 启动即 `document.documentElement.dataset.theme='light'`，
+  明暗切换按钮已删除；`settings.theme` 字段保留兼容但不参与 UI。
+  `LocalApplication.vue`/`LocalReaderPage.vue` 旧壳仍留在仓库（当前无路由/无引用，
+  `/local/**` 只做 legacy 跳转），它们内部的外观逻辑不影响主界面。
+- 旧路由 redirect 清单：`/works`、`/recent`、`/my-prompts`、`/product/knowledge`、
+  `/published/*`、`/authors/*`、`/creators`、`/community`、`/characters/groups`、
+  `/characters/groups/:id`、`/tasks` 等全部 redirect `/explore`；`/product/wallet`、
+  `/product/admin`、`/worlds/:id/author` 等运维/作者页保留。探索页去掉了
+  「最近游玩 → /recent」链接与「公开互动作品」整节，改为对有 `lineId` 的精选卡
+  显示「最近游玩」徽标。
+
+### 服务端瘦身（task-29）
+
+单用户精简同时删掉了没有 UI 的服务端能力，当前应用路由总数 318：
+
+- `experience`：feedback 7 条路由、notices、tasks、`usage.py` 全部删除，
+  `experience/api.py` 只剩一个空 router 占位（保留前缀兼容）；
+- `authoring`：公开目录 `GET /authoring/catalog`、`GET /authoring/authors/{id}`
+  删除，保留 curated publish/beta、审核、发布等运维接口；
+- `cards`：`cards/groups.py` 整文件、5 条 `/card-group-chats` 路由、
+  `CardGroupChat` / `CardGroupMessage` 模型、worker `card_group_chat` 分支、
+  `prompts/card_group_chat.txt` 与相关测试删除；
+- 保留：支付/邀请/analytics 等运维集成；`product_notices` 保留（moderation
+  notify 仍写），`product_feedback` 不再有 API，已由 host 侧归档并 DROP；
+  DB 中 `world.card_group_chats` / `world.card_group_messages` 已无代码引用，
+  已由 host 侧 DROP；
+- 客户端同期删除 24 个零引用页面组件（PublicCatalog/PublicCover/AgentPage/
+  McpPage/DiscoverPage/OriginalStoryPage/companion 页面/CharacterPreferences/
+  RecoverySettings/media 四页/PlayCreatePage/PluginsPage/SkillsPage/tavern 的
+  ChatImport/Lorebooks/Personas/Presets/QuickReplies/StagePage/SceneModelSettings），
+  保留 `AuthorPage`/`WalletPage`/`AdminPage`/`PublicPage` 与 `Local*` 旧壳
+  （部分未挂路由）。
 
 ### 卡片 → world 建库链路
 
@@ -226,7 +267,8 @@ host 半只做反向代理，以下链路都在应用侧。记在这里是为了
 5. 开聊 `POST /character-cards/{id}/chats` 复用同一 world/line/checkpoint/character，
    建 `WorldChatSession`（「<名字> · 单独聊聊」）。
 
-因此卡库列表、聊天会话、世界书、群聊、记忆都以 world 为归属；删卡是软删除，world 保留。
+因此卡库列表、聊天会话、世界书、记忆都以 world 为归属；删卡是软删除，world 保留。
+（群聊表 `card_group_chats` / `card_group_messages` 已随群聊删除，见下文。）
 
 ### 角色卡空间与 system prompt 注入（B1）
 
@@ -251,29 +293,20 @@ host 半只做反向代理，以下链路都在应用侧。记在这里是为了
 - 卡详情「预览」`POST /character-cards/{id}/context-preview` 返回同一套拼接结果
   （`loreMatched/preset/systemSuffix/memorySection`），UI 用它解释「下一轮会注入什么」。
 
-### 群聊（B2，已从界面移除；服务端接口保留但无入口）
+### 群聊（B2，已彻底删除）
 
-单用户精简（task-25）删掉了角色卡库的多选与「发起群聊」入口、群聊列表页与
-群聊页；`/characters/groups`、`/characters/groups/:id` 现在都 redirect `/explore`。
-服务端 `world.card_group_chats` / `world.card_group_messages` 表、`/card-group-chats`
-API 与 `card_group_chat` 任务保留，供历史数据与直接调用，但**界面上没有任何入口**。
-以下为该链路的原始设计（历史参考，详见 `docs/step3b-group-chat.md`）：
+单用户精简（task-25）先删掉界面：角色卡库多选与「发起群聊」入口、群聊列表页与
+群聊页、`/characters/groups` 入口；随后 task-29 把服务端链路也删了：
 
-表：`world.card_group_chats`（`card_ids` 有序 2–5、`preset_id`、`status`）与
-`world.card_group_messages`（`sequence`、`speaker_card_id/name`、
-`status pending|saved|failed`）。
+- 删除 `cards/groups.py` 与 5 条 `/card-group-chats` 路由；
+- 删除 `CardGroupChat` / `CardGroupMessage` 模型（`cards/models.py`）；
+- 删除 worker 的 `card_group_chat` 任务分支与 `prompts/card_group_chat.txt`；
+- 删除对应服务端测试。
 
-发送一条消息 `POST /card-group-chats/{id}/messages`（带 `Idempotency-Key` + `turnId`）：
-
-1. 若已有 pending 回复 → `409 CHAT_PENDING`；
-2. 发言人 = `card_ids[已保存 assistant 条数 % n]`（按建群顺序轮转）；
-3. 先落一条 `pending` 消息入队任务 `card_group_chat`，响应
-   `202 {taskId,chatId,speakerCardId,speakerName}`；
-4. worker 用 `prompts/card_group_chat.txt` 生成（多角色聊天室、本轮只演 speaker、
-   100–500 字），各卡设定单卡截断 1200 字、历史最近 30 条；落库前同样应用 B1 正则；
-5. 成功把 pending 改成 saved；失败标 failed。
-
-该链路只用各卡设定 + 预设补充，**不注入世界书与长期记忆**。
+DB 里 `world.card_group_chats`、`world.card_group_messages` 已无代码引用，由
+host 侧 DROP；`/characters/groups`、`/characters/groups/:id` 仍 redirect `/explore`。
+原始设计（表结构、轮转发言人、Idempotency-Key、409 CHAT_PENDING、202 任务响应等）
+保留在 `docs/step3b-group-chat.md` 作为历史参考，不再有运行时代码。
 
 ### 长期记忆与长期伙伴（C）
 
@@ -298,7 +331,6 @@ API 与 `card_group_chat` 任务保留，供历史数据与直接调用，但**�
 | --- | --- |
 | 模型网关不可用（401/502/超时） | 应用生成失败，UI 显示失败原因，不伪造回复；`AI_MODE=mock` 可临时回滚 |
 | 记忆抽取失败 | `502 MEMORY_EXTRACT_FAILED`，不落半成品；自动整理失败不阻断聊天 |
-| 群聊接口被直接调用（无 UI 入口） | `409 CHAT_PENDING`（同一群聊已有 pending 回复时） |
 | 世界书/记忆超预算 | 超出条目静默截断（不进 prompt），可在 context-preview 里核对 |
 | 角色卡/记忆接口不可用 | 页面局部错误文案（如「长期记忆暂时不可用。」），不影响其它区块 |
 
@@ -379,9 +411,11 @@ base —— 应用用 `createWebHistory('/tavern')`，`router.currentRoute.value
 
 ### 主题
 
-宿主切浅色/深色时，`client.js` 观察 `document.documentElement` 的
-`color-scheme` 变化，给 iframe 发附加消息 `{type:'dsh-tavern:theme', theme}`
-（契约之外，应用可选实现）；iframe onLoad 时也会补发一次当前主题。
+应用**固定浅色**：没有明暗切换按钮，`App.vue` 启动即写
+`document.documentElement.dataset.theme='light'`；`settings.theme` 字段保留兼容但
+不参与界面。宿主仍会观察 DSH 的 `color-scheme` 变化，给 iframe 发附加消息
+`{type:'dsh-tavern:theme', theme}`（契约之外）并在 iframe onLoad 时补发一次；
+应用当前不跟随，保持浅色，收到也无害。
 
 ## P2 postMessage 协议（契约 §3）
 
@@ -540,8 +574,8 @@ secret 读不到时：打印告警、继续转发但**不带**可信头，应用
 2. **编辑器 DOM 依赖**：预填靠 Lexical 的 `contenteditable` + `execCommand`，
    宿主升级编辑器实现时可能失效。失效表现是「提示已复制到剪贴板」，
    不会丢内容；发现异常先查 `COMPOSER_SELECTOR` 与实际 DOM。
-3. **`dsh-tavern:theme` 是契约外的附加消息**：应用未实现时无影响；
-   应用实现时注意只切主题、不重载页面。
+3. **`dsh-tavern:theme` 是契约外的附加消息**：应用已固定浅色、不再跟随，
+   收到只当无操作；宿主侧发送逻辑保留，删除该消息也不影响功能。
 4. **8 秒上下文超时**：应用读到上千字正文通常远快于此；若真实环境常超时，
    需要应用侧优化读取或调整 `CONTEXT_TIMEOUT_MS`（改之前先确认契约是否接受）。
 5. **父页面只认自己的 iframe**：`event.source` 校验 + origin 校验；
@@ -555,9 +589,8 @@ secret 读不到时：打印告警、继续转发但**不带**可信头，应用
    （本机 `opencode-go / deepseek-v4.1-flash`）；provider 侧异常/超时表现为
    生成失败，应用不会伪造回复，也不该被前端吞掉。
 8. **卡片空间/记忆的注入预算**：世界书 ≤6 条/≤6000 字、记忆 ≤6 条/≤3000 字、
-   卡设定 ≤6000 字、预设 ≤4000 字；超出静默截断。群聊已无 UI 入口，其服务端任务
-   若被直接调用也不注入世界书与长期记忆，只带各卡设定（单卡 1200 字截断）、
-   预设补充与最近 30 条对话。
+   卡设定 ≤6000 字、预设 ≤4000 字；超出静默截断。群聊链路（含其服务端任务）
+   已整体删除，不再存在「无入口但可调用」的群聊注入路径。
 9. **记忆整理是模型调用**：`/memories/extract` 同步等模型，失败 502
    `MEMORY_EXTRACT_FAILED` 且回滚；每 8 条回复的自动整理是后台任务，
    失败不打断聊天，但需要用户稍后手动重试。

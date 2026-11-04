@@ -378,7 +378,12 @@ try {
           hasEntryPage: Boolean(document.querySelector('.entry-page') || document.querySelector('[aria-label="账号登录与注册"]')),
           brand: clean(document.querySelector('.shell-brand')?.innerText),
           heading: clean(document.querySelector('h1')?.innerText),
-          nav: [...document.querySelectorAll('.shell-navigation nav a')].map((anchor) => clean(anchor.innerText)).filter(Boolean).slice(0, 10),
+          // task-28 顶部导航替代侧栏：优先读 header 的两个 tab；桌面端底部导航虽在 DOM 但 display:none，不能混读。
+          nav: (() => {
+            const topTabs = [...document.querySelectorAll('.shell-top .shell-tabs a')]
+            const source = topTabs.length ? topTabs : [...document.querySelectorAll('.shell-mobile-nav a')]
+            return source.map((anchor) => clean(anchor.innerText)).filter(Boolean).slice(0, 10)
+          })(),
           bodyLength: (document.body?.innerText || '').length,
         }
       })
@@ -407,18 +412,23 @@ try {
           }`
         : '读取 iframe DOM 失败',
     )
+    const expectedAppTabs = ['探索作品', '角色卡库']
+    const appTabsExact = Boolean(
+      appState && appState.nav.length === expectedAppTabs.length && appState.nav.every((name, index) => name === expectedAppTabs[index]),
+    )
     check(
-      '内嵌应用渲染出稳定内容（品牌 + 侧栏导航）',
-      // task-25 单用户精简后侧栏只剩「探索作品」「角色卡库」两个入口（原来 >=3 已过时）。
-      Boolean(appState && appState.brand.includes('酒馆') && appState.nav.length >= 2),
-      appState ? `brand=${clip(appState.brand, 20)} nav=${clip(appState.nav.join('/'), 80)}` : 'n/a',
+      '内嵌应用渲染出稳定内容（品牌 + 顶部两个 tab）',
+      Boolean(appState && appState.brand.includes('酒馆') && appTabsExact),
+      appState
+        ? `brand=${clip(appState.brand, 20)} tabs=${JSON.stringify(appState.nav)}（期望 ${JSON.stringify(expectedAppTabs)}）`
+        : 'n/a',
     )
     check('内嵌应用正文不是空白', Boolean(appState && appState.bodyLength > 200), appState ? `bodyLength=${appState.bodyLength}` : 'n/a')
     await shot(page, '03-app-iframe.png')
     report.app = { frameUrl, ...appState }
   } else {
     skip('内嵌应用完成可信登录（不是应用登录页）', '主面板未打开')
-    skip('内嵌应用渲染出稳定内容（品牌 + 侧栏导航）', '主面板未打开')
+    skip('内嵌应用渲染出稳定内容（品牌 + 顶部两个 tab）', '主面板未打开')
     skip('内嵌应用正文不是空白', '主面板未打开')
   }
 
@@ -1866,6 +1876,14 @@ try {
         let frameM = await memoryLibrary()
         if (!frameM) memUnavailable(0, '无法进入角色卡库 /characters（owner: plugin-core 面板/导航；cards-client 路由）')
         if (frameM && memUnavailableAt === -1) {
+          // SPA 切到卡库后 URL 先变、组件后渲染；先等卡库壳/导入入口出现，避免把「还在渲染」误判成缺导入入口。
+          const libReady = await memWait(
+            async () => (await frameM.locator('.characters-page, .character-grid, input[type="file"]').count().catch(() => 0)) > 0,
+            20000,
+          )
+          if (!libReady) memUnavailable(0, '20s 内角色卡库没有渲染出页面内容（owner: cards-client CharactersPage）')
+        }
+        if (frameM && memUnavailableAt === -1) {
           const cardName = memFixture.name
           memoryEvidence.cardName = cardName
           let count = await frameM.getByText(cardName, { exact: true }).count().catch(() => 0)
@@ -2235,33 +2253,41 @@ try {
   }
   report.memory = memoryEvidence
 
-  // ── M. 单用户导航回归（task-24/25，随 --cards 运行）────────────────────────
+  // ── M. 顶部导航回归（task-28/30，随 --cards 运行）──────────────────────────
   if (runCards) {
     const navNames = [
-      'M1 左侧导航只剩「故事与阅读」「创作」两组与「探索作品」「角色卡库」两个入口',
-      'M2 /tavern/settings 重定向到 /explore',
-      'M3 /tavern/settings/models 重定向到 /explore',
-      'M4 /tavern/notebook 重定向到 /explore',
-      'M5 /tavern/help 重定向到 /explore',
-      'M6 /tavern/tasks/activity 重定向到 /explore',
-      'M7 /tavern/conversations 重定向到 /explore',
-      'M8 /tavern/works 重定向到 /explore',
-      'M9 /tavern/recent 重定向到 /explore',
-      'M10 /tavern/my-prompts 重定向到 /explore',
-      'M11 /tavern/product/knowledge 重定向到 /explore',
-      'M12 /tavern/characters/groups 重定向到 /explore',
-      'M13 /tavern/published/abc 重定向到 /explore',
+      'M1 顶部导航：无左侧栏，header 品牌「酒馆」+ 恰好两个 tab「探索作品」「角色卡库」，无主题切换按钮',
+      'M2 顶部 tab 可切换：角色卡库 → /tavern/characters 高亮，探索作品 → /tavern/explore 高亮',
+      'M3 角色卡详情时「角色卡库」tab 高亮；/stories/:id 时「探索作品」tab 高亮',
+      'M4 移动端 390×844：tabs 隐藏、顶部只有品牌+actions、底部导航两项、无「打开全部功能」按钮',
+      'M5 工作台 /stories/:id（work-entry）：66px 顶部导航不遮挡内容，内容区可滚动、编辑区不被裁切',
+      'M6 /tavern/works 重定向到 /explore',
+      'M7 /tavern/recent 重定向到 /explore',
+      'M8 /tavern/my-prompts 重定向到 /explore',
+      'M9 /tavern/product/knowledge 重定向到 /explore',
+      'M10 /tavern/characters/groups 重定向到 /explore',
+      'M11 /tavern/characters/groups/abc 重定向到 /explore',
+      'M12 /tavern/published/abc 重定向到 /explore',
+      'M13 /tavern/authors/abc 重定向到 /explore',
       'M14 /tavern/creators 重定向到 /explore',
       'M15 /tavern/community 重定向到 /explore',
-      'M16 /tavern/conversations/world/:id 仍能打开聊天页',
-      'M17 M 组导航期间 console 无报错',
+      'M16 群聊服务端 API 已删除：GET /api/reader/v1/card-group-chats 返回 404',
+      'M17 /tavern/conversations/world/:id 仍能打开聊天页',
+      'M18 M 组期间 console 无报错',
     ]
-    const chatIndex = navNames.length - 2
-    const consoleIndex = navNames.length - 1
+    const redirectIndexStart = 5
+    const apiIndex = redirectIndexStart + 10
+    const chatIndex = apiIndex + 1
+    const consoleIndex = chatIndex + 1
     const navEvidence = {
       enabled: true,
-      sidebar: null,
+      topNav: null,
+      tabSwitch: null,
+      highlight: null,
+      mobile: null,
+      workEntry: null,
       redirects: [],
+      groupApi: null,
       chat: null,
       console: [],
       steps: [],
@@ -2288,93 +2314,242 @@ try {
     // 注意：不要用 C 组的 memoryLibrary()——M 组在 --cards（无 --memory）时也要能跑。
     const navFrame = fnow()
     let navError = null
+    let navStoryId = null
     try {
       if (!navFrame) throw new Error('拿不到应用 iframe（owner: plugin-core）')
+      const navOrigin = new URL(navFrame.url()).origin
+      const activeTabs = async () =>
+        (await navFrame.locator('.shell-top .shell-tabs a.router-link-active').allTextContents().catch(() => []))
+          .map((text) => text.trim())
+          .filter(Boolean)
+      const tabLink = (name) => navFrame.locator('.shell-top .shell-tabs a').filter({ hasText: name }).first()
 
-      // ── M1 左侧导航：只保留两组两个入口（task-25 单用户精简）──
-      const sidebarShown = await navWait(async () => (await navFrame.locator('.shell-sidebar').count().catch(() => 0)) > 0, 15000)
-      if (!sidebarShown) throw new Error('15s 内没有渲染左侧导航 .shell-sidebar（owner: cards-client）')
-      const sidebarText = ((await navFrame.locator('.shell-sidebar').innerText().catch(() => '')) || '').trim()
-      const groupLabels = (await navFrame.locator('.shell-nav-label').allTextContents().catch(() => [])).map((label) => label.trim())
-      const navLinkNames = (await navFrame.locator('.shell-sidebar nav a span').allTextContents().catch(() => [])).map((label) => label.trim())
-      const expectedGroups = ['故事与阅读', '创作']
-      const expectedLinks = ['探索作品', '角色卡库']
+      // ── M1 顶部导航：无侧栏，品牌 + 两个 tab，无主题切换 ──
+      await navFrame.goto(`${navOrigin}/tavern/explore`, { waitUntil: 'domcontentloaded' }).catch(() => {})
+      const headerShown = await navWait(async () => (await navFrame.locator('header.shell-top').count().catch(() => 0)) > 0, 25000)
+      if (!headerShown) throw new Error('25s 内没有渲染顶部导航 header.shell-top（owner: cards-client AppShell）')
+      await navWait(async () => (await navFrame.locator('.shell-top .shell-tabs a').count().catch(() => 0)) >= 2, 15000)
+      const sidebarCount = await navFrame.locator('.shell-sidebar').count().catch(() => -1)
+      const brandText = ((await navFrame.locator('.shell-top .shell-brand').innerText().catch(() => '')) || '').trim()
+      const tabTexts = (await navFrame.locator('.shell-top .shell-tabs a').allTextContents().catch(() => [])).map((text) => text.trim()).filter(Boolean)
+      const expectedTabs = ['探索作品', '角色卡库']
+      const themeControls = await navFrame
+        .locator('.shell-top button, .shell-top a')
+        .evaluateAll((nodes) =>
+          nodes
+            .map((node) => ({
+              text: (node.innerText || '').replace(/\s+/g, ' ').trim(),
+              aria: node.getAttribute('aria-label') || '',
+              title: node.getAttribute('title') || '',
+              icons: [...node.querySelectorAll('svg')].map((svg) => svg.getAttribute('class') || ''),
+            }))
+            .filter((item) => /主题|明暗|夜间|切换主题|外观/.test(`${item.text}${item.aria}${item.title}`) || item.icons.some((cls) => /lucide-(sun|moon)/.test(cls))),
+        )
+        .catch(() => [])
+    const openAllCount = await navFrame.getByRole('button', { name: /打开全部功能/ }).count().catch(() => 0)
       const removedEntries = ['我的作品', '最近体验', '创作工作台', '群聊', '我的提示词', '参考资料',
-        '我的对话', '我的笔记', '模型与用量', '账号设置', '任务进度', '反馈与通知', '使用帮助']
-      const hitEntries = removedEntries.filter((label) => sidebarText.includes(label))
-      const hitGroups = groupLabels.filter((label) => label.includes('我的'))
-      const groupsExact = groupLabels.length === expectedGroups.length && groupLabels.every((label, index) => label === expectedGroups[index])
-      const linksExact = navLinkNames.length === expectedLinks.length && navLinkNames.every((label, index) => label === expectedLinks[index])
-      navEvidence.sidebar = { text: clip(sidebarText, 600), groups: groupLabels, links: navLinkNames, expectedGroups, expectedLinks, removedHits: hitEntries, groupTabHits: hitGroups, groupsExact, linksExact }
+        '我的对话', '我的笔记', '模型与用量', '账号设置', '任务进度', '反馈与通知', '使用帮助', '我的']
+      const headerText = ((await navFrame.locator('.shell-top').innerText().catch(() => '')) || '').trim()
+      const removedHits = removedEntries.filter((label) => headerText.includes(label))
+      const tabsExact = tabTexts.length === expectedTabs.length && tabTexts.every((text, index) => text === expectedTabs[index])
+      navEvidence.topNav = {
+        sidebarCount,
+        brand: brandText,
+        tabs: tabTexts,
+        expectedTabs,
+        tabsExact,
+        themeControls,
+        openAllCount,
+        removedHits,
+        headerText: clip(headerText, 400),
+      }
       navRecord(
         0,
-        groupsExact && linksExact && hitEntries.length === 0 && hitGroups.length === 0,
-        groupsExact && linksExact && hitEntries.length === 0 && hitGroups.length === 0
-          ? `分组=${groupLabels.join('/')}；入口=${navLinkNames.join('、')}`
-          : `导航不符合单用户精简：分组=${JSON.stringify(groupLabels)}（期望 ${JSON.stringify(expectedGroups)}）入口=${JSON.stringify(navLinkNames)}（期望 ${JSON.stringify(expectedLinks)}）仍含已删入口=${JSON.stringify(hitEntries)} 分组 tab=${JSON.stringify(hitGroups)}（owner: cards-client 导航配置）`,
+        sidebarCount === 0 && brandText.includes('酒馆') && tabsExact && themeControls.length === 0 && openAllCount === 0 && removedHits.length === 0,
+        sidebarCount === 0 && brandText.includes('酒馆') && tabsExact && themeControls.length === 0 && openAllCount === 0 && removedHits.length === 0
+          ? `无侧栏；品牌=${brandText}；tabs=${tabTexts.join('、')}；无主题切换`
+          : `顶部导航异常：侧栏数=${sidebarCount}（期望 0）品牌=${JSON.stringify(brandText)} tabs=${JSON.stringify(tabTexts)}（期望 ${JSON.stringify(expectedTabs)}）主题控件=${JSON.stringify(themeControls)} 打开全部功能=${openAllCount} 已删入口=${JSON.stringify(removedHits)}（owner: cards-client AppShell/导航）`,
       )
-      await shot(page, '40-nav-sidebar.png')
+      await shot(page, '50-nav-top.png')
 
-      // ── M2–M15 已删除路由应重定向到 /explore（task-24 六条 + task-25 八条）──
-      const navOrigin = new URL(navFrame.url()).origin
+      // ── M2 顶部 tab 点击切换 + 高亮 ──
+      const beforeErrors = consoleErrors.length
+      await tabLink('角色卡库').click({ timeout: 8000 }).catch(async () => { await tabLink('角色卡库').evaluate((el) => el.click()).catch(() => {}) })
+      const toCharacters = await navWait(async () => /\/tavern\/characters\/?(?:[?#].*)?$/.test(navFrame.url()), 20000)
+      await navWait(async () => (await navFrame.locator('article.character-card, .characters-page, .final-page-heading').count().catch(() => 0)) > 0, 15000)
+      const charactersActive = await activeTabs()
+      await tabLink('探索作品').click({ timeout: 8000 }).catch(async () => { await tabLink('探索作品').evaluate((el) => el.click()).catch(() => {}) })
+      const toExplore = await navWait(async () => /\/tavern\/explore\/?(?:[?#].*)?$/.test(navFrame.url()), 20000)
+      const exploreActive = await activeTabs()
+      const tabChunkErrors = consoleErrors.slice(beforeErrors).filter((text) => !/Failed to load resource/.test(text))
+      const tabSwitchOk = toCharacters && toExplore
+        && charactersActive.length === 1 && charactersActive[0] === '角色卡库'
+        && exploreActive.length === 1 && exploreActive[0] === '探索作品'
+        && tabChunkErrors.length === 0
+      navEvidence.tabSwitch = { toCharacters, toExplore, charactersActive, exploreActive, consoleErrors: tabChunkErrors }
+      navRecord(1, tabSwitchOk, tabSwitchOk
+        ? `角色卡库 → ${charactersActive.join('/')}；探索作品 → ${exploreActive.join('/')}（高亮正确）`
+        : `tab 切换/高亮异常：角色卡库跳转=${toCharacters} 高亮=${JSON.stringify(charactersActive)}；探索作品跳转=${toExplore} 高亮=${JSON.stringify(exploreActive)} console=${JSON.stringify(tabChunkErrors)}（owner: cards-client AppShell activePath）`)
+      await shot(page, '51-nav-tab-switch.png')
+
+      // ── M3 详情页与故事页的高亮归属 ──
+      await navFrame.goto(`${navOrigin}/tavern/characters`, { waitUntil: 'domcontentloaded' }).catch(() => {})
+      const cardReady = await navWait(async () => (await navFrame.locator('article.character-card').count().catch(() => 0)) > 0, 25000)
+      if (!cardReady) throw new Error('25s 内角色卡库没有渲染卡片（owner: cards-client CharactersPage）')
+      const editButton = navFrame.locator('article.character-card').first().getByRole('button', { name: '编辑' }).first()
+      await editButton.click({ timeout: 8000 }).catch(async () => { await editButton.evaluate((el) => el.click()).catch(() => {}) })
+      const detailOpened = await navWait(async () => /\/tavern\/characters\/[a-f0-9]{32}(?:[?#].*)?$/.test(navFrame.url()), 20000)
+      const detailActive = detailOpened ? await activeTabs() : []
+      const storyList = await navFrame.evaluate(async () => {
+        const response = await fetch('/tavern/api/reader/v1/stories', { credentials: 'include' })
+        return { status: response.status, body: await response.json().catch(() => null) }
+      })
+      navStoryId = storyList.body && Array.isArray(storyList.body.items) && storyList.body.items[0] ? storyList.body.items[0].id : null
+      let storyActive = []
+      if (navStoryId) {
+        await navFrame.goto(`${navOrigin}/tavern/stories/${encodeURIComponent(navStoryId)}`, { waitUntil: 'domcontentloaded' }).catch(() => {})
+        await navWait(async () => (await navFrame.locator('.app-shell-work-entry').count().catch(() => 0)) > 0, 25000)
+        storyActive = await activeTabs()
+      }
+      const highlightOk = detailOpened && detailActive.length === 1 && detailActive[0] === '角色卡库'
+        && Boolean(navStoryId) && storyActive.length === 1 && storyActive[0] === '探索作品'
+      navEvidence.highlight = { detailOpened, detailActive, storyId: navStoryId, storiesStatus: storyList.status, storyActive }
+      navRecord(2, highlightOk, highlightOk
+        ? `卡详情 → ${detailActive.join('/')}；/stories/${navStoryId} → ${storyActive.join('/')}`
+        : `tab 高亮归属异常：卡详情打开=${detailOpened} 高亮=${JSON.stringify(detailActive)}；stories 列表=${storyList.status} storyId=${navStoryId} story 高亮=${JSON.stringify(storyActive)}（owner: cards-client page-location/AppShell）`)
+
+      // ── M4 移动端 390×844：tabs 隐藏，底部导航两项 ──
+      const mobilePage = await context.newPage()
+      let mobile = null
+      try {
+        await mobilePage.setViewportSize({ width: 390, height: 844 })
+        await mobilePage.goto(`${navOrigin}/tavern/explore`, { waitUntil: 'domcontentloaded' }).catch(() => {})
+        const mobileReady = await navWait(async () => (await mobilePage.locator('.shell-top').count().catch(() => 0)) > 0, 30000)
+        if (!mobileReady) throw new Error('移动端 30s 内没有渲染 .shell-top（owner: cards-client AppShell）')
+        const mobileTabsVisible = await mobilePage.locator('.shell-tabs').isVisible().catch(() => false)
+        const mobileBrand = ((await mobilePage.locator('.shell-brand').innerText().catch(() => '')) || '').trim()
+        const mobileActionsText = ((await mobilePage.locator('.shell-top .workspace-global-actions').innerText().catch(() => '')) || '').trim()
+        const mobileActionsCount = await mobilePage.locator('.shell-top .workspace-global-actions').count().catch(() => 0)
+        const mobileActionsVisible = mobileActionsCount > 0
+        const mobileNavVisible = await mobilePage.locator('.shell-mobile-nav').isVisible().catch(() => false)
+        const mobileLinks = (await mobilePage.locator('.shell-mobile-nav a span').allTextContents().catch(() => [])).map((text) => text.trim()).filter(Boolean)
+        const mobileOpenAll = await mobilePage.getByRole('button', { name: /打开全部功能/ }).count().catch(() => 0)
+        const mobileTheme = await mobilePage.locator('.shell-top .lucide-sun, .shell-top .lucide-moon').count().catch(() => 0)
+        mobile = { viewport: '390x844', tabsVisible: mobileTabsVisible, brand: mobileBrand, actionsPresent: mobileActionsVisible, actionsText: mobileActionsText, actionsTextHiddenReason: mobileActionsText ? null : 'workspace.css @media(max-width:767px) 隐藏 .workspace-header-message（既有设计）', navVisible: mobileNavVisible, links: mobileLinks, openAll: mobileOpenAll, themeIcons: mobileTheme }
+        navEvidence.mobile = mobile
+        const mobileOk = !mobileTabsVisible && mobileBrand.includes('酒馆') && mobileActionsVisible
+          && mobileNavVisible && mobileLinks.length === 2 && mobileLinks[0] === '探索' && mobileLinks[1] === '角色卡库'
+          && mobileOpenAll === 0 && mobileTheme === 0
+        navRecord(3, mobileOk, mobileOk
+          ? `390×844：tabs 隐藏，品牌=${mobileBrand}，header-actions 容器存在（文案按设计隐藏），底部导航=${mobileLinks.join('/')}`
+          : `移动端布局异常：tabs 可见=${mobileTabsVisible}（期望 false）品牌=${JSON.stringify(mobileBrand)} header-actions 容器=${mobileActionsCount} 底部导航可见=${mobileNavVisible} 链接=${JSON.stringify(mobileLinks)} 打开全部功能=${mobileOpenAll} 主题图标=${mobileTheme}（owner: cards-client AppShell 媒体查询）`)
+        await shot(mobilePage, '52-nav-mobile.png')
+      } finally {
+        await mobilePage.close().catch(() => {})
+      }
+
+      // ── M5 工作台 /stories/:id（work-entry）：66px 顶栏不遮挡、内容可滚动不裁切 ──
+      if (!navStoryId) throw new Error('没有可用故事 id，无法验证 /stories/:id 工作台（owner: app-auth）')
+      await navFrame.goto(`${navOrigin}/tavern/stories/${encodeURIComponent(navStoryId)}`, { waitUntil: 'domcontentloaded' }).catch(() => {})
+      const workEntryShown = await navWait(async () => (await navFrame.locator('.app-shell-work-entry').count().catch(() => 0)) > 0, 25000)
+      await navWait(async () => (await navFrame.locator('.work-entry-scroll').count().catch(() => 0)) > 0, 20000)
+      const metrics = await navFrame.evaluate(() => {
+        const rect = (el) => (el ? (() => { const r = el.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, height: r.height } })() : null)
+        const header = document.querySelector('header.shell-top')
+        const main = document.querySelector('#main.shell-content')
+        const scroll = document.querySelector('.work-entry-scroll')
+        const scrollMetrics = scroll ? { scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight, overflowY: getComputedStyle(scroll).overflowY } : null
+        const scrollTopAfter = (() => { if (!scroll) return 0; scroll.scrollTop = 120; return scroll.scrollTop })()
+        return { vh: window.innerHeight, vw: window.innerWidth, header: rect(header), main: rect(main), scroll: rect(scroll), scrollMetrics, scrollTopAfter }
+      }).catch(() => null)
+      if (!metrics) throw new Error('读取 /stories/:id 工作台布局失败（owner: cards-client）')
+      const headerHeight = metrics.header ? Math.round(metrics.header.height) : 0
+      const headerOk = headerHeight >= 60 && headerHeight <= 72
+      const notCovered = Boolean(metrics.header && metrics.main && metrics.main.top >= metrics.header.bottom - 1)
+      const scrollInside = Boolean(metrics.scroll && metrics.scroll.top >= metrics.header.bottom - 1 && metrics.scroll.bottom <= metrics.vh + 2)
+      const scrollable = Boolean(metrics.scrollMetrics && (metrics.scrollMetrics.scrollHeight <= metrics.scrollMetrics.clientHeight || metrics.scrollTopAfter > 0))
+      const workEntryOk = workEntryShown && headerOk && notCovered && scrollInside && scrollable
+      navEvidence.workEntry = { storyId: navStoryId, workEntryShown, headerHeight, notCovered, scrollInside, scrollable, metrics }
+      navRecord(4, workEntryOk, workEntryOk
+        ? `work-entry：顶栏 ${headerHeight}px，内容起点=${metrics.main ? Math.round(metrics.main.top) : '?'}，编辑区 ${metrics.scroll ? Math.round(metrics.scroll.height) : '?'}px 未越界，可滚动`
+        : `工作台布局异常：work-entry=${workEntryShown} 顶栏高度=${headerHeight}（期望 60–72）内容未被遮挡=${notCovered} 编辑区在视口内=${scrollInside} 可滚动=${scrollable} 视口=${metrics.vw}x${metrics.vh}（owner: cards-client AppShell/work-entry CSS）`)
+      await shot(page, '53-nav-work-entry.png')
+
+      // ── M6–M15 已删除路由重定向到 /explore ──
       const redirectPaths = [
-        '/settings', '/settings/models', '/notebook', '/help', '/tasks/activity', '/conversations',
-        '/works', '/recent', '/my-prompts', '/product/knowledge', '/characters/groups', '/published/abc',
-        '/creators', '/community',
+        '/works', '/recent', '/my-prompts', '/product/knowledge', '/characters/groups',
+        '/characters/groups/abc', '/published/abc', '/authors/abc', '/creators', '/community',
       ]
-      for (const [offset, path] of redirectPaths.entries()) {
-        const index = offset + 1
-        const beforeErrors = consoleErrors.length
-        await navFrame.goto(`${navOrigin}/tavern${path}`, { waitUntil: 'domcontentloaded' }).catch(() => {})
+      for (const [offset, routePath] of redirectPaths.entries()) {
+        const index = redirectIndexStart + offset
+        const before = consoleErrors.length
+        await navFrame.goto(`${navOrigin}/tavern${routePath}`, { waitUntil: 'domcontentloaded' }).catch(() => {})
         const landedExplore = await navWait(async () => /\/tavern\/explore\/?(?:[?#].*)?$/.test(navFrame.url()), 25000)
         const exploreShown = await navWait(async () => (await navFrame.locator('.discovery-page').count().catch(() => 0)) > 0, 15000)
         const headingShown = await navFrame.getByRole('heading', { name: /精选互动故事|欢迎/ }).first().isVisible().catch(() => false)
         const alerts = (await navFrame.locator('[role="alert"]').allTextContents().catch(() => [])).map((text) => text.trim()).filter(Boolean)
-        const chunkErrors = consoleErrors.slice(beforeErrors).filter((text) => !/Failed to load resource/.test(text))
+        const chunkErrors = consoleErrors.slice(before).filter((text) => !/Failed to load resource/.test(text))
         const currentPath = (() => { try { return new URL(navFrame.url()).pathname } catch { return navFrame.url() } })()
         const ok = landedExplore && exploreShown && headingShown && alerts.length === 0 && chunkErrors.length === 0
-        const item = { path, currentPath, landedExplore, exploreShown, headingShown, alerts, consoleErrors: chunkErrors, ok }
+        const item = { path: routePath, currentPath, landedExplore, exploreShown, headingShown, alerts, consoleErrors: chunkErrors, ok }
         navEvidence.redirects.push(item)
         navRecord(index, ok, ok
-          ? `${path} → ${currentPath}（探索页已渲染）`
-          : `${path} 未按预期重定向：当前=${currentPath} 探索页=${exploreShown} 标题=${headingShown} 提示=${JSON.stringify(alerts)} console=${JSON.stringify(chunkErrors)}（owner: cards-client 路由）`)
-        if (path === '/settings') await shot(page, '41-nav-redirect-explore.png')
+          ? `${routePath} → ${currentPath}（探索页已渲染）`
+          : `${routePath} 未按预期重定向：当前=${currentPath} 探索页=${exploreShown} 标题=${headingShown} 提示=${JSON.stringify(alerts)} console=${JSON.stringify(chunkErrors)}（owner: cards-client 路由）`)
+        if (routePath === '/works') await shot(page, '54-nav-redirect-explore.png')
       }
 
-      // ── M16 /conversations/world/:id 仍能打开聊天页 ──
+      // ── M16 群聊服务端 API 已删除（带 x-dsh-trusted 头）──
+      const trustedSecret = await readFile(path.join(process.cwd(), 'app/.env'), 'utf8')
+        .then((text) => {
+          const match = text.match(/^DSH_TRUSTED_SECRET=(.*)$/m)
+          return match ? match[1].trim().replace(/^["']|["']$/g, '') : ''
+        })
+        .catch(() => '')
+      const groupApi = await navFrame.evaluate(async ({ secret }) => {
+        const headers = secret ? { 'x-dsh-trusted': secret } : {}
+        const response = await fetch('/tavern/api/reader/v1/card-group-chats', { credentials: 'include', headers })
+        return { status: response.status, text: (await response.text().catch(() => '')).slice(0, 160) }
+      }, { secret: trustedSecret }).catch((error) => ({ status: null, text: String(error && error.message ? error.message : error) }))
+      navEvidence.groupApi = { path: '/tavern/api/reader/v1/card-group-chats', trustedHeader: Boolean(trustedSecret), ...groupApi }
+      navRecord(apiIndex, groupApi.status === 404, groupApi.status === 404
+        ? `GET /api/reader/v1/card-group-chats → 404（服务端路由已删除）`
+        : `群聊 API 未删除：status=${groupApi.status} body=${clip(groupApi.text, 100)}（owner: app-auth task-29 服务端瘦身）`)
+
+      // ── M17 /conversations/world/:id 仍能打开聊天页 ──
       const chatUrl = memoryEvidence.chat && memoryEvidence.chat.url ? memoryEvidence.chat.url : null
       if (!chatUrl) {
         navEvidence.chat = { url: null, ok: false, skipped: true }
         navDone.add(chatIndex)
-        navEvidence.steps.push({ index: chatIndex, name: navNames[chatIndex], ok: true, skipped: true, detail: '本次运行没有创建单卡聊天（没有可复用的 /conversations/world/:id），跳过 M16' })
-        record(navNames[chatIndex], true, '本次运行没有创建单卡聊天（没有可复用的 /conversations/world/:id），跳过 M16', true)
+        navEvidence.steps.push({ index: chatIndex, name: navNames[chatIndex], ok: true, skipped: true, detail: '本次运行没有创建单卡聊天（没有可复用的 /conversations/world/:id），跳过 M17' })
+        record(navNames[chatIndex], true, '本次运行没有创建单卡聊天（没有可复用的 /conversations/world/:id），跳过 M17', true)
       } else {
-        const beforeErrors = consoleErrors.length
+        const before = consoleErrors.length
         await navFrame.goto(chatUrl, { waitUntil: 'domcontentloaded' }).catch(() => {})
         const chatReady = await navWait(async () => {
           const composer = navFrame.locator('#world-chat-message')
           return (await composer.count().catch(() => 0)) > 0 && (await composer.isVisible().catch(() => false))
         }, 30000)
         const chatErrorText = (await navFrame.locator('[role="alert"]').first().textContent().catch(() => null)) || null
-        const chunkErrors = consoleErrors.slice(beforeErrors).filter((text) => !/Failed to load resource/.test(text))
+        const chunkErrors = consoleErrors.slice(before).filter((text) => !/Failed to load resource/.test(text))
         const chatOk = chatReady && !chatErrorText && chunkErrors.length === 0
-        navEvidence.chat = { url: chatUrl, currentPath: (() => { try { return new URL(navFrame.url()).pathname } catch { return null } })(), ok: chatOk, error: chatErrorText, consoleErrors: chunkErrors }
+        navEvidence.chat = { url: chatUrl, currentPath: (() => { try { return new URL(chatUrl).pathname } catch { return null } })(), ok: chatOk, error: chatErrorText, consoleErrors: chunkErrors }
         navRecord(chatIndex, chatOk, chatOk
           ? `聊天页可打开：${new URL(chatUrl).pathname}，输入框可见`
           : `聊天页打不开：输入框=${chatReady} 提示=${chatErrorText} console=${JSON.stringify(chunkErrors)}（owner: cards-client / app-auth）`)
-        if (chatOk) await shot(page, '42-nav-chat-still-works.png')
+        if (chatOk) await shot(page, '55-nav-chat-still-works.png')
       }
     } catch (error) {
       navError = error instanceof Error ? error.message : String(error)
       navEvidence.error = navError
     }
-    // M17 在下面单独记录（要看 consoleErrors 切片），这里不要提前把它写成 FAIL。
+    // M18 在下面单独记录（要看 consoleErrors 切片），这里不要提前把它写成 FAIL。
     for (let index = 0; index < consoleIndex; index += 1) {
       if (!navDone.has(index)) {
         navRecord(index, false, `M 组未执行完：${navError || '未执行到该步'}（owner: cards-client / harness）`)
       }
     }
-    // ── M17 console clean（只统计 M 组期间产生的报错）──
+    // ── M18 console clean（只统计 M 组期间产生的报错）──
     const navConsoleErrors = consoleErrors.slice(navConsoleStart).filter((text) => !/Failed to load resource/.test(text))
     navEvidence.console = navConsoleErrors
     if (!navDone.has(consoleIndex)) navRecord(consoleIndex, navConsoleErrors.length === 0, navConsoleErrors.length ? `M 组期间 console 有报错：${JSON.stringify(navConsoleErrors.slice(0, 3))}（owner: cards-client）` : 'clean')

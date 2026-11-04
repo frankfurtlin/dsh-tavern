@@ -1,6 +1,6 @@
 """Character card HTTP API (import, list, edit, avatar, delete, card chats),
 plus the card-space endpoints for lorebooks, presets and regex scripts."""
-from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import Field
 
@@ -10,12 +10,11 @@ from ..errors import Problem
 from ..schemas import Strict
 from ..security import current_user
 from ..world.api import available
-from . import groups, memory, parse, service, space
+from . import memory, parse, service, space
 
 router = APIRouter(prefix="/character-cards", dependencies=[Depends(available)])
 presets = APIRouter(prefix="/presets", dependencies=[Depends(available)])
 regex_scripts = APIRouter(prefix="/regex-scripts", dependencies=[Depends(available)])
-group_chats = APIRouter(prefix="/card-group-chats", dependencies=[Depends(available)])
 
 
 class CardUpdate(Strict):
@@ -215,42 +214,6 @@ def delete_regex(script_id: str, user=Depends(current_user), db=Depends(get_db))
     space.delete_regex(db, user.id, script_id)
     return Response(status_code=204)
 
-
-class GroupChatInput(Strict):
-    cardIds: list[str] = Field(min_length=1, max_length=10)
-    title: str | None = Field(default=None, max_length=80)
-
-
-class GroupSendInput(Strict):
-    message: str = Field(min_length=1, max_length=4000)
-    turnId: str = Field(min_length=1, max_length=100)
-
-
-@group_chats.get("")
-def list_group_chats(user=Depends(current_user), db=Depends(get_db)):
-    return {"items": groups.list_chats(db, user.id)}
-
-
-@group_chats.post("", status_code=201)
-def create_group_chat(payload: GroupChatInput, user=Depends(current_user), db=Depends(get_db)):
-    return {"chat": groups.create_chat(db, user.id, payload.cardIds, payload.title)}
-
-
-@group_chats.get("/{chat_id}")
-def read_group_chat(chat_id: str, user=Depends(current_user), db=Depends(get_db)):
-    return groups.chat_detail(db, user.id, chat_id)
-
-
-@group_chats.delete("/{chat_id}", status_code=204)
-def remove_group_chat(chat_id: str, user=Depends(current_user), db=Depends(get_db)):
-    groups.delete_chat(db, user.id, chat_id)
-    return Response(status_code=204)
-
-
-@group_chats.post("/{chat_id}/messages", status_code=202)
-def send_group_message(chat_id: str, payload: GroupSendInput, request: Request,
-                       user=Depends(current_user), db=Depends(get_db)):
-    return groups.send_message(db, user.id, request, chat_id, payload.message, payload.turnId)
 
 
 class MemoryInput(Strict):
