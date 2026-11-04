@@ -60,7 +60,7 @@ export interface TavernMessage{
   updatedAt?:string
 }
 
-export interface ChatDetail{chat:TavernChat;messages:TavernMessage[]}
+export interface ChatDetail{chat:TavernChat;messages:TavernMessage[];latestSequence?:number;hasMore?:boolean}
 
 export type WorldInfoPosition='before_char'|'after_char'|'before_example'|'at_depth'
 
@@ -160,9 +160,13 @@ export async function createCharacterChat(cardId:string,greetingId?:string):Prom
   return unwrap<TavernChat>(result,'chat')
 }
 
-export async function getChat(id:string):Promise<ChatDetail>{
-  const result=await api<ChatDetail|{chat:TavernChat;messages:TavernMessage[]}>(TAVERN+'/chats/'+encodeURIComponent(id))
-  if(Array.isArray(result?.messages))return {chat:result.chat,messages:result.messages}
+export async function getChat(id:string,options:{limit?:number;before?:number}={}):Promise<ChatDetail>{
+  const query:Record<string,string>={}
+  if(options.limit)query.limit=String(options.limit)
+  if(options.before!==undefined)query.before=String(options.before)
+  const qs=new URLSearchParams(query).toString()
+  const result=await api<ChatDetail|{chat:TavernChat;messages:TavernMessage[];latestSequence?:number;hasMore?:boolean}>(TAVERN+'/chats/'+encodeURIComponent(id)+(qs?'?'+qs:''))
+  if(Array.isArray(result?.messages))return {chat:result.chat,messages:result.messages,latestSequence:result.latestSequence,hasMore:result.hasMore}
   return result as ChatDetail
 }
 
@@ -187,6 +191,31 @@ export async function editMessage(chatId:string,messageId:string,text:string):Pr
 
 export async function deleteMessage(chatId:string,messageId:string):Promise<void>{
   await api<unknown>(TAVERN+'/chats/'+encodeURIComponent(chatId)+'/messages/'+encodeURIComponent(messageId),{method:'DELETE',key:newKey()})
+}
+
+export interface WorldInfoPreview{matched:WorldInfoEntry[];injection:string}
+
+// Preview is a read-only POST: the composer must not receive an idempotency key.
+export async function previewWorldInfo(cardId:string,message:string):Promise<WorldInfoPreview>{
+  const result=await api<WorldInfoPreview|{preview:WorldInfoPreview}>(TAVERN+'/characters/'+encodeURIComponent(cardId)+'/world-info/preview',{method:'POST',body:{message}})
+  if(result&&typeof result==='object'&&'preview' in result)return (result as {preview:WorldInfoPreview}).preview
+  return result as WorldInfoPreview
+}
+
+export async function importChats(cardId:string,file:File):Promise<TavernChat>{
+  const form=new FormData()
+  form.append('file',file)
+  const result=await api<TavernChat|{chat:TavernChat}>(TAVERN+'/characters/'+encodeURIComponent(cardId)+'/chats/imports',{method:'POST',key:newKey(),body:form})
+  return unwrap<TavernChat>(result,'chat')
+}
+
+export async function exportChatBlob(id:string,format:'jsonl'|'json'='jsonl'):Promise<Blob>{
+  const response=await fetch(backendBase()+'/api/reader/v1'+TAVERN+'/chats/'+encodeURIComponent(id)+'/export?format='+format,{credentials:'include',headers:authorizationHeaders()})
+  if(!response.ok){
+    if(response.status===404)throw new Error('服务端暂不支持导出聊天，请稍后重试。')
+    throw new Error('导出聊天失败（'+response.status+'），请稍后重试。')
+  }
+  return response.blob()
 }
 
 export async function listWorldInfo(cardId:string):Promise<WorldInfoEntry[]>{

@@ -246,3 +246,137 @@ def test_requires_auth():
 
     anonymous = TestClient(app, raise_server_exceptions=False)
     assert anonymous.get(f"{TAVERN}/characters").status_code == 401
+
+
+def _seed_messages(chat_id, owner_id, rows):
+    from app.db import SessionLocal
+    from app.models import now, uid
+    from app.tavern.models import TavernMessage
+
+    with SessionLocal() as db:
+        for role, sequence, swipes in rows:
+            db.add(TavernMessage(id=uid(), owner_id=owner_id, chat_id=chat_id, role=role,
+                                 sequence=sequence, swipes=swipes, active_swipe=0,
+                                 updated_at=now()))
+        db.commit()
+
+
+def _swipe(content):
+    return [{"content": content, "model": "", "createdAt": None}]
+
+
+def test_chat_default_title_uses_card_and_sequence(client, reader):
+    card = import_card(client)
+    first = create_chat(client, card["id"])
+    second = create_chat(client, card["id"])
+    assert first["title"] == "阿岩 · 1"
+    assert second["title"] == "阿岩 · 2"
+    explicit = client.post(f"{TAVERN}/characters/{card['id']}/chats", json={"title": "雨夜重逢"})
+    assert explicit.status_code == 201, explicit.text
+    assert explicit.json()["chat"]["title"] == "雨夜重逢"
+
+
+def test_chat_pagination_before_and_limit(client, reader):
+    card = import_card(client)
+    chat = create_chat(client, card["id"])
+    _seed_messages(chat["id"], reader["user"]["id"], [
+        ("user", seq, _swipe(f"第 {seq} 条")) for seq in range(2, 7)
+    ])
+
+    page = client.get(f"{TAVERN}/chats/{chat['id']}?limit=2").json()
+    assert page["latestSequence"] == 6
+    assert [row["sequence"] for row in page["messages"]] == [5, 6]
+    assert page["hasMore"] is True
+
+    page = client.get(f"{TAVERN}/chats/{chat['id']}?before=5&limit=2").json()
+    assert [row["sequence"] for row in page["messages"]] == [3, 4]
+    assert page["hasMore"] is True
+
+    page = client.get(f"{TAVERN}/chats/{chat['id']}?before=3&limit=50").json()
+    assert [row["sequence"] for row in page["messages"]] == [1, 2]
+    assert page["hasMore"] is False
+    assert page["chat"]["id"] == chat["id"]
+
+    assert client.get(f"{TAVERN}/chats/{chat['id']}?limit=0").status_code == 422
+    assert client.get(f"{TAVERN}/chats/{chat['id']}?limit=501").status_code == 422
+
+
+def test_chat_export_jsonl_and_json(client, reader):
+    card = import_card(client)
+    chat = create_chat(client, card["id"])
+    _seed_messages(chat["id"], reader["user"]["id"], [
+        ("user", 2, _swipe("我回来了。")),
+        ("assistant", 3, [{"content": "第一版回答", "model": "", "createdAt": None},
+                          {"content": "第二版回答", "model": "", "createdAt": None}]),
+    ])
+
+    response = client.get(f"{TAVERN}/chats/{chat['id']}/export?format=jsonl")
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith("text/plain")
+    assert ".jsonl" in response.headers["content-disposition"]
+    lines = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+    assert len(lines) == 3
+    assert lines[0]["is_user"] is False and lines[0]["is_name"] is True
+    assert lines[0]["character_name"] == "阿岩" and lines[0]["user_name"] == "User"
+    assert lines[0]["mes"] == "（阿岩抬头）你来了。"
+    assert lines[1]["is_user"] is True and lines[1]["mes"] == "我回来了。"
+    assert lines[2]["swipes"] == ["第一版回答", "第二版回答"]
+    assert lines[2]["swipe_id"] == 0
+
+    document = client.get(f"{TAVERN}/chats/{chat['id']}/export?format=json").json()
+    assert document["chat"]["id"] == chat["id"]
+    assert document["card"]["name"] == "阿岩"
+    assert [row["sequence"] for row in document["messages"]] == [1, 2, 3]
+    assert document["messages"][-1]["swipes"][1]["content"] == "第二版回答"
+
+    invalid = client.get(f"{TAVERN}/chats/{chat['id']}/export?format=csv")
+    assert invalid.status_code == 422
+
+
+def test_chat_import_jsonl(client, reader):
+    card = import_card(client)
+    rows = [
+        {"user_name": "User", "character_name": "阿岩", "create_date": "2025-01-01T00:00:00Z",
+         "mes": "你好。", "is_user": True, "is_name": True},
+        {"user_name": "User", "character_name": "阿岩", "create_date": "2025-01-01T00:01:00Z",
+         "mes": "你也好。", "is_user": False, "is_name": True,
+         "swipes": ["你也好。", "风大，进来坐。"], "swipe_id": 1},
+        "not-json",
+        {"mes": ""},
+        {"mes": "又是你。", "is_user": False},
+    ]
+    body = "\n".join(
+        json.dumps(row, ensure_ascii=False) if isinstance(row, dict) else row for row in rows
+    ).encode()
+    response = client.post(f"{TAVERN}/characters/{card['id']}/chats/imports",
+                           files={"file": ("history.jsonl", body, "application/jsonl")})
+    assert response.status_code == 201, response.text
+    payload = response.json()
+    assert payload["imported"] == 3 and payload["skipped"] == 2
+    chat = payload["chat"]
+    assert chat["cardId"] == card["id"]
+
+    detail = client.get(f"{TAVERN}/chats/{chat['id']}").json()
+    assert [(row["role"], row["text"]) for row in detail["messages"]] == [
+        ("user", "你好。"), ("assistant", "风大，进来坐。"), ("assistant", "又是你。")]
+    second = detail["messages"][1]
+    assert [swipe["content"] for swipe in second["swipes"]] == ["你也好。", "风大，进来坐。"]
+    assert second["activeSwipe"] == 1
+
+
+def test_chat_import_validation(client, reader):
+    card = import_card(client)
+
+    empty = client.post(f"{TAVERN}/characters/{card['id']}/chats/imports",
+                        files={"file": ("empty.jsonl", b"", "application/jsonl")})
+    assert empty.status_code == 422 and empty.json()["code"] == "CHAT_IMPORT_EMPTY"
+
+    bad = client.post(f"{TAVERN}/characters/{card['id']}/chats/imports",
+                      files={"file": ("bad.jsonl", b"not-json\n{\"x\":1}\n", "application/jsonl")})
+    assert bad.status_code == 422 and bad.json()["code"] == "CHAT_IMPORT_EMPTY"
+
+    oversized = "\n".join(json.dumps({"mes": f"第 {index} 条"}) for index in range(20001)).encode()
+    too_many = client.post(f"{TAVERN}/characters/{card['id']}/chats/imports",
+                           files={"file": ("big.jsonl", oversized, "application/jsonl")})
+    assert too_many.status_code == 422
+    assert too_many.json()["code"] == "CHAT_IMPORT_TOO_LARGE"

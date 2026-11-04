@@ -1,7 +1,8 @@
 import {beforeEach,afterEach,describe,it,expect,vi} from 'vitest'
 import {defineComponent,h,onUnmounted} from 'vue'
 import TavernChatPage from './TavernChatPage.vue'
-import {editMessage,getChat,selectSwipe} from './api'
+import {deleteMessage,editMessage,exportChatBlob,getChat,selectSwipe} from './api'
+import {saveBlob} from '../platform/download'
 import {streamChat} from './sse'
 import {compileRender,descendants,flush,node,provideSfc,renderer,text,type Host} from '../test/host-renderer'
 
@@ -12,12 +13,15 @@ vi.mock('../platform/request-scope',()=>({useRequestScope:()=>{let disposed=fals
 vi.mock('./api',()=>({
   getChat:vi.fn(),
   editMessage:vi.fn(),
+  deleteMessage:vi.fn(),
   selectSwipe:vi.fn(),
   updateChat:vi.fn(),
+  exportChatBlob:vi.fn(),
   messageText:(message:{swipes?:{content:string}[];activeSwipe?:number})=>message.swipes?.[message.activeSwipe??0]?.content??'',
 }))
+vi.mock('../platform/download',()=>({saveBlob:vi.fn(),safeFileName:(name:string,fallback:string)=>name||fallback}))
 vi.mock('./sse',()=>({streamChat:vi.fn()}))
-vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{ArrowLeft:stub,ChevronLeft:stub,ChevronRight:stub,Pencil:stub,RefreshCw:stub,Send:stub,Square:stub,X:stub}})
+vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{ArrowLeft:stub,ChevronLeft:stub,ChevronRight:stub,Download:stub,Pencil:stub,RefreshCw:stub,Send:stub,Square:stub,Trash2:stub,X:stub}})
 compileRender(TavernChatPage,new URL('./TavernChatPage.vue',import.meta.url))
 
 type Msg={id:string;role:'user'|'assistant';sequence:number;swipes:{content:string}[];activeSwipe:number}
@@ -43,7 +47,10 @@ beforeEach(()=>{
   harness.push.mockReset()
   vi.mocked(getChat).mockReset().mockResolvedValue(detail() as never)
   vi.mocked(editMessage).mockReset().mockResolvedValue(null)
+  vi.mocked(deleteMessage).mockReset().mockResolvedValue(undefined)
   vi.mocked(selectSwipe).mockReset().mockResolvedValue(null)
+  vi.mocked(exportChatBlob).mockReset().mockResolvedValue(new Blob(['{}']))
+  vi.mocked(saveBlob).mockReset()
   vi.mocked(streamChat).mockReset()
 })
 afterEach(()=>{app?.unmount();app=undefined;vi.unstubAllGlobals()})
@@ -51,7 +58,7 @@ afterEach(()=>{app?.unmount();app=undefined;vi.unstubAllGlobals()})
 describe('TavernChatPage',()=>{
   it('loads a chat and renders the character name and messages',async()=>{
     mount();await flush()
-    expect(getChat).toHaveBeenCalledWith('chat-1')
+    expect(getChat).toHaveBeenCalledWith('chat-1',{limit:200})
     const body=text(host)
     expect(body).toContain('林渡')
     expect(body).toContain('你好')
@@ -128,5 +135,45 @@ describe('TavernChatPage',()=>{
     aria('下一个版本').props.onClick?.()
     await flush()
     expect(selectSwipe).toHaveBeenCalledWith('chat-1','a1',1)
+  })
+
+  it('requests the first page with limit=200',async()=>{
+    mount();await flush()
+    expect(getChat).toHaveBeenCalledWith('chat-1',{limit:200})
+  })
+
+  it('loads earlier messages with before=first sequence and keeps them in order',async()=>{
+    vi.mocked(getChat)
+      .mockResolvedValueOnce({chat:{id:'chat-1',cardId:'c1',title:'林渡'},messages:[{...userMessage,sequence:2},{...assistantMessage,sequence:3}],hasMore:true} as never)
+      .mockResolvedValueOnce({chat:{id:'chat-1',cardId:'c1',title:'林渡'},messages:[{id:'u0',role:'user',sequence:1,swipes:[{content:'很久以前'}],activeSwipe:0}],hasMore:false} as never)
+    mount();await flush()
+    button('加载更早消息').props.onClick?.()
+    await flush()
+    expect(vi.mocked(getChat).mock.calls[1]).toEqual(['chat-1',{limit:200,before:2}])
+    const body=text(host)
+    expect(body).toContain('很久以前')
+    expect(body).toContain('你好')
+    expect(body).not.toContain('加载更早消息')
+  })
+
+  it('deletes a message only after the inline confirmation',async()=>{
+    mount();await flush()
+    aria('删除这条消息').props.onClick?.()
+    await flush()
+    expect(deleteMessage).not.toHaveBeenCalled()
+    aria('确认删除消息').props.onClick?.()
+    await flush()
+    expect(deleteMessage).toHaveBeenCalledWith('chat-1','u1')
+    expect(vi.mocked(getChat).mock.calls.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('exports the chat as JSONL from the header menu',async()=>{
+    mount();await flush()
+    aria('聊天菜单').props.onClick?.()
+    await flush()
+    button('导出聊天 (JSONL)').props.onClick?.()
+    await flush()
+    expect(exportChatBlob).toHaveBeenCalledWith('chat-1','jsonl')
+    expect(saveBlob).toHaveBeenCalledWith(expect.any(Blob),'林渡.jsonl')
   })
 })

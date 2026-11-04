@@ -2,8 +2,9 @@ import {describe,expect,it,vi,beforeEach} from 'vitest'
 import {api} from '../api'
 import {
   characterAvatarBlob,createCharacterChat,createWorldInfo,editMessage,exportCharacterBlob,
-  getCharacter,getChat,importCharacter,listCharacterChats,listCharacters,listWorldInfo,
-  messageText,selectSwipe,updateCharacter,updateChat,worldInfoKeys,type TavernCharacter,
+  exportChatBlob,getCharacter,getChat,importCharacter,importChats,listCharacterChats,
+  listCharacters,listWorldInfo,messageText,previewWorldInfo,selectSwipe,updateCharacter,
+  updateChat,worldInfoKeys,type TavernCharacter,
 } from './api'
 
 vi.mock('../api',()=>({
@@ -110,6 +111,49 @@ describe('tavern binary downloads',()=>{
   it('returns null when the avatar endpoint answers 404',async()=>{
     vi.stubGlobal('fetch',vi.fn(async()=>new Response('',{status:404})))
     await expect(characterAvatarBlob('c1')).resolves.toBeNull()
+    vi.unstubAllGlobals()
+  })
+})
+
+describe('tavern chat pagination and import/export',()=>{
+  beforeEach(()=>{vi.mocked(api).mockReset()})
+
+  it('passes limit and before to chat history requests',async()=>{
+    vi.mocked(api).mockResolvedValue({chat:{id:'chat-1',cardId:'c1',title:'林渡'},messages:[{id:'m1',role:'assistant',sequence:1,swipes:[],activeSwipe:0}],hasMore:false})
+    const page=await getChat('chat-1',{limit:200,before:42})
+    expect(vi.mocked(api)).toHaveBeenCalledWith('/tavern/chats/chat-1?limit=200&before=42')
+    expect(page.hasMore).toBe(false)
+  })
+
+  it('previews world-info injection without an idempotency key',async()=>{
+    const preview={matched:[{id:'w1',keys:['雨'],content:'雨夜',position:'before_char',depth:4,constant:false,probability:100,order:0,enabled:true,source:'manual'}],injection:'[世界书] 雨夜'}
+    vi.mocked(api).mockResolvedValueOnce({preview})
+    await expect(previewWorldInfo('c1','外面下雨了')).resolves.toEqual(preview)
+    expect(vi.mocked(api)).toHaveBeenCalledWith('/tavern/characters/c1/world-info/preview',{method:'POST',body:{message:'外面下雨了'}})
+    const [,options]=vi.mocked(api).mock.calls[0]
+    expect(options).not.toHaveProperty('key')
+  })
+
+  it('imports chats as multipart form data',async()=>{
+    vi.mocked(api).mockResolvedValueOnce({chat:{id:'imported-1',cardId:'c1',title:'导入的聊天'}})
+    const file=new File(['{"role":"user","text":"你好"}\n'],'chat.jsonl',{type:'application/jsonl'})
+    await expect(importChats('c1',file)).resolves.toMatchObject({id:'imported-1'})
+    const [path,options]=vi.mocked(api).mock.calls[0]
+    expect(path).toBe('/tavern/characters/c1/chats/imports')
+    expect(options).toMatchObject({method:'POST',key:'key-1'})
+    expect((options?.body as FormData).get('file')).toBe(file)
+  })
+
+  it('downloads chat exports per format',async()=>{
+    vi.stubGlobal('fetch',vi.fn(async()=>new Response(new Blob(['{"a":1}']))))
+    await expect(exportChatBlob('chat-1','json')).resolves.toBeInstanceOf(Blob)
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith('https://app.test/api/reader/v1/tavern/chats/chat-1/export?format=json',expect.objectContaining({credentials:'include'}))
+    vi.unstubAllGlobals()
+  })
+
+  it('explains a missing chat export endpoint',async()=>{
+    vi.stubGlobal('fetch',vi.fn(async()=>new Response('',{status:404})))
+    await expect(exportChatBlob('chat-1')).rejects.toThrow('服务端暂不支持导出聊天')
     vi.unstubAllGlobals()
   })
 })

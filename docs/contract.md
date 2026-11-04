@@ -1,16 +1,18 @@
-# dsh-tavern 集成契约（v2：插件/应用改名为「酒馆 / Tavern」）
+# dsh-tavern 集成契约（v3：酒馆 2.0 原生酒馆）
 
-目标：把本机写作应用「酒馆」（Tavern）变成 DSH 插件，放在
+目标：把本地「酒馆」（Tavern）应用装成 DSH 插件，放在
 `/root/workspace/plugins/dsh-tavern`，在 DSH Web 里以内嵌面板访问，登录只走 DSH
-闸门；用户能把当前故事交给 DSH Agent 续写 / 角色扮演。
+闸门。**2.0 起产品改为单用户原生酒馆**：角色卡网格 → 点卡进全屏聊天，SSE 流式，
+重新生成追加版本（swipe），世界书按关键词注入 prompt；故事模式 / 探索 / 群聊 /
+长期记忆等旧 UI 已下线（服务端旧代码暂留，P3 清理）。
 
-应用源码在 `plugins/dsh-tavern/app`（原 `/root/workspace/story-between`，
-仓库随后整体改名为 dsh-tavern，git 历史保留），systemd 服务已改名
-并以新路径运行：
+应用源码在 `plugins/dsh-tavern/app`，host 侧 systemd 单元：
 
-- `dsh-tavern-api`  → uvicorn，127.0.0.1:8001
+- `dsh-tavern-api`  → uvicorn，127.0.0.1:8001（聊天 SSE 在请求线程直连网关）
 - `dsh-tavern-web`  → 静态 dist，127.0.0.1:8810
-- `dsh-tavern-worker` / `dsh-tavern-world-worker`
+- `dsh-tavern-worker` / `dsh-tavern-world-worker` → 旧 story 模式任务 worker（2.0 聊天不依赖）
+
+本契约按「谁写哪半边」分节；改代码前先读对应节，接口变更两边同时改并更新本文。
 
 ## 1. 宿主反代（plugin host 半，lib/index.js）
 
@@ -29,37 +31,39 @@
 - secret 来源：启动时读 `app/.env` 的 `DSH_TRUSTED_SECRET`（允许 env 覆盖
   `DSH_TAVERN_TRUSTED_SECRET`）。读不到只告警，不崩宿主。
 - 端口覆盖：`DSH_TAVERN_API_PORT` / `DSH_TAVERN_STATIC_PORT`（隔离测试实例用）。
-- 流式：`/tavern/api/**` 可能是数分钟的 SSE（生成/续写），**不要设响应超时**；
-  静态资源 10s 超时即可。转发必须用 pipe 保留 SSE、chunked、multipart 上传。
-- 错误文案：401/403 沿用 ziwei 的措辞；502/504 用中文友好提示（「酒馆应用暂时
-  不可用 / 响应超时」），诊断细节只进宿主日志；日志前缀 `[dsh-tavern]`。
+- 流式：`/tavern/api/**` 含数分钟的聊天 SSE，**不要设响应超时**；静态资源 10s
+  超时即可。转发必须用 pipe 保留 SSE、chunked、multipart 上传。
+- 错误文案：401/403 沿用 ziwei 的措辞；502/504 用中文友好提示
+  （「酒馆应用暂时不可用 / 响应超时」），诊断细节只进宿主日志；日志前缀 `[dsh-tavern]`。
 
 ## 2. 应用可信模式（app 半，app/server）
 
-`.env` 已改为：`DSH_TRUSTED_AUTH=1`、`DSH_TRUSTED_USERNAME=frankslin`、
+`.env`（节选）：`DSH_TRUSTED_AUTH=1`、`DSH_TRUSTED_USERNAME=frankslin`、
 `DSH_TRUSTED_SECRET=<随机 64hex>`、`COOKIE_PATH_PREFIX=/tavern`、
 `PRODUCT_PUBLIC_ORIGIN=https://dsh.frankfurtlin.top/tavern`、
 `STORAGE_PATH=plugins/dsh-tavern/app/data/private`；`CORS_ORIGINS` 已包含
 `http://127.0.0.1:3080`、`https://dsh.frankfurtlin.top`。
 
-- `config.py`：`trusted_auth: bool = False`、`trusted_username: str = ""`、
-  `trusted_secret: str = ""`（env 名同上，pydantic BaseSettings 自动映射）。
-- `security.current_user`：当 trusted 模式开启且请求头 `x-dsh-trusted` 与 secret
-  常量时间比较通过时，解析固定用户（按 username，active）并复用/创建一个稳定的
-  DeviceSession，`request.state.session` 照常设置，返回该用户。
-- `api_auth` 的 `POST /api/reader/v1/auth/refresh`：trusted 路径下直接返回
-  `token_result(...)`（给前端 accessToken），不要求 cookie、不做 cookie 轮换。
-  这是让前端 `store.init() → refreshAuth()` 无感启动的关键，前端不需要改。
-- `POST /api/reader/v1/auth/logout`：trusted 模式下 no-op（204），不吊销稳定会话。
-- 头部缺失/secret 不匹配时行为与现在完全一致（等于没开 trusted）。
-- 固定用户不存在：返回结构化错误（401/503 + 明确日志），不要 500，不要静默建号。
-- 测试：新增 pytest 覆盖 valid/无效头、refresh、logout、未开启 trusted 的回归；
-  跑通 `app/server` 已有测试。
+- `config.py`：`trusted_auth` / `trusted_username` / `trusted_secret` 三个字段。
+- `security.current_user`：trusted 模式开启且 `x-dsh-trusted` 与 secret 常量时间
+  比较通过时，解析固定用户（按 username，active）并复用/创建稳定的
+  DeviceSession；头部缺失/不匹配时行为与未开启 trusted 完全一致。
+- `POST /api/reader/v1/auth/refresh`：trusted 路径直接返回 `token_result(...)`
+  给前端 accessToken，不要求 cookie；`POST .../auth/logout` 在 trusted 模式下
+  no-op（204）。前端启动逻辑不需要感知插件。
+- 固定用户不存在：结构化错误（401/503）+ 明确日志，不 500、不静默建号。
+- 所有应用接口（包括 `tavern/**`）都按 `owner_id` 做归属校验，跨用户返回 404。
 
 ## 3. 面板 ↔ 内嵌页桥（P2）
 
-同源 iframe：`new URL('tavern/', document.baseURI)`，父页面与 iframe 用
-`window.location.origin` 校验、`event.source` 校验。
+同源 iframe：`new URL('tavern/', document.baseURI)`；父页面与 iframe 都用
+`window.location.origin` 校验 origin、父页面额外校验 `event.source`。
+
+> **2.0 状态**：应用只保留 `ping/pong/state`（握手与路由上报，位置记忆依赖
+> `state.appPath`）。`context-request` 仍会被应答，但没有故事上下文数据源，
+> 一律回 `ok:false`（「当前页面没有可用的故事上下文」）——工具条上依赖它的
+> 「让 DSH 续写/角色扮演」是 1.x 遗留动作，点击走读取失败分支（不新建空会话）。
+> 定义保留用于兼容，P3 再决定是否删除。
 
 父 → iframe：
 - `{type:'dsh-tavern:ping'}` → iframe 回 `{type:'dsh-tavern:pong', appPath}`
@@ -72,85 +76,78 @@
       recentText,   // 最近正文纯文本，截断到 ~4000 字
    }}`
   失败时 `{type:'dsh-tavern:context', id, ok:false, error:'...'}`
-  > 应用刚打开/恢复故事页时世界数据仍在加载：若当前路由是故事页，iframe 会
-  > 每 250ms 重读一次、最多等 6s 再回 `ok:false`（对应 `CONTEXT_READY_TIMEOUT_MS`），
-  > 避免面板在恢复瞬间收到空上下文而误报“没有可用的故事上下文”。
 
 iframe → 父（主动，节流）：
 - `{type:'dsh-tavern:state', appPath, hasContext:boolean}`
-  > 一次成功的 `context-request` 会立即把 `hasContext` 置为 true 并触发一次 state
-  > 上报：故事页数据加载完成、`context` 已可用时，面板无需等 store 自身变化就能
-  > 把提示从「读取故事内容失败」恢复为正常。
 
 附加消息（契约之外、可选）：
 - `{type:'dsh-tavern:theme', theme:'light'|'dark'}`：宿主切主题时推给 iframe。
-  应用已固定浅色（`dataset.theme='light'`，无明暗切换按钮），当前忽略该消息；
-  宿主保留发送逻辑，删掉也不影响功能。
+  应用已固定浅色，当前忽略；宿主保留发送逻辑，删掉也不影响功能。
 
-> 命名空间已从 `dsh-story:*` 彻底改为 `dsh-tavern:*`，不再保留旧消息名：
-> 应用侧 `dsh-bridge.ts` 同步改名，没有第三方消费者。
+> 命名空间是 `dsh-tavern:*`（1.x 曾用 `dsh-story:*`），没有第三方消费者。
 
-## 4. UI
+## 4. UI（client 半，client.js）
 
 - 侧栏 `sidebar.panellist`：`PANEL_ID="tavern"`、label「酒馆」、order 24（落在
-  ziwei 20 与 Skill Center 30 之间），图标参考 ziwei 的行内 SVG 写法；图标带
-  `data-dsh-panel-entry="tavern"`。
-- `main` 座位 keyed 面板 `tavern`：工具条（标题、刷新、新窗口打开、让 DSH 续写、
-  角色扮演、续写要求输入、状态提示）+ iframe（`data-dsh-tavern-frame`）。
-- 位置记忆（宿主侧行为，应用无需配合）：插件记住最后一次 `state`/`pong` 上报的
-  有效站内路径（`hasContext=true` 或 `/worlds/…`），重新挂载面板时把 iframe 深链到
-  该路径；「刷新」= 清空记忆并回 `/tavern/` 首页（恢复失败时的脱困路径）。验收锚点
-  `data-dsh-tavern-restored="1|0"`。记忆存模块内存 + sessionStorage
-  （key `dsh-tavern:last-app-path`），不上报服务端。
+  ziwei 20 与 Skill Center 30 之间）；图标带 `data-dsh-panel-entry="tavern"`。
+- `main` 座位 keyed 面板 `tavern`：工具条（标题、状态、续写要求输入、刷新、
+  新窗口打开，另有 1.x 遗留的「让 DSH 续写 / 角色扮演」）+ iframe
+  （`data-dsh-tavern-frame`，`src` 指向 `tavern/`）。
+- 位置记忆（宿主侧行为，应用无需配合）：记住最后一次 `state`/`pong` 上报的
+  有效站内路径（`hasContext=true` 或 `/worlds/…`），重新挂载面板时把 iframe
+  深链到该路径；「刷新」= 清空记忆并回 `/tavern/` 首页（恢复失败时的脱困路径）。
+  记忆存模块内存 + sessionStorage（key `dsh-tavern:last-app-path`），不上报服务端。
+  验收锚点 `data-dsh-tavern-restored="1|0"`。
 - 其它验收锚点：`data-dsh-tavern-view`、`data-dsh-tavern-connected`、
   `data-dsh-tavern-hint`（idle/loading/waiting/ready/busy/sent/error）、
   `data-dsh-tavern-status`、`data-dsh-tavern-extra`；
   `data-dsh-tavern-action="continue|roleplay|reload|open"`。
-- 交给 Agent：沿用 ziwei 的 `workspaces.initializeDefault` → `uiWorkspace.startSession`
-  → `layout.selectPanel(null)` → 编辑器填充 + 剪贴板兜底（该方案已在本机验证过）。
-- 提示词模板：
+- 交给 Agent（1.x 遗留链路）：`workspaces.initializeDefault` →
+  `uiWorkspace.startSession` → `layout.selectPanel(null)` → 编辑器填充 + 剪贴板兜底。
+- 提示词模板（仅遗留动作使用）：
   - 续写：作品/章节/模式/角色/最近正文 + 「请基于以上内容续写下一段（400–600 字，
     保持文风与人物口吻）」+ 用户额外要求。
   - 角色扮演：以 `target`（未指定时用 `activeCharacter`，为空再退化 `characters`
-    末位；额外要求里的 `@角色名` 可覆盖）第一人称即兴演绎 + 最近情境 + 用户额外要求。
+    末位；`@角色名` 可覆盖）第一人称即兴演绎 + 最近情境 + 用户额外要求。
 
 ## 5. 文件所有权（避免并发写冲突）
 
 | 范围 | owner |
 | --- | --- |
 | `app/server/**`（服务端源码与测试） | app-auth |
-| `app/client/src/characters/**`、`app/client/src/main.ts`、`app/client/src/workspace/navigation.ts`、`app/client/src/workspace/capabilities.ts`（角色卡功能期间，见 `docs/step1-character-card-chat.md`） | cards-client |
-| `app/client/**` 其它源码与 dist 构建 | app-auth |
+| `app/client/**` 源码与 dist 构建 | cards-client / app-auth（按任务指派） |
 | `package.json`、`cordis.patch.yml`、`lib/**`、`client.js`、`README.md`、`docs/architecture.md`、`docs/contract.md` | plugin-core |
 | `scripts/**`、`verify.mjs`、`docs/testing.md` | verifier |
 | `/etc/systemd/system`、Caddy、`/root/.dsh/profiles/web`（host 级，不在本仓库） | Lead |
-| `docs/step2-dsh-generation.md`、`docs/step3-card-space.md`、`docs/step4-companion-memory.md`、`app/.env`（含 `DSH_AGENT_*`、`AI_MODE`）、host 重启与上线 | Lead |
-| `docs/step3b-group-chat.md`（历史设计；群聊 UI 与服务端均已删除，仅作参考） | Lead |
-| DB schema 清理：`world.card_group_chats` / `world.card_group_messages` 与 `public.product_feedback` 已 DROP（2026-11-04，schema 备份 /tmp/product_feedback_schema.sql） | Lead |
+| `app/.env`（含 `DSH_AGENT_*`、`AI_MODE`）、host 重启与上线 | Lead |
+| `docs/step1–step5*.md`（历史设计，UI 多已下线） | Lead |
 
 任何人不改别人范围的文件；发现 bug 用 send_message 报给 owner 或 Lead。
 
-## 6. 第二步：真生成（DSH 模型网关）
+## 6. DSH 模型网关 `/tavern-agent/v1/**`
 
-- 链路：应用 worker（`ai_mode='dsh'` 的 `DshAgentAdapter`）→
+- 链路：应用服务端（`ai_mode='dsh'` 的 `DshAgentAdapter`）→
   `POST /tavern-agent/v1/{complete,stream}`（`Authorization: Bearer <secret>`）→
   插件调 `ctx.llm.stream()`，默认模型取 `ctx.agentDefaultModel.currentSelection()`
   （本机 `opencode-go / deepseek-v4.1-flash`）。
+- 端点：`GET /v1/health`、`POST /v1/complete`、`POST /v1/stream`（SSE）。
 - 鉴权 secret：`DSH_TAVERN_AGENT_SECRET`（插件侧，回退 `DSH_TRUSTED_SECRET`）
   必须与 `DSH_AGENT_SECRET`（应用侧）一致；只出现在 host 环境文件，不入库、不入日志。
 - 失败语义：网关不可用 → `PROVIDER_UNAVAILABLE / 502`「DSH 模型网关不可用，未收到回复」；
   secret 错 → `AGENT_UNAUTHORIZED`；界面显示失败，不落假回复。
-- 端点、请求/响应、超时、日志约束以 `docs/step2-dsh-generation.md` 为准。
+- `complete` 响应：`{text, model:{provider,model}, usage:{state,inputTokens,outputTokens}, finishReason}`。
+- `/v1/stream` 帧：`data: {"type":"delta","text"}` → `usage` → `finish` → `data: [DONE]`；
+  SSE 已开始后失败发 `data: {"type":"error","error":{"code","message"}}` 收尾。
 
 ### 6.1 请求字段（`/complete`、`/stream` 共用；除 `messages` 外均可选）
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `messages` | `{role:'user', content: string \| ContentBlock[]}[]` | 1–64 条，只支持 `user`；多轮上下文由应用自己拼进 `content` |
-| `system` | `string` | 系统提示词 |
+| `messages` | `{role:'user', content: string \| ContentBlock[]}[]` | 1–64 条，只支持 `user`；多轮上下文由应用自己拼进 `system` |
+| `system` | `string` | 系统提示词（酒馆把整段 prompt 顺序拼在这里） |
 | `maxTokens` | 正整数 | 输出上限 |
 | `temperature` | `number`，0–2 | 透传 `ctx.llm.stream` |
-| `topP` | `number`，0–1 | 透传 `ctx.llm.stream`（DSH 的 `GenerateOptions` 当前未声明该字段，按原样透传，适配器支持后生效）；兼容 snake_case 别名 `top_p` |
+| `topP` | `number`，0–1 | 透传 `ctx.llm.stream`（`GenerateOptions` 未声明该字段，原样透传，适配器支持后生效）；兼容 snake_case 别名 `top_p` |
 | `stop` | `string` 或 `string[]` | 单条字符串归一为数组；最多 4 条、单条 ≤200 字符，映射到 `GenerateOptions.stop` |
 | `reasoningEffort` | `string` | 白名单 `off/minimal/low/medium/high/xhigh/max`，默认 `low`；非法值回落 `low` |
 | `sessionId` | `string`（≤200） | 透传 provider 会话标识，缺省每次随机 UUID |
@@ -161,9 +158,113 @@ iframe → 父（主动，节流）：
   `400 INVALID_ARGUMENT`；鉴权缺失/错误 → `401 AGENT_UNAUTHORIZED`；未知路径/方法 →
   `404 AGENT_NOT_FOUND` / `405 AGENT_METHOD_NOT_ALLOWED`；上游失败/超时 →
   `502 AGENT_UPSTREAM_FAILED`（SSE 已开始则用 `error` 帧收尾）。
-- `GET /v1/health` 返回 `{ok, model, features:['temperature','topP','stop']}`，
-  应用可据此决定设置页显示哪些采样控件。
-- 透传边界：网关只负责把 `temperature`/`topP`/`stop` 放进 `ctx.llm.stream` 的
-  选项；实际是否生效取决于 DSH 的 provider 适配器（当前 `opencode-go` 的 pi-ai
-  适配器只消费 `temperature`/`maxTokens`/`sessionId`，`stop`/`topP` 会被忽略）。
-  应用侧不应假设 `stop` 一定截断输出。
+- `GET /v1/health` 返回 `{ok, model, features:['temperature','topP','stop']}`。
+- 透传边界：网关只把参数放进 `ctx.llm.stream` 选项；实际生效取决于 provider 适配器
+  （当前 `opencode-go` 的 pi-ai 适配器只消费 `temperature`/`maxTokens`/`sessionId`，
+  `stop`/`topP` 会被忽略）。**且生产 DSH Web 尚未重启，采样参数新代码未生效**；
+  应用不应假设 `stop` 一定截断输出。
+
+## 7. 应用 API（`/api/reader/v1/tavern/**`，2.0）
+
+鉴权：DSH 可信登录（`x-dsh-trusted`）或应用内会话；所有资源按 `owner_id` 鉴权，
+不存在/非本人一律 `404 RESOURCE_NOT_FOUND`。实现见 `app/server/app/tavern/api.py`。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/characters` | 卡列表；`q` 名字搜索、`sort=recent\|name\|created`；返回 `chatCount`/`lastChatAt` |
+| `POST` | `/characters/imports` | multipart `file`（PNG/JSON）→ `{card}`（201） |
+| `GET` | `/characters/{id}` | `{card, prompt, worldInfoCount}` |
+| `PATCH` | `/characters/{id}` | 改 name/description/personality/scenario/firstMessage/systemPrompt/postHistoryInstructions/tags/alternateGreetings |
+| `DELETE` | `/characters/{id}` | 软删（204） |
+| `GET` | `/characters/{id}/avatar` | `image/png` |
+| `GET` | `/characters/{id}/export?format=png\|json` | 导出卡（附件文件名在 `Content-Disposition`） |
+| `GET` | `/characters/{id}/chats` | 该卡聊天列表（`lastText`/`messageCount`）+ `card` |
+| `POST` | `/characters/{id}/chats` | 新建聊天（201）；`greetingId` 选备用开场白；开场白作为第一条 assistant 消息 |
+| `GET` | `/chats/{id}` | `{chat, messages, hasMore, latestSequence}`；`before=<sequence>`、`limit=1..500`（默认 200）向后翻页 |
+| `PATCH` | `/chats/{id}` | 改标题（1–160） |
+| `DELETE` | `/chats/{id}` | 连消息一起删（204） |
+| `GET` | `/chats/{id}/export?format=jsonl\|json` | 导出聊天（附件）；其它 format → 422 |
+| `POST` | `/chats/{id}/messages` | 发消息 → **SSE**；body `{message}`（兼容 `{text}`，≤4000），可选 `personaId` |
+| `POST` | `/chats/{id}/regenerate` | 对最后一条 assistant 重新生成 → **SSE**（追加 swipe） |
+| `POST` | `/chats/{id}/messages/{mid}/swipes/{index}/select` | 切版本（下标 0 起），返回 `{message}` |
+| `PATCH` | `/chats/{id}/messages/{mid}` | 只能改 user 消息；截断其后消息，返回 `{message, deleted}` |
+| `DELETE` | `/chats/{id}/messages/{mid}` | 删除该消息及其后消息（204） |
+| `GET/POST` | `/characters/{id}/world-info` | 列表 / 新建（201） |
+| `PATCH/DELETE` | `/characters/{id}/world-info/{entryId}` | 改 / 删 |
+| `POST` | `/characters/{id}/world-info/preview` | body `{message}` → `{matched, injection}`；卡详情已有预览 UI |
+| `GET/PATCH` | `/characters/{id}/prompt` | 读写 `systemPrompt` + `prompt_settings` |
+| `POST` | `/characters/{id}/chats/imports` | multipart `file`（ST JSONL）→ 201 `{chat, imported, skipped}` |
+
+字段约束（服务端校验）：卡文本字段 ≤20000、tags ≤20、备用开场白 ≤10；
+世界书 `keys` ≤20、`content` ≤8000、`position ∈ before_char|after_char|before_example|at_depth`、
+`depth 0–100`、`probability 1–100`、`order 0–10000`；prompt `temperature 0–2`、
+`topP 0–1`、`maxTokens 16–8192`、`stop ≤8 条`。
+
+错误码：`GREETING_INVALID`/`SWIPE_INVALID`/`MESSAGE_NOT_EDITABLE`/`MESSAGE_REQUIRED`/
+`INVALID_REQUEST`/`CHAT_IMPORT_EMPTY`/`CHAT_IMPORT_TOO_LARGE` → 422；
+`NOTHING_TO_REGENERATE` → 409；`RESOURCE_NOT_FOUND` → 404。
+
+## 8. 聊天 SSE 帧与 swipe 语义
+
+### 8.1 帧格式（应用 → 浏览器，`text/event-stream`）
+
+响应头：`Cache-Control: no-store`、`X-Accel-Buffering: no`。每帧形如
+`event: {type}\ndata: {json}\n\n`：`event:` 名恒等于 payload 的 `type`
+（`message` / `delta` / `done` / `error`），客户端按命名事件派发：
+
+| `type` | 时机 | 字段 |
+| --- | --- | --- |
+| `message` | 首帧（发消息） | `userMessage`（新 user 消息对象）、`assistantSequence` |
+| `message` | 首帧（重新生成） | `messageId`、`activeSwipe`（目标消息当前版本） |
+| `delta` | 每个增量 | `text` |
+| `done` | 生成成功并落库 | `message`（完整 assistant 消息，含 `swipes`/`activeSwipe`） |
+| `error` | 失败 | `code`、`message` |
+
+`error` 码：`GENERATION_CANCELLED`、`PROVIDER_UNAVAILABLE`、`REPLY_EMPTY`、
+`PERSISTENCE_UNAVAILABLE`、`RESOURCE_NOT_FOUND`。HTTP 状态此时已是 200，
+错误只能走帧；客户端断开时服务端取消生成且**不落库**。
+
+> **已对齐（2026-11-05）**：服务端 `stream.sse()` 现在同时输出 `event: {type}` 与
+> `data: {json}`，与客户端 `sse.ts` 的命名事件派发一致；逐字流式已可用。修复后
+> `verify.mjs` C 组（250ms 采样断言文本增长）通过。
+
+### 8.2 swipe（多版本）
+
+- 每条 assistant 消息：`swipes: [{content, model, createdAt}]`、`activeSwipe` 下标；
+  接口输出的 `text` 恒等于 `swipes[activeSwipe].content`；
+- 「重新生成」只作用于最后一条 assistant：以目标之前的历史重新生成，**追加**一个
+  swipe 并把 `activeSwipe` 指到新版本，旧版本保留；
+- 切换版本 `POST .../swipes/{index}/select` 只改 `activeSwipe`，不生成、不删版本；
+- 编辑 user 消息会删除其后所有消息（返回 `deleted` 计数）；删除消息同样截断其后
+  消息——语义是「从这里重来」；
+- 停止/失败不写消息；编辑/删除以 `sequence` 为界，`UNIQUE(chat_id, sequence)` 保证顺序。
+
+## 9. 导出 / 导入 / 分页（P1，已实现）
+
+- `GET /chats/{id}/export?format=jsonl|json`：JSONL 每行 ST 风格
+  `{user_name, character_name, create_date, mes, is_user, is_name, swipes?, swipe_id?}`；
+  JSON 形状 `{chat, card, messages}`；其它 format → 422。
+- `POST /characters/{id}/chats/imports`（multipart `file`）：≤20000 行、≤32 MiB；
+  坏行跳过计数；空/全坏 → `422 CHAT_IMPORT_EMPTY`，超限 → `422 CHAT_IMPORT_TOO_LARGE`；
+  成功 201 `{chat, imported, skipped}`；导入后聊天自动进入会话。
+- `GET /chats/{id}?before=<sequence>&limit=<1..500>`（默认 200）：返回
+  `{chat, messages, hasMore, latestSequence}`；`before` 为空即取最新一页，
+  向上翻页把当前最早 `sequence` 传给 `before`。
+- 客户端：聊天页「导出聊天 (JSONL/JSON)」菜单 + 顶部「加载更早」；角色页
+  「导入聊天记录」上传 JSONL。
+
+## 10. 文档索引
+
+| 文档 | 状态 |
+| --- | --- |
+| `docs/step6-native-tavern.md` | **当前设计**：酒馆 2.0 原生聊天/SSE/swipe/世界书/验收分组 |
+| `docs/architecture.md` | 当前实现架构（host 反代、网关、应用数据模型、prompt 组装、风险） |
+| `docs/testing.md` | 验收方法（静态 + 隔离实例 E2E） |
+| `docs/step1-character-card-chat.md` | 历史：角色卡聊天第一步 |
+| `docs/step2-dsh-generation.md` | 历史：DSH 真生成网关（字段仍在用，见 §6） |
+| `docs/step3-card-space.md` | 历史：卡片空间（世界书/预设/正则），2.0 世界书改为 `tavern_world_info` |
+| `docs/step3b-group-chat.md` | 历史：群聊（UI 与服务端均已删除） |
+| `docs/step4-companion-memory.md` | 历史：长期记忆/伙伴（UI 已下线，代码待 P3 清） |
+| `docs/step5-p0-p1-p2.md` | 历史：故事模式 P0–P2 体验设计 |
+
+旧文档只作参考，**有冲突以本文与 `docs/step6-native-tavern.md` 为准**。

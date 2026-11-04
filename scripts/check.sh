@@ -310,6 +310,13 @@ instance_checks() {
   say "角色卡 fixture（make-cards.py）"
   run "生成角色卡 fixture（v2 PNG / v2 JSON）" python3 "$ROOT/scripts/fixtures/make-cards.py" --out "$FIXTURES"
 
+  # P1 导入导出：ST JSONL 聊天样例（2 条消息：assistant + user），供 I 组导入断言。
+  cat > "$FIXTURES/chat-sample.jsonl" <<'JSONL'
+{"user_name":"旅人","character_name":"林小满","create_date":"2026-11-05T00:00:00.000Z","mes":"雨下得正好，进来坐坐？","is_user":false,"is_name":false}
+{"user_name":"旅人","character_name":"林小满","create_date":"2026-11-05T00:01:00.000Z","mes":"好，来一盏茶。","is_user":true,"is_name":true}
+JSONL
+  run "生成 ST JSONL 聊天样例（chat-sample.jsonl，2 条消息）" test -s "$FIXTURES/chat-sample.jsonl"
+
   say "真实浏览器 E2E（verify.mjs）"
   local verify_args=(--url "$url" --out "$OUT" --fixtures "$FIXTURES")
   [[ -n "${DSH_TAVERN_DEBUG:-}" ]] && echo "verify args: ${verify_args[*]}"
