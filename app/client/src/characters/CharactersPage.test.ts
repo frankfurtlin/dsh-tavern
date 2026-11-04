@@ -5,11 +5,11 @@ import * as cardApi from './api'
 import {compileRender,descendants,flush,node,provideSfc,renderer,text,type Host} from '../test/host-renderer'
 
 const harness=vi.hoisted(()=>({push:vi.fn(),message:vi.fn()}))
-vi.mock('./api',()=>({listCards:vi.fn(),importCard:vi.fn(),startCardChat:vi.fn(),deleteCard:vi.fn(),cardAvatarBlob:vi.fn(),createGroupChat:vi.fn()}))
+vi.mock('./api',()=>({listCards:vi.fn(),importCard:vi.fn(),startCardChat:vi.fn(),deleteCard:vi.fn(),cardAvatarBlob:vi.fn()}))
 vi.mock('vue-router',()=>({useRouter:()=>({push:harness.push})}))
 vi.mock('../stores/app',()=>({useApp:()=>({message:harness.message})}))
 vi.mock('../platform/request-scope',()=>({useRequestScope:()=>{let disposed=false;onUnmounted(()=>{disposed=true});return()=>({valid:()=>!disposed})}}))
-vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{Upload:stub,Users:stub,MessageCircle:stub,Pencil:stub,Replace:stub,Trash2:stub,MessagesSquare:stub,Heart:stub}})
+vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{Upload:stub,Users:stub,MessageCircle:stub,Pencil:stub,Replace:stub,Trash2:stub,Heart:stub}})
 vi.mock('../workspace/PageHeader.vue',()=>({default:defineComponent({props:{title:String},setup:(p,{slots})=>()=>h('header',[p.title,slots.default?.()])})}))
 compileRender(CharactersPage,new URL('./CharactersPage.vue',import.meta.url))
 
@@ -24,7 +24,6 @@ beforeEach(()=>{
   vi.mocked(cardApi.startCardChat).mockReset()
   vi.mocked(cardApi.deleteCard).mockReset().mockResolvedValue(undefined)
   vi.mocked(cardApi.cardAvatarBlob).mockReset().mockResolvedValue(null)
-  vi.mocked(cardApi.createGroupChat).mockReset()
   harness.push.mockReset().mockResolvedValue(undefined)
   harness.message.mockReset()
   vi.spyOn(URL,'createObjectURL').mockReturnValue('blob:card-c1')
@@ -106,38 +105,6 @@ it('opens the card detail editor and the replacement-rule page',async()=>{
   rules.props.onClick()
   await flush()
   expect(harness.push).toHaveBeenCalledWith('/characters/regex')
-})
-
-it('selects two cards and starts a group chat from the library',async()=>{
-  const second={...card,id:'c2',name:'沈青',hasAvatar:false}
-  vi.mocked(cardApi.listCards).mockResolvedValueOnce([card,second])
-  vi.mocked(cardApi.createGroupChat).mockResolvedValueOnce({id:'g1',title:'林渡、沈青的群聊',cardIds:['c1','c2']})
-  mount();await flush()
-  const boxes=descendants(root,item=>item.tag==='input'&&item.props.type==='checkbox')
-  boxes[0].props.onChange();await flush()
-  boxes[1].props.onChange();await flush()
-  expect(text(root)).toContain('已选 2 张')
-  expect(text(root)).toContain('已加入群聊')
-  button('发起群聊').props.onClick()
-  await flush()
-  expect(cardApi.createGroupChat).toHaveBeenCalledWith(['c1','c2'])
-  expect(harness.push).toHaveBeenCalledWith('/characters/groups/g1')
-})
-
-it('caps the group selection at five cards',async()=>{
-  const many=[1,2,3,4,5,6].map(index=>({...card,id:'c'+index,name:'角色'+index,hasAvatar:false}))
-  vi.mocked(cardApi.listCards).mockResolvedValueOnce(many)
-  mount();await flush()
-  for(const box of descendants(root,item=>item.tag==='input'&&item.props.type==='checkbox').slice(0,6)){box.props.onChange();await flush()}
-  expect(text(root)).toContain('已选 5 张')
-  expect(text(root)).toContain('群聊最多选择 5 张角色卡')
-})
-
-it('opens the group chat list from the library header',async()=>{
-  mount();await flush()
-  descendants(root,item=>item.tag==='button'&&text(item).trim()==='群聊')[0].props.onClick()
-  await flush()
-  expect(harness.push).toHaveBeenCalledWith('/characters/groups')
 })
 
 it('groups long-term companions in a pinned section above the rest',async()=>{

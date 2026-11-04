@@ -7,7 +7,8 @@
 登录态后面，并另外注册 `prefix /tavern-agent` 模型网关给应用 worker 调 DSH 模型；
 `client.js`（client 半）在浏览器里注册侧栏入口与主面板，用同源 iframe 展示应用，
 并用 `postMessage`（P2 桥）把当前故事上下文交给 DSH Agent 续写 / 角色扮演。
-应用本体提供角色卡空间、群聊与长期记忆，生成任务分别在应用 worker 里跑。
+应用本体按单用户精简（导航只有「探索作品」「角色卡库」），提供角色卡空间与
+长期记忆，生成任务在应用 worker 里跑；群聊 UI 已移除，服务端接口保留。
 
 ```
 ┌────────────────────────── DSH Web (127.0.0.1:3080) ──────────────────────────┐
@@ -197,10 +198,17 @@ provider 的原始报错文本只取 `code`/`name` 进日志，不会回显给�
 `DSH_AGENT_URL=http://127.0.0.1:3080/tavern-agent/v1`，`DSH_AGENT_SECRET` 与
 `DSH_TAVERN_AGENT_SECRET` 配同一个值；回滚时把 `AI_MODE` 改回 `mock`。
 
-## 应用内功能：角色卡空间、群聊与长期记忆
+## 应用内功能：角色卡空间与长期记忆（群聊已移除）
 
 host 半只做反向代理，以下链路都在应用侧。记在这里是为了让「面板里看到什么、
 模型收到什么」可追溯；表结构与验收点以 `docs/step3*.md`、`docs/step4*.md` 为准。
+
+应用按**单用户精简**：导航只有「探索作品」（`/explore`）与「角色卡库」
+（`/characters`）两项；`/works`、`/recent`、`/my-prompts`、`/product/knowledge`、
+`/published/*`、`/authors/*`、`/creators`、`/community`、`/characters/groups`
+等旧路由全部 redirect `/explore`。创作工作台不再占导航，从探索页「创作作品」
+按钮（`/worlds/scripts`）进入。探索页去掉了「最近游玩 → /recent」链接与
+「公开互动作品」整节，改为对有 `lineId` 的精选卡显示「最近游玩」徽标。
 
 ### 卡片 → world 建库链路
 
@@ -243,7 +251,13 @@ host 半只做反向代理，以下链路都在应用侧。记在这里是为了
 - 卡详情「预览」`POST /character-cards/{id}/context-preview` 返回同一套拼接结果
   （`loreMatched/preset/systemSuffix/memorySection`），UI 用它解释「下一轮会注入什么」。
 
-### 群聊的生成任务（B2）
+### 群聊（B2，已从界面移除；服务端接口保留但无入口）
+
+单用户精简（task-25）删掉了角色卡库的多选与「发起群聊」入口、群聊列表页与
+群聊页；`/characters/groups`、`/characters/groups/:id` 现在都 redirect `/explore`。
+服务端 `world.card_group_chats` / `world.card_group_messages` 表、`/card-group-chats`
+API 与 `card_group_chat` 任务保留，供历史数据与直接调用，但**界面上没有任何入口**。
+以下为该链路的原始设计（历史参考，详见 `docs/step3b-group-chat.md`）：
 
 表：`world.card_group_chats`（`card_ids` 有序 2–5、`preset_id`、`status`）与
 `world.card_group_messages`（`sequence`、`speaker_card_id/name`、
@@ -257,9 +271,9 @@ host 半只做反向代理，以下链路都在应用侧。记在这里是为了
    `202 {taskId,chatId,speakerCardId,speakerName}`；
 4. worker 用 `prompts/card_group_chat.txt` 生成（多角色聊天室、本轮只演 speaker、
    100–500 字），各卡设定单卡截断 1200 字、历史最近 30 条；落库前同样应用 B1 正则；
-5. 成功把 pending 改成 saved；失败标 failed（UI 提示可重试）。
+5. 成功把 pending 改成 saved；失败标 failed。
 
-群聊当前只用各卡设定 + 预设补充，**不注入世界书与长期记忆**。
+该链路只用各卡设定 + 预设补充，**不注入世界书与长期记忆**。
 
 ### 长期记忆与长期伙伴（C）
 
@@ -284,7 +298,7 @@ host 半只做反向代理，以下链路都在应用侧。记在这里是为了
 | --- | --- |
 | 模型网关不可用（401/502/超时） | 应用生成失败，UI 显示失败原因，不伪造回复；`AI_MODE=mock` 可临时回滚 |
 | 记忆抽取失败 | `502 MEMORY_EXTRACT_FAILED`，不落半成品；自动整理失败不阻断聊天 |
-| 群聊并发发送 | `409 CHAT_PENDING`，UI 提示「上一条回复仍在生成」 |
+| 群聊接口被直接调用（无 UI 入口） | `409 CHAT_PENDING`（同一群聊已有 pending 回复时） |
 | 世界书/记忆超预算 | 超出条目静默截断（不进 prompt），可在 context-preview 里核对 |
 | 角色卡/记忆接口不可用 | 页面局部错误文案（如「长期记忆暂时不可用。」），不影响其它区块 |
 
@@ -540,9 +554,10 @@ secret 读不到时：打印告警、继续转发但**不带**可信头，应用
 7. **真生成依赖 DSH 侧条件**：DSH 需已登录、`agentDefaultModel` 有默认模型
    （本机 `opencode-go / deepseek-v4.1-flash`）；provider 侧异常/超时表现为
    生成失败，应用不会伪造回复，也不该被前端吞掉。
-8. **卡片空间/群聊/记忆的注入预算**：世界书 ≤6 条/≤6000 字、记忆 ≤6 条/≤3000 字、
-   卡设定 ≤6000 字、预设 ≤4000 字；超出静默截断。群聊当前不用世界书与长期记忆，
-   只带各卡设定（单卡 1200 字截断）、预设补充与最近 30 条对话。
+8. **卡片空间/记忆的注入预算**：世界书 ≤6 条/≤6000 字、记忆 ≤6 条/≤3000 字、
+   卡设定 ≤6000 字、预设 ≤4000 字；超出静默截断。群聊已无 UI 入口，其服务端任务
+   若被直接调用也不注入世界书与长期记忆，只带各卡设定（单卡 1200 字截断）、
+   预设补充与最近 30 条对话。
 9. **记忆整理是模型调用**：`/memories/extract` 同步等模型，失败 502
    `MEMORY_EXTRACT_FAILED` 且回滚；每 8 条回复的自动整理是后台任务，
    失败不打断聊天，但需要用户稍后手动重试。

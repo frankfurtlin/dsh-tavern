@@ -1,7 +1,7 @@
 export const ACCOUNT_HOME='/explore'
 export const HISTORY_IMPORT='/settings/import-history'
 const legacyRoutes:Record<string,string>={
- '/local':'/works','/local/library':'/works','/local/discover':ACCOUNT_HOME,
+ '/local':ACCOUNT_HOME,'/local/library':ACCOUNT_HOME,'/local/discover':ACCOUNT_HOME,
  '/local/new-world':'/worlds/scripts','/local/new-story':'/worlds/scripts',
  '/local/settings':ACCOUNT_HOME,'/local/settings/models':ACCOUNT_HOME,
  '/local/settings/media':ACCOUNT_HOME,'/local/settings/tasks':ACCOUNT_HOME,
