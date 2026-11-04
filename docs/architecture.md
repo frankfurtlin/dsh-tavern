@@ -211,7 +211,7 @@ host 半只做反向代理，以下链路都在应用侧。记在这里是为了
   链 `/explore`）+ 两个 tab「探索作品」`/explore`、「角色卡库」`/characters`
   （`workspace/navigation.ts` 的 `workspaceGroups` 拍平去重）；右侧
   `.shell-top-right` 放 `#sidebar-footer` 槽位（仅 LocalApplication 兼容，移动端隐藏）
-  与 `#header-actions`（`workspace/HeaderActions.vue`，当前只有「酒馆 · 内测体验」）。
+  与 `#header-actions`（当前为空；顶部右侧只保留布局容器）。
 - **无左侧栏、无面包屑**：旧 sidebar 与 breadcrumb 已删；页面内的「返回上一级」
   由 `AppShell` 的 `.shell-page-return` 按 `pageLocation` 计算（有父级且非自有返回时显示）。
 - **移动端**（≤767px）：header 只留品牌 + actions，`shell-tabs` 隐藏，底部

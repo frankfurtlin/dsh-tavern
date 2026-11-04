@@ -2428,21 +2428,22 @@ try {
         if (!mobileReady) throw new Error('移动端 30s 内没有渲染 .shell-top（owner: cards-client AppShell）')
         const mobileTabsVisible = await mobilePage.locator('.shell-tabs').isVisible().catch(() => false)
         const mobileBrand = ((await mobilePage.locator('.shell-brand').innerText().catch(() => '')) || '').trim()
-        const mobileActionsText = ((await mobilePage.locator('.shell-top .workspace-global-actions').innerText().catch(() => '')) || '').trim()
-        const mobileActionsCount = await mobilePage.locator('.shell-top .workspace-global-actions').count().catch(() => 0)
-        const mobileActionsVisible = mobileActionsCount > 0
+        const mobileTopRightCount = await mobilePage.locator('.shell-top .shell-top-right').count().catch(() => 0)
+        const mobileTopRightVisible = mobileTopRightCount > 0
+        const mobileShellText = ((await mobilePage.locator('.shell-top').innerText().catch(() => '')) || '').trim()
+        const mobileHasBetaLabel = mobileShellText.includes('内测体验')
         const mobileNavVisible = await mobilePage.locator('.shell-mobile-nav').isVisible().catch(() => false)
         const mobileLinks = (await mobilePage.locator('.shell-mobile-nav a span').allTextContents().catch(() => [])).map((text) => text.trim()).filter(Boolean)
         const mobileOpenAll = await mobilePage.getByRole('button', { name: /打开全部功能/ }).count().catch(() => 0)
         const mobileTheme = await mobilePage.locator('.shell-top .lucide-sun, .shell-top .lucide-moon').count().catch(() => 0)
-        mobile = { viewport: '390x844', tabsVisible: mobileTabsVisible, brand: mobileBrand, actionsPresent: mobileActionsVisible, actionsText: mobileActionsText, actionsTextHiddenReason: mobileActionsText ? null : 'workspace.css @media(max-width:767px) 隐藏 .workspace-header-message（既有设计）', navVisible: mobileNavVisible, links: mobileLinks, openAll: mobileOpenAll, themeIcons: mobileTheme }
+        mobile = { viewport: '390x844', tabsVisible: mobileTabsVisible, brand: mobileBrand, topRightPresent: mobileTopRightVisible, topRightText: mobileShellText, hasBetaLabel: mobileHasBetaLabel, navVisible: mobileNavVisible, links: mobileLinks, openAll: mobileOpenAll, themeIcons: mobileTheme }
         navEvidence.mobile = mobile
-        const mobileOk = !mobileTabsVisible && mobileBrand.includes('酒馆') && mobileActionsVisible
+        const mobileOk = !mobileTabsVisible && mobileBrand.includes('酒馆') && mobileTopRightVisible && !mobileHasBetaLabel
           && mobileNavVisible && mobileLinks.length === 2 && mobileLinks[0] === '探索' && mobileLinks[1] === '角色卡库'
           && mobileOpenAll === 0 && mobileTheme === 0
         navRecord(3, mobileOk, mobileOk
-          ? `390×844：tabs 隐藏，品牌=${mobileBrand}，header-actions 容器存在（文案按设计隐藏），底部导航=${mobileLinks.join('/')}`
-          : `移动端布局异常：tabs 可见=${mobileTabsVisible}（期望 false）品牌=${JSON.stringify(mobileBrand)} header-actions 容器=${mobileActionsCount} 底部导航可见=${mobileNavVisible} 链接=${JSON.stringify(mobileLinks)} 打开全部功能=${mobileOpenAll} 主题图标=${mobileTheme}（owner: cards-client AppShell 媒体查询）`)
+          ? `390×844：tabs 隐藏，品牌=${mobileBrand}，右侧容器存在且无「内测体验」文案，底部导航=${mobileLinks.join('/')}`
+          : `移动端布局异常：tabs 可见=${mobileTabsVisible}（期望 false）品牌=${JSON.stringify(mobileBrand)} 右侧容器=${mobileTopRightCount} 内测文案=${mobileHasBetaLabel} 底部导航可见=${mobileNavVisible} 链接=${JSON.stringify(mobileLinks)} 打开全部功能=${mobileOpenAll} 主题图标=${mobileTheme}（owner: cards-client AppShell 媒体查询）`)
         await shot(mobilePage, '52-nav-mobile.png')
       } finally {
         await mobilePage.close().catch(() => {})
