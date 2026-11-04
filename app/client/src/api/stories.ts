@@ -61,7 +61,7 @@ export function contextRoute(context:StoryContext):{path:string;query:Record<str
   }
   if(context.mode==='chat'&&reader&&context.sessionId&&context.characterId&&context.anchor&&context.bookId&&context.readerBranchId){
     if(context.anchor.bookId!==context.bookId||context.anchor.branchId!==context.readerBranchId)throw new Error('对话位置不属于这条故事线')
-    return {path:'/conversations',query:{session:context.sessionId,story:context.storyId}}
+    return {path:'/conversations/world/'+context.sessionId,query:{story:context.storyId}}
   }
   throw new Error('这个入口缺少有效的位置，请返回故事重新选择')
 }

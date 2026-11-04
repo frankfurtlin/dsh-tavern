@@ -7,7 +7,7 @@ import {capabilities,statusLabels} from './capabilities'
 const route=useRoute()
 const pages:Record<string,{title:string;description:string;ids:string[];alternative:string;label:string}>={
  '/multiplayer':{title:'所有多人世界',description:'多人协作暂未开放。你可以先体验私人互动世界，不同世界线分别保存。',ids:['multiplayer'],alternative:'/worlds',label:'体验私人世界'},
- '/community':{title:'故事论坛',description:'论坛与玩家攻略暂未开放。内测期间可以先查看玩法和创作帮助。',ids:['forum','notifications'],alternative:'/help',label:'查看使用帮助'},
+ '/community':{title:'故事论坛',description:'论坛与玩家攻略暂未开放。内测期间可以先查看玩法和创作帮助。',ids:['forum','notifications'],alternative:'/features?group=平台与帮助',label:'查看功能说明'},
  '/rankings':{title:'作品与作者排行榜',description:'排行榜暂未开放。精选案例不以虚构热度或游玩次数排序。',ids:['rankings'],alternative:'/explore',label:'探索精选作品'},
  '/creators':{title:'创作者中心',description:'作者主页随公开作品开放，关注与收益中心尚未开放。',ids:['follow','public-publishing','payout'],alternative:'/my-works',label:'打开我的作品'},
  '/tasks':{title:'任务与成长',description:'平台成长任务、等级与称号暂未开放。故事内的任务与善后可以正常体验。',ids:['quests','daily'],alternative:'/product/wallet',label:'查看每日权益'},

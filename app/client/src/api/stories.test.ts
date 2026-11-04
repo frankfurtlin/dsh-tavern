@@ -20,7 +20,7 @@ describe('story contexts retain mode, branch and logical position',()=>{
     expect(route.query.revision).toBe(revision)
   })
   it('opens chat by session without using the reading or action route',()=>{
-    expect(contextRoute({...reader,mode:'chat',sessionId:session,characterId:'person'})).toEqual({path:'/conversations',query:{session,story:reader.storyId}})
+    expect(contextRoute({...reader,mode:'chat',sessionId:session,characterId:'person'})).toEqual({path:'/conversations/world/'+session,query:{story:reader.storyId}})
   })
   it('world reading retains the displayed checkpoint while play uses its explicit line',()=>{
     const context:StoryContext={storyId:storyId('world',world),mode:'read',perspective:'reader',entryOrigin:'worlds',worldId:world,worldLineId:line,checkpointId:'9'.repeat(32)}

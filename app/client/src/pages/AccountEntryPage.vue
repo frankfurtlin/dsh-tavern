@@ -47,7 +47,7 @@ async function configure(){const scope=capture(),generation=++requestGeneration;
 </script>
 <template>
  <div class="entry-page" :class="{'entry-native':native}">
-  <header class="entry-header"><RouterLink to="/login" class="entry-brand"><BookOpen :size="26"/>酒馆</RouterLink><RouterLink to="/help">使用帮助</RouterLink></header>
+  <header class="entry-header"><RouterLink to="/login" class="entry-brand"><BookOpen :size="26"/>酒馆</RouterLink><RouterLink to="/features?group=平台与帮助">使用帮助</RouterLink></header>
   <div class="entry-layout">
    <section class="entry-form-card" aria-label="账号登录与注册">
     <p v-if="cleanupStatus" class="hint" role="status">{{cleanupStatus}}<button @click="checkCleanup">查询清理状态</button></p>

@@ -117,6 +117,15 @@ console 是否干净；不记录 prompt / 回复全文。
 | C4 | 记忆「读者养猫」→「停用」→ 再预览；再「删除记忆」→「确认删除」→ 再预览 | 停用后 preview 的注入记忆不含该标题；删除后再预览仍不含（`report.memory.disabled/deleted`） | app-auth（enabled 过滤）+ cards-client |
 | C5 | 卡详情勾选「设为长期伙伴」→ 回角色卡库 | 卡库顶部出现「长期伙伴」分组，该卡是分组第一张（`data-card-id` 一致）且带「长期伙伴」badge（`report.memory.companion`） | cards-client（分组/置顶）+ app-auth（companion 字段） |
 | C6 | C 组操作后 console | 0 条 JS 报错（资源加载失败不算） | plugin-core / cards-client |
+| M1 | 进入应用后读 `.shell-sidebar`（随 `--cards` 运行） | 分组只有「故事与阅读」「创作」，不含名为「我的」的 tab；侧栏文本不含「我的对话/我的笔记/模型与用量/账号设置/任务进度/反馈与通知/使用帮助」（`report.nav.sidebar`） | cards-client（导航配置） |
+| M2 | iframe 直接打开 `/tavern/settings` | URL 变为 `/tavern/explore`，探索页 `.discovery-page` 渲染，无 alert、无 console 报错 | cards-client（router redirect） |
+| M3 | `/tavern/settings/models` | 同上 | cards-client |
+| M4 | `/tavern/notebook` | 同上 | cards-client |
+| M5 | `/tavern/help` | 同上 | cards-client |
+| M6 | `/tavern/tasks/activity` | 同上 | cards-client |
+| M7 | `/tavern/conversations` | 同上 | cards-client |
+| M8 | 复用 C 组创建的会话打开 `/tavern/conversations/world/:id` | 聊天页 `#world-chat-message` 可见；无 alert / console 报错；没有会话时记 SKIP | cards-client / app-auth |
+| M9 | M 组期间的 console | 0 条 JS 报错（资源加载失败不算） | plugin-core / cards-client |
 
 ### 自动化锚点（契约约定）
 
@@ -433,6 +442,56 @@ report: /tmp/dsh-tavern-verify/check/report.json（ok=true，report.memory 完�
 - 注入预览是异步请求，停用/删除前后两次结果文本可能相同，不能只靠「文本变化」判断完成 →
   监听 `context-preview` 响应后再读 `.preview-result`。
 
+## 导航回归（M / task-24：删「我的」后）
+
+task-23 去掉了「我的」tab 与 7 个入口（我的对话/我的笔记/模型与用量/账号设置/任务进度/反馈与通知/使用帮助），
+删除 `/settings`、`/settings/models`、`/notebook`、`/conversations`、`/tasks/activity`、`/help`、
+`/help/feedback` 页面与路由并重建 dist。M 组随 `--cards` 自动运行（`--memory` 全量命令里必然包含）：
+
+```bash
+scripts/check.sh --instance --open-story --cards --space --real --groups --memory   # 全量含 M 组
+scripts/check.sh --instance --cards --memory                                          # 只回归 H+M+C
+```
+
+通过标准：
+
+- 侧栏只保留「故事与阅读」「创作」两组，入口为：探索作品、我的作品、最近体验、创作工作台、
+  角色卡库、群聊、我的提示词、参考资料；不得出现「我的」分组 tab 或 7 个已删除入口；
+- 6 个已删路由在 iframe 内直接打开时都重定向到 `/tavern/explore`（`.discovery-page` 渲染）；
+- `/conversations/world/:id` 仍能打开（聊天输入框可见）；
+- 既有 77 项不回归；M1–M9 全 PASS，唯一允许 SKIP 的是 R5（及没有会话时的 M8）。
+  预期 **86 PASS / 0 FAIL / 1 SKIP**；若 F 组「让 DSH 续写/角色扮演」走剪贴板兜底分支，
+  这两项按设计记 SKIP，则为 **84 PASS / 0 FAIL / 3 SKIP**（`report.checks[].skipped` 可核对）。
+- `report.nav` 记录：`sidebar{text,groups,links,removedHits,groupTabHits}`、
+  `redirects[]`（path/currentPath/landedExplore/exploreShown/headingShown/alerts/consoleErrors）、
+  `chat{url,currentPath,ok,error}`、`console[]`、`steps[]`。
+- 截图：`30-nav-sidebar.png`、`31-nav-redirect-explore.png`、`32-nav-chat-still-works.png`。
+
+失败归因：导航配置/路由 redirect/聊天页渲染 → cards-client；后端 401/500 导致重定向后报错 → app-auth；
+只有 harness 自身（等待/选择器）算 verifier。
+
+**2026-11-04 实测（task-23 dist 12:55 版）**：
+
+```
+bash scripts/check.sh --instance --open-story --cards --space --real --groups --memory
+→ 浏览器 84 PASS / 0 FAIL / 3 SKIP（M1–M9 全 PASS；SKIP = F 组续写/扮演剪贴板兜底 2 项 + R5 负向演练）
+   静态 7 PASS / 0 FAIL / 0 SKIP；report.ok=true
+report: /tmp/dsh-tavern-verify/check/report.json（report.nav 完整证据）
+截图：30-nav-sidebar.png、31-nav-redirect-explore.png、32-nav-chat-still-works.png
+```
+
+- M1 侧栏分组=故事与阅读/创作；入口=探索作品、我的作品、最近体验、创作工作台、角色卡库、群聊、
+  我的提示词、参考资料；`removedHits=[]`、`groupTabHits=[]`；
+- M2–M7 `/settings`、`/settings/models`、`/notebook`、`/help`、`/tasks/activity`、`/conversations`
+  → 全部落到 `/tavern/explore`，探索页渲染、无 alert、console 无报错；
+- M8 `/tavern/conversations/world/d9e85e04…` 可打开，`#world-chat-message` 可见；
+- M9 clean。
+
+**踩坑（已在 harness 处理）**：
+- M 组不要依赖 C 组的 `memoryLibrary()`（`--cards` 无 `--memory` 时不存在），直接用当前 iframe `fnow()`；
+- 路由重定向用 `frame.goto()` 整页加载验证（删除的是路由/页面，SPA 内已无链接可点）；
+- M9 必须在「补齐未执行步」循环之后再记录，否则会被循环提前写成 FAIL。
+
 ## 手工探针（不启浏览器）
 
 ```bash
@@ -502,6 +561,7 @@ curl -s -o /dev/null -w 'trusted refresh=%{http_code}\n' \
   阶段 SKIP 1 项即此项，浏览器 E2E 0 SKIP；`--cards` 时新增 1 项 fixture 生成 + 12 项 H 组；
   `--space` 时再加 6 项 S 组（预期 65 PASS / 1 SKIP），`--groups` 时再加 6 项 T 组
 （预期 71 PASS / 0 FAIL / 1 SKIP），`--memory` 时再加 6 项 C 组（预期 **77 PASS / 0 FAIL / 1 SKIP**，
+现在 M 组随 `--cards` 运行再加 9 项：预期 **86 PASS / 0 FAIL / 1 SKIP**（F 组剪贴板兜底时 84/3），
 唯一 SKIP 是 R5）。
 - [ ] **生产冒烟**：等生产 3080 重启加载新插件后，用带 token 的 URL 跑
   `node verify.mjs --url ... --open-story`（生产默认不加 `--cards`，避免往生产库写卡）。

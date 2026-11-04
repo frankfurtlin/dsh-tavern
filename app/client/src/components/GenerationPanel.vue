@@ -161,7 +161,7 @@ onUnmounted(()=>{stopWatching();commandGeneration++})
   <section class="story-writing" aria-label="故事写作">
     <div class="writing-origin"><span class="writing-origin-mark"><BookOpen :size="20"/></span><div><small>{{branch.name}}</small><p>从选中段落{{anchor.end===0?'之前':'之后'}}开始写作</p></div></div>
     <p v-if="loading" class="muted" role="status">正在打开写作记录…</p>
-    <p v-else-if="!profileId" class="hint">先添加一个模型，就能继续写故事。<RouterLink to="/settings/models" class="inline-link">打开模型设置 <ArrowRight :size="16"/></RouterLink></p>
+    <p v-else-if="!profileId" class="hint">先添加一个模型，就能继续写故事。</p>
     <template v-else>
       <fieldset class="chapter-count" :disabled="busy||running||!!pending">
         <legend>接下来，写几章？</legend>
@@ -170,7 +170,7 @@ onUnmounted(()=>{stopWatching();commandGeneration++})
         <small v-if="choice==='custom'" id="chapter-count-help" class="muted">每次可以写 1—10 章。</small>
       </fieldset>
       <label class="writing-wish">希望接下来怎样写？<span class="optional">选填</span><textarea v-model="instruction" maxlength="2000" :disabled="busy||running||!!pending" rows="3" placeholder="留空就顺着故事继续写；也可以告诉我：让林渡留下来救人。"></textarea></label>
-      <p class="writing-destination">{{branch.parentBranchId&&props.operation==='continue_at_tail'&&!instruction.trim()?'新章节会接在这条故事线后面。':instruction.trim()?'将从这里展开新的走向，当前故事线保留。':'新章节会保存在一条新的故事线里。'}}<RouterLink to="/settings/models">模型与用量</RouterLink></p>
+      <p class="writing-destination">{{branch.parentBranchId&&props.operation==='continue_at_tail'&&!instruction.trim()?'新章节会接在这条故事线后面。':instruction.trim()?'将从这里展开新的走向，当前故事线保留。':'新章节会保存在一条新的故事线里。'}}<span>模型与用量由账号服务管理</span></p>
       <button v-if="!running" class="primary writing-start" :disabled="loading||busy||!store.online||(!pending&&!count)" @click="start"><Sparkles :size="18"/>{{busy?'正在提交…':confirmed?'查看已提交的写作':pending?'继续这次写作':'开始写作'}}<span v-if="!busy&&!pending&&count">{{count}} 章</span></button>
     </template>
     <p v-if="error" class="error" role="alert">{{error}}</p>

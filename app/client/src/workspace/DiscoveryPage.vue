@@ -24,8 +24,8 @@ onMounted(load)
    <RouterLink to="/worlds/scripts" class="discovery-create"><Feather :size="17"/>创作作品</RouterLink>
   </PageHeader>
   <label class="workspace-search discovery-search"><Search :size="19"/><input v-model="search" type="search" aria-label="搜索作品" placeholder="搜索故事、题材或关键词"></label>
-  <p v-if="error" class="error" role="alert">{{error}} <button @click="load">重新加载</button> <RouterLink to="/help/feedback">反馈问题</RouterLink></p>
-  <aside v-if="!search" class="discovery-intro" aria-label="开始故事的提示"><BookOpen :size="21"/><p><strong>选一个故事，直接开始。</strong>选好身份就能进入，游玩进度会自动保存。</p><RouterLink to="/help" class="inline-link">游玩指南<ArrowUpRight :size="15"/></RouterLink></aside>
+  <p v-if="error" class="error" role="alert">{{error}} <button @click="load">重新加载</button></p>
+  <aside v-if="!search" class="discovery-intro" aria-label="开始故事的提示"><BookOpen :size="21"/><p><strong>选一个故事，直接开始。</strong>选好身份就能进入，游玩进度会自动保存。</p><RouterLink to="/features?group=阅读与游玩" class="inline-link">游玩指南<ArrowUpRight :size="15"/></RouterLink></aside>
   <div class="workspace-section-title"><div><h2>精选互动故事</h2><p class="discovery-section-note">不同的旅程，等你走出自己的故事。</p></div><RouterLink to="/recent" class="inline-link">最近游玩<ArrowRight :size="16"/></RouterLink></div>
   <p v-if="loading" role="status" class="workspace-loading">正在准备故事入口…</p>
   <div class="curated-story-grid">
@@ -39,7 +39,7 @@ onMounted(load)
   <div class="workspace-section-title"><h2>公开互动作品</h2></div>
   <PublicCatalog :shared-search="search" :curated-items="items"/>
   <section class="discovery-library"><BookOpen :size="24"/><div><h2>带上你自己的小说</h2><p>导入到账号书架，继续阅读、做笔记或探索故事。</p></div><RouterLink to="/library?examples=1" class="inline-link">前往小说书架<ArrowRight :size="16"/></RouterLink></section>
-  <p class="workspace-footnote"><RouterLink to="/data-use">数据与使用说明</RouterLink> · <RouterLink to="/help/feedback">反馈与服务通知</RouterLink></p>
+  <p class="workspace-footnote"><RouterLink to="/data-use">数据与使用说明</RouterLink></p>
  </div>
 </template>
 <style scoped>
