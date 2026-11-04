@@ -21,6 +21,7 @@ class CharacterCard(WorldOwned, WorldBase):
     first_message: Mapped[str] = mapped_column(Text, default="")
     example_messages: Mapped[list] = mapped_column(JSONB, default=list)
     alternate_greetings: Mapped[list] = mapped_column(JSONB, default=list)
+    prompt_settings: Mapped[dict] = mapped_column(JSONB, default=dict)
     tags: Mapped[list] = mapped_column(JSONB, default=list)
     creator: Mapped[str] = mapped_column(String(200), default="")
     character_version: Mapped[str] = mapped_column(String(100), default="")

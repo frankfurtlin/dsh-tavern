@@ -10,6 +10,11 @@ from ..cards.models import (  # noqa: F401  (registers the world.card_* tables)
     RegexScript,
     TavernPersona,
 )
+from ..tavern.models import (  # noqa: F401  (registers the native tavern tables)
+    TavernChat,
+    TavernMessage,
+    TavernWorldInfo,
+)
 
 SCHEMA_VERSION = 1
 
@@ -26,6 +31,8 @@ def migrate():
         conn.execute(text("ALTER TABLE world.character_cards ADD COLUMN IF NOT EXISTS memory_task_id varchar(32)"))
         # P1 personas: world_chat_sessions gains an optional persona reference.
         conn.execute(text("ALTER TABLE world_chat_sessions ADD COLUMN IF NOT EXISTS persona_id varchar(32)"))
+        # Native tavern: per-card prompt settings live on the card row.
+        conn.execute(text("ALTER TABLE world.character_cards ADD COLUMN IF NOT EXISTS prompt_settings jsonb NOT NULL DEFAULT '{}'::jsonb"))
         # P2 world exports use source='world-export', wider than the original varchar(8).
         width = conn.execute(text("SELECT character_maximum_length FROM information_schema.columns "
                                  "WHERE table_schema='world' AND table_name='character_cards' AND column_name='source'")).scalar()

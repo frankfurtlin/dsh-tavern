@@ -31,6 +31,7 @@ from .experience.api import router as experience
 from .cards.api import presets as character_card_presets, regex_scripts as character_card_regex
 from .cards.api import router as cards
 from .cards.personas import router as tavern_personas
+from .tavern.api import router as tavern
 from .cards import models as card_space_models  # noqa: F401  (registers world.card_lore/chat_presets/regex_scripts/card_memories)
 from .experience import curated as reviewed_library
 from .experience import beta as beta_operations
@@ -61,7 +62,7 @@ async def request_id(request: Request, call_next):
 
 
 register_errors(app)
-for router in (auth, books, ai, reading, story, stories, characters, playback, comparison, prose, assets, portable, product, analytics, author_prompts, authoring, vision_models, play_controls, experience, cards, character_card_presets, character_card_regex, tavern_personas):
+for router in (auth, books, ai, reading, story, stories, characters, playback, comparison, prose, assets, portable, product, analytics, author_prompts, authoring, vision_models, play_controls, experience, cards, character_card_presets, character_card_regex, tavern_personas, tavern):
     app.include_router(router, prefix="/api/reader/v1")
 app.include_router(world_config, prefix="/api/world/v1")
 app.include_router(worlds, prefix="/api/world/v1")
