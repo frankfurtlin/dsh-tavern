@@ -5,7 +5,8 @@
   v2-png.png     —— SillyTavern v2 角色卡塞进 PNG tEXt chunk（keyword=chara，值=base64(JSON)）
   v2-json.json   —— `{"spec":"chara_card_v2","spec_version":"2.0","data":{...}}`
   v1-json.json   —— v1 扁平结构
-  manifest.json  —— 供 verify.mjs --cards 读取的 {file,name,format} 列表
+  v2-lore.json   —— B 步（--space）用：带 `data.character_book.entries` 世界书条目的 v2 卡
+  manifest.json  —— 供 verify.mjs --cards/--space 读取：cards=[3 张基础卡]，space.lorebook 单独列出
 
 用法：
   python3 scripts/fixtures/make-cards.py                 # 写默认目录
@@ -65,6 +66,39 @@ CARDS = [
     },
 ]
 
+# B 步（角色卡空间 / --space）专用：带世界书条目的 v2 卡。
+# H 组（--cards）不会导入这张，避免改变既有 59 项基线；只有 S 组按 manifest.space.lorebook 使用。
+LORE_CARD = {
+    "file": "v2-lore.json",
+    "format": "json-v2-lore",
+    "name": "陆三更",
+    "description": "在渡口支茶摊的说书人，专挑雨天讲古，茶钱随意。",
+    "personality": "慢条斯理、爱卖关子；对茶和雨声格外讲究。",
+    "scenario": "雨落在渡口茶棚上，你收起伞，在长凳末端坐下。",
+    "first_mes": "陆三更把粗瓷碗推过来：「先暖暖手。雨停之前，正好讲一段。」",
+    "mes_example": "<START>\n{{user}}: 你这茶有什么讲究？\n{{char}}: 第三盏要留给赶路的人，这是老规矩。",
+    "tags": ["茶馆", "说书", "世界书"],
+    "creator": "verifier-fixture",
+    "character_version": "1.0",
+    "character_book": {
+        "name": "渡口茶话",
+        "entries": [
+            {
+                "keys": ["茶", "茶博士"],
+                "content": "【E2E-LORE-茶】茶博士只在下雨天讲古；雨后第三盏茶要留给赶路的人，碗底压一枚旧铜钱。",
+                "enabled": True,
+                "insertion_order": 10,
+            },
+            {
+                "keys": ["雨", "渡口"],
+                "content": "【E2E-LORE-雨】渡口的雨声能盖住低声说的话；说书人常在雨最大时讲最真的故事。",
+                "enabled": True,
+                "insertion_order": 20,
+            },
+        ],
+    },
+}
+
 
 def v2_payload(card: dict) -> dict:
     return {
@@ -85,6 +119,7 @@ def v2_payload(card: dict) -> dict:
             "creator": card["creator"],
             "character_version": card["character_version"],
             "extensions": {},
+            **({"character_book": card["character_book"]} if card.get("character_book") else {}),
         },
     }
 
@@ -188,10 +223,24 @@ def main() -> int:
             )
         manifest["cards"].append({"file": card["file"], "name": card["name"], "format": card["format"]})
 
+    # B 步世界书卡（--space 用）：单独生成，不进 cards 列表
+    lore_path = out_dir / LORE_CARD["file"]
+    lore_path.write_text(json.dumps(v2_payload(LORE_CARD), ensure_ascii=False, indent=2), encoding="utf-8")
+    manifest["space"] = {
+        "lorebook": {
+            "file": LORE_CARD["file"],
+            "name": LORE_CARD["name"],
+            "format": LORE_CARD["format"],
+            "keys": ["茶", "雨"],
+            "markers": ["【E2E-LORE-茶】", "【E2E-LORE-雨】"],
+        }
+    }
+
     (out_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"fixtures 写入 {out_dir}")
     for item in manifest["cards"]:
         print(f"  {item['file']:<16} {item['format']:<8} {item['name']}")
+    print(f"  {LORE_CARD['file']:<16} {LORE_CARD['format']:<8} {LORE_CARD['name']}  (--space 世界书卡)")
     if failures:
         for failure in failures:
             print(f"WARN  {failure}", file=sys.stderr)

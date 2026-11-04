@@ -62,7 +62,7 @@ export const capabilities:Capability[]=[
  c('assistant','扩展能力','高级创作助手与 MCP','planned','账号版尚未开放高级助手与 MCP 配置；可先使用创作工作台和参考资料。','/features?group=扩展能力','本产品扩展能力'),
  c('companion','扩展能力','长期伙伴与剧场','planned','账号版尚未开放长期伙伴和逐句剧场；旧版记录可从设置导出完整备份。','/settings/import-history','本产品扩展能力'),
  c('media-extension','扩展能力','视频、图集与向量工具','partial','互动世界的图像场景可以使用；独立视频、图集管理和向量工具尚未接入账号版。','/worlds','本产品扩展能力'),
- c('role-presets','扩展能力','独立角色卡与写作扩展','partial','角色卡导入与单卡聊天已可用；预设/正则/插件库尚未接入','/characters','角色卡库'),
+ c('role-presets','扩展能力','独立角色卡与写作扩展','partial','角色卡导入、单卡聊天、世界书与预设/正则替换已可用；插件库尚未接入。','/characters','角色卡库'),
  c('legacy-import','平台与帮助','旧版内容恢复','ready','旧故事原文可导入我的作品；完整备份保留分支、对话和图片，原资料不删除。','/settings/import-history','历史内容兼容'),
 ]
 export const statusLabels:Record<CapabilityStatus,string>={ready:'可用',partial:'部分可用',planned:'暂未开放'}

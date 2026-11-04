@@ -11,6 +11,7 @@
 #   scripts/check.sh --cards         # E2E 额外跑角色卡导入 + 单卡聊天（会写入/删除测试卡）
 #   scripts/check.sh --real          # 真生成验收：隐含 --cards，断言回复不是 mock、刷新后仍在（需应用 AI_MODE=dsh + DSH 网关）
 #   scripts/check.sh --real-negative # 负向演练：假定网关已被弄坏，断言 UI 显示失败而不是假回复（侵入环境，手动用）
+#   scripts/check.sh --space         # B 步角色卡空间：隐含 --cards，S1–S6 断言详情/世界书/正则/预设/context-preview（UI 未接入时逐项 SKIP）
 #   scripts/check.sh --keep-home     # 保留 /tmp/dsh-tavern-check（排查用）
 #   scripts/check.sh --port 3199     # 换端口
 #
@@ -20,8 +21,10 @@
 #   $OUT/logs/dsh.log                  —— 隔离实例的 DSH 日志（启动失败时先看这个）
 #   截图 01-sidebar.png … 08-refresh-home.png（含 03b-tavern-open / 06-restore-panel / 07-reload-restore）
 #        --cards 时另有 09-cards-page.png … 14-cards-deleted.png
-#   角色卡 fixture：/tmp/tavern-verify/cards/{v2-png.png,v2-json.json,v1-json.json,manifest.json}
+#   角色卡 fixture：/tmp/tavern-verify/cards/{v2-png.png,v2-json.json,v1-json.json,v2-lore.json,manifest.json}
+#        v2-lore.json（陆三更）带 character_book，仅 --space 时由 verify.mjs 读取 manifest.space.lorebook 使用。
 #   --real 时 report.real 记录首句前 60 字/字数/耗时/模型名（不写 prompt 全文）。
+#   --space 时 report.space 记录 S1–S6 的 steps 与证据（世界书条目、正则回复、context-preview）。
 #
 # 设计（参考同级插件 dsh-ziwei/scripts/check.sh）：
 #   - 在 /tmp/dsh-tavern-check 起一个完全隔离的 DSH_HOME，profile=check，端口默认 3099，
@@ -52,6 +55,7 @@ OPEN_STORY=0
 CARDS=0
 REAL=0
 REAL_NEGATIVE=0
+SPACE=0
 KEEP_HOME=0
 PASS=0
 FAIL=0
@@ -68,6 +72,7 @@ while [[ $# -gt 0 ]]; do
     --cards) CARDS=1 ;;
     --real) REAL=1; CARDS=1 ;;
     --real-negative) REAL_NEGATIVE=1; REAL=1; CARDS=1 ;;
+    --space) SPACE=1; CARDS=1 ;;
     --keep-home) KEEP_HOME=1 ;;
     --port) PORT="${2:?--port 需要端口号}"; shift ;;
     --help|-h) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -385,7 +390,7 @@ instance_checks() {
   if [[ "$CARDS" -eq 1 ]]; then
     say "角色卡 fixture（make-cards.py）"
     local fixture_args=(--out /tmp/tavern-verify/cards)
-    run "生成角色卡 fixture（v2 PNG / v2 JSON / v1 JSON）" python3 "$ROOT/scripts/fixtures/make-cards.py" "${fixture_args[@]}"
+    run "生成角色卡 fixture（v2 PNG / v2 JSON / v1 JSON / v2 lorebook JSON）" python3 "$ROOT/scripts/fixtures/make-cards.py" "${fixture_args[@]}"
   fi
 
   say "真实浏览器 E2E（verify.mjs）"
@@ -393,6 +398,7 @@ instance_checks() {
   [[ "$NO_BRIDGE" -eq 1 ]] && verify_args+=(--no-bridge)
   [[ "$OPEN_STORY" -eq 1 ]] && verify_args+=(--open-story)
   [[ "$CARDS" -eq 1 ]] && verify_args+=(--cards --cards-dir /tmp/tavern-verify/cards)
+  [[ "$SPACE" -eq 1 ]] && verify_args+=(--space)
   [[ "$REAL" -eq 1 ]] && verify_args+=(--real)
   [[ "$REAL_NEGATIVE" -eq 1 ]] && verify_args+=(--real-negative)
   if node "$ROOT/verify.mjs" "${verify_args[@]}"; then

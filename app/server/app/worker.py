@@ -383,6 +383,11 @@ def call_provider(task_id, stage, prompt_name, data, output_limit):
         thinking_mode = policy["stages"][policy_stage]["thinking"]
         from .world.output import narrator_prompt_name
         system_prompt = frozen_prompt(task,narrator_prompt_name(prompt_name, data),PROMPTS)
+        if task.task_type == "world_character_chat" and prompt_name == "world_character_chat":
+            from .cards.space import chat_injection
+            appended = chat_injection(db, task)
+            if appended:
+                system_prompt = system_prompt + "\n\n" + appended
         from .foundation.prompts import narrator_preferences
         data = narrator_preferences(task, data, prompt_name)
         # UTF-8 byte count is a conservative token upper estimate for byte-based tokenizers.

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed,onMounted,onUnmounted,ref} from 'vue'
 import {useRouter} from 'vue-router'
-import {Upload,Users,MessageCircle,Trash2} from 'lucide-vue-next'
+import {Upload,Users,MessageCircle,Pencil,Replace,Trash2} from 'lucide-vue-next'
 import PageHeader from '../workspace/PageHeader.vue'
 import {useApp} from '../stores/app'
 import {useRequestScope} from '../platform/request-scope'
@@ -64,6 +64,7 @@ async function importFile(event:Event){
     if(!disposed)importing.value=false
   }
 }
+function openDetail(card:CardOut){if(!chatting.value&&!deleting.value)void router.push('/characters/'+card.id)}
 async function openChat(card:CardOut){
   if(chatting.value||deleting.value)return
   const scope=capture()
@@ -105,6 +106,7 @@ onUnmounted(()=>{disposed=true;listEpoch++;avatarEpoch++;revokeAll()})
     <Upload :size="17"/>{{importing?'正在导入…':'导入角色卡'}}
     <input ref="fileInput" type="file" accept=".png,.json" :disabled="importing" @change="importFile">
    </label>
+   <button type="button" @click="router.push('/characters/regex')"><Replace :size="17"/>输出替换规则</button>
   </PageHeader>
   <p v-if="importError" class="error" role="alert">{{importError}}</p>
   <p v-if="listError" class="error" role="alert">{{listError}} <button type="button" @click="load">重新载入角色卡</button></p>
@@ -128,6 +130,7 @@ onUnmounted(()=>{disposed=true;listEpoch++;avatarEpoch++;revokeAll()})
     <div v-if="card.tags?.length" class="character-tags"><span v-for="tag in card.tags.slice(0,6)" :key="tag" class="badge">{{tag}}</span></div>
     <div class="workspace-card-actions">
      <button class="primary" :disabled="!!chatting||!!deleting" @click="openChat(card)"><MessageCircle :size="16"/>{{chatting===card.id?'正在打开…':'开聊'}}</button>
+     <button :disabled="!!chatting||!!deleting" @click="openDetail(card)"><Pencil :size="15"/>编辑</button>
      <button class="danger" :disabled="!!chatting||!!deleting" @click="remove(card)"><Trash2 :size="15"/>{{deleting===card.id?'正在删除…':'删除'}}</button>
     </div>
    </article>

@@ -13,6 +13,7 @@ from ..world.models import World
 from ..world.schemas import WorldRules
 from ..world.service import require_line, start_line
 from ..world.state import initial_state, prepared_definition
+from . import space
 from .models import CharacterCard
 
 CARD_SOURCE = {"schemaVersion": 2, "kind": "character-card", "templateId": None, "blocks": []}
@@ -72,6 +73,7 @@ def import_card(db, owner, parsed, png=None):
     card.world_id, card.line_id = world.id, line.id
     card.checkpoint_id, card.character_id = root.id, character_id
     db.add(card)
+    space.import_lore(db, owner, card.id, parsed.get("lore"))
     db.commit()
     return card
 
@@ -92,10 +94,27 @@ def card_out(card):
         "creator": card.creator,
         "source": card.source,
         "hasAvatar": bool(card.avatar_path),
+        "presetId": card.preset_id,
         "chatTarget": target,
         "createdAt": card.created_at.isoformat(),
         "updatedAt": card.updated_at.isoformat(),
     }
+
+
+def update_card(db, owner, card, values):
+    for field in ("name", "description", "personality", "scenario", "system_prompt",
+                  "post_history_instructions"):
+        if values.get(field) is not None:
+            setattr(card, field, values[field])
+    if values.get("firstMessage") is not None:
+        card.first_message = values["firstMessage"]
+    if values.get("tags") is not None:
+        card.tags = list(values["tags"])[:200]
+    if "presetId" in values:
+        space.bind_preset(db, owner, card, values["presetId"])
+    card.updated_at = now()
+    db.commit()
+    return card
 
 
 def list_cards(db, owner, q=""):
