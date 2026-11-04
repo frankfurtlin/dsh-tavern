@@ -12,6 +12,7 @@ import queue
 import threading
 from types import SimpleNamespace
 
+from ..cards import space as card_space
 from ..completion_policy import completion_limit
 from ..db import SessionLocal
 from ..errors import Problem
@@ -41,10 +42,45 @@ def profile_view(profile):
     return {field: getattr(profile, field, None) for field in PROFILE_FIELDS}
 
 
-def output_limit_for(profile, settings):
+def output_limit_for(profile, settings, preset=None, chat_sampling=None):
     limit = completion_limit(profile, "generation")
-    requested = int((settings or {}).get("maxTokens") or 0)
+    requested = int((chat_sampling or {}).get("maxTokens") or 0)
+    if not requested:
+        requested = int(getattr(preset, "max_tokens", None) or (settings or {}).get("maxTokens") or 0)
     return max(16, min(limit, requested)) if requested else limit
+
+
+def _number(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def sampling_for(settings, preset, chat_sampling=None):
+    """Chat sampling > preset sampling > per-card settings; None = adapter default."""
+    settings = settings or {}
+    chat_sampling = chat_sampling or {}
+    temperature = chat_sampling.get("temperature")
+    if temperature is None:
+        temperature = getattr(preset, "temperature", None) if preset is not None else None
+    if temperature is None:
+        temperature = _number(settings.get("temperature"))
+    top_p = chat_sampling.get("topP")
+    if top_p is None:
+        top_p = getattr(preset, "top_p", None) if preset is not None else None
+    if top_p is None:
+        top_p = _number(settings.get("topP"))
+    stop = [str(item) for item in (chat_sampling.get("stop") or [])]
+    if not stop:
+        stop = [str(item) for item in (getattr(preset, "stop", None) or [])] if preset is not None else []
+    if not stop:
+        stop = [str(item) for item in (settings.get("stop") or [])]
+    return {
+        "temperature": _number(temperature),
+        "topP": _number(top_p),
+        "stop": [item[:200] for item in stop][:4] or None,
+    }
 
 
 def _persist(*, owner, chat_id, mode, text, model, target_id):
@@ -52,6 +88,9 @@ def _persist(*, owner, chat_id, mode, text, model, target_id):
         chat = db.get(service.TavernChat, chat_id)
         if chat is None or chat.owner_id != owner:
             return None
+        # Account-level output substitutions apply to the text that is saved;
+        # streamed deltas stay untouched (same contract as the legacy story flow).
+        text = card_space.apply_regex(db, owner, text)
         swipe = {"content": text, "model": model or "", "createdAt": now().isoformat()}
         if mode == "regenerate":
             row = db.get(TavernMessage, target_id)
@@ -73,7 +112,7 @@ def _persist(*, owner, chat_id, mode, text, model, target_id):
 
 
 def reply_events(*, owner, chat_id, mode, system_prompt, data, output_limit,
-                 profile, model_name, target_id=None, initial=None):
+                 profile, model_name, target_id=None, initial=None, sampling=None):
     """Return a generator of SSE frames for one assistant reply."""
     def stream():
         cancel = threading.Event()
@@ -92,7 +131,8 @@ def reply_events(*, owner, chat_id, mode, system_prompt, data, output_limit,
                 adapter = adapter_for()
                 plain_profile = SimpleNamespace(**profile)
                 result = adapter.generate_stream(plain_profile, system_prompt, data, output_limit,
-                                                 on_delta=on_delta, cancel_check=cancel_check)
+                                                 on_delta=on_delta, cancel_check=cancel_check,
+                                                 sampling=sampling)
                 frames.put(("result", result))
             except BaseException as error:  # surfaced to the client as an error frame
                 frames.put(("error", error))

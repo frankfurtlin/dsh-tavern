@@ -1,14 +1,15 @@
 """Shared helpers for native tavern chats (serialization, lookup, import)."""
 from datetime import datetime
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text, update
+from sqlalchemy.exc import IntegrityError
 
 from ..cards import parse as card_parse
 from ..cards.models import CharacterCard
 from ..errors import Problem
 from ..models import now, uid
 from ..storage import write_private
-from .models import TavernChat, TavernMessage, TavernWorldInfo
+from .models import TavernChat, TavernMessage, TavernPreset, TavernWorldInfo
 
 POSITIONS = ("before_char", "after_char", "before_example", "at_depth")
 
@@ -70,6 +71,8 @@ def chat_out(row):
         "id": row.id,
         "cardId": row.card_id,
         "title": row.title,
+        "presetId": row.preset_id,
+        "sampling": dict(row.sampling or {}),
         "modelName": row.model_name,
         "lastMessageAt": iso(row.last_message_at),
         "createdAt": iso(row.created_at),
@@ -195,3 +198,100 @@ def world_info_out(row):
         "createdAt": iso(row.created_at),
         "updatedAt": iso(row.updated_at),
     }
+
+
+DEFAULT_PRESET_NAME = "默认"
+DEFAULT_TEMPERATURE = 0.8
+DEFAULT_TOP_P = 0.95
+
+
+def preset_out(row):
+    return {
+        "id": row.id,
+        "name": row.name,
+        "isDefault": bool(row.is_default),
+        "system": row.system or "",
+        "main": row.main or "",
+        "jailbreak": row.jailbreak or "",
+        "postHistory": row.post_history or "",
+        "temperature": row.temperature,
+        "topP": row.top_p,
+        "maxTokens": row.max_tokens,
+        "stop": list(row.stop or []),
+        "createdAt": iso(row.created_at),
+        "updatedAt": iso(row.updated_at),
+    }
+
+
+def _builtin_preset(db, owner):
+    return db.scalar(select(TavernPreset).where(TavernPreset.owner_id == owner,
+                                                TavernPreset.builtin.is_(True)))
+
+
+def default_preset(db, owner):
+    """Return the active default preset, creating the built-in one exactly once.
+
+    Creation is protected by a transaction-scoped advisory lock *and* by the
+    partial unique index ``(owner_id) WHERE builtin`` so concurrent requests
+    (or multiple uvicorn workers) can never create duplicate 「默认」 rows.
+    """
+    row = db.scalar(select(TavernPreset).where(TavernPreset.owner_id == owner,
+                                               TavernPreset.is_default.is_(True)))
+    if row is not None:
+        return row
+    row = _builtin_preset(db, owner)
+    if row is not None:
+        return row
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+               {"key": f"tavern-preset:{owner}"})
+    row = _builtin_preset(db, owner)
+    if row is not None:
+        db.commit()  # release the advisory lock
+        return row
+    row = TavernPreset(id=uid(), owner_id=owner, name=DEFAULT_PRESET_NAME, builtin=True,
+                       is_default=True, system="", main="", jailbreak="", post_history="",
+                       temperature=DEFAULT_TEMPERATURE, top_p=DEFAULT_TOP_P,
+                       max_tokens=None, stop=[], updated_at=now())
+    db.add(row)
+    try:
+        db.commit()
+    except IntegrityError:
+        # Another session won the race: roll back and reuse its row.
+        db.rollback()
+        row = _builtin_preset(db, owner)
+        if row is None:
+            raise
+    return row
+
+
+def list_presets(db, owner):
+    default_preset(db, owner)
+    return list(db.scalars(select(TavernPreset).where(TavernPreset.owner_id == owner)
+                           .order_by(TavernPreset.is_default.desc(),
+                                     TavernPreset.created_at, TavernPreset.id)))
+
+
+def get_preset(db, owner, preset_id):
+    row = db.get(TavernPreset, preset_id)
+    if row is None or row.owner_id != owner:
+        raise Problem("PRESET_NOT_FOUND", "这个预设不存在", 404)
+    return row
+
+
+def preset_for_chat(db, owner, chat):
+    if chat is not None and chat.preset_id:
+        row = db.get(TavernPreset, chat.preset_id)
+        if row is not None and row.owner_id == owner:
+            return row
+    return default_preset(db, owner)
+
+
+def delete_preset(db, owner, preset_id):
+    row = get_preset(db, owner, preset_id)
+    if row.is_default or row.builtin:
+        raise Problem("PRESET_IMMUTABLE", "内置默认预设不能删除", 409)
+    db.execute(update(TavernChat).where(TavernChat.owner_id == owner,
+                                        TavernChat.preset_id == row.id)
+               .values(preset_id=None))
+    db.delete(row)
+    db.commit()

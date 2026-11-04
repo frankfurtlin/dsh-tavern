@@ -8,8 +8,8 @@ import {saveBlob,safeFileName} from '../platform/download'
 import {
  characterAvatarBlob,createCharacterChat,deleteCharacter,deleteWorldInfo,exportCharacterBlob,
  getCharacter,importChats,listCharacterChats,listWorldInfo,previewWorldInfo,updateCharacter,
- updateWorldInfo,createWorldInfo,
- type TavernCharacter,TavernChat,WorldInfoEntry,WorldInfoInput,WorldInfoPosition,WorldInfoPreview,
+ updateWorldInfo,createWorldInfo,getPrompt,updatePrompt,
+ type TavernCharacter,TavernChat,WorldInfoEntry,WorldInfoInput,WorldInfoPosition,WorldInfoPreview,TavernPrompt,
 } from './api'
 
 const route=useRoute(),router=useRouter(),store=useApp(),scope=useRequestScope()
@@ -32,6 +32,29 @@ const previewMessage=ref('')
 const previewLoading=ref(false)
 const previewError=ref('')
 const previewResult=ref<WorldInfoPreview|null>(null)
+const promptLoading=ref(true)
+const promptError=ref('')
+const promptNotice=ref('')
+const savingPrompt=ref(false)
+const prompt=reactive({systemPrompt:'',mainPrompt:'',jailbreakPrompt:'',temperature:0.8,topP:0.95,maxTokens:1024,stopText:'',worldInfoPosition:'before_char' as WorldInfoPosition})
+function positionKey(){return 'tavern:worldinfo:position:'+cardId.value}
+function storedPosition():WorldInfoPosition{
+  try{
+    const value=window.localStorage.getItem(positionKey())
+    if(value==='before_char'||value==='after_char'||value==='before_example'||value==='at_depth')return value
+  }catch{/* ignore */}
+  return 'before_char'
+}
+function fillPrompt(value:TavernPrompt){
+  prompt.systemPrompt=value.systemPrompt||''
+  prompt.mainPrompt=value.mainPrompt||''
+  prompt.jailbreakPrompt=value.jailbreakPrompt||''
+  prompt.temperature=value.temperature??0.8
+  prompt.topP=value.topP??0.95
+  prompt.maxTokens=value.maxTokens??1024
+  prompt.stopText=(value.stop||[]).join('\n')
+  prompt.worldInfoPosition=storedPosition()||value.worldInfoPosition||'before_char'
+}
 
 const form=reactive({name:'',description:'',personality:'',scenario:'',firstMessage:'',systemPrompt:'',postHistoryInstructions:'',tagsText:''})
 function fillForm(value:TavernCharacter){
@@ -58,15 +81,18 @@ async function load(){
       const blob=await characterAvatarBlob(cardId.value).catch(()=>null)
       if(blob&&ticket.valid())avatarUrl.value=URL.createObjectURL(blob)
     }
-    const [chatResult,infoResult]=await Promise.allSettled([listCharacterChats(cardId.value),listWorldInfo(cardId.value)])
+    const [chatResult,infoResult,promptResult]=await Promise.allSettled([listCharacterChats(cardId.value),listWorldInfo(cardId.value),getPrompt(cardId.value)])
     if(!ticket.valid())return
     chats.value=chatResult.status==='fulfilled'?chatResult.value:[]
     if(infoResult.status==='fulfilled')worldInfo.value=infoResult.value
     else worldError.value=(infoResult.reason as Error)?.message||'世界书加载失败'
+    if(promptResult.status==='fulfilled'){fillPrompt(promptResult.value);promptError.value=''}
+    else promptError.value=(promptResult.reason as Error)?.message||'提示词设置暂时无法读取。'
+    if(!infoEditor.open)infoEditor.position=prompt.worldInfoPosition
   }catch(e){
     if(ticket.valid())error.value=(e as Error).message||'角色卡加载失败，请稍后重试。'
   }finally{
-    if(scope().valid())loading.value=false
+    if(scope().valid()){loading.value=false;promptLoading.value=false}
   }
 }
 
@@ -88,6 +114,30 @@ async function save(){
   }finally{saving.value=false}
 }
 
+function stopWords(){return prompt.stopText.split(/\n/).map(item=>item.trim()).filter(Boolean).slice(0,8)}
+async function savePrompt(){
+  if(!card.value||savingPrompt.value)return
+  if(prompt.temperature<0||prompt.temperature>2){promptError.value='temperature 需要在 0 到 2 之间。';return}
+  if(prompt.topP<0||prompt.topP>1){promptError.value='top_p 需要在 0 到 1 之间。';return}
+  if(prompt.maxTokens<16||prompt.maxTokens>8192){promptError.value='max_tokens 需要在 16 到 8192 之间。';return}
+  savingPrompt.value=true;promptError.value='';promptNotice.value=''
+  const body={systemPrompt:prompt.systemPrompt,mainPrompt:prompt.mainPrompt,temperature:prompt.temperature,topP:prompt.topP,maxTokens:prompt.maxTokens,stop:stopWords()}
+  try{
+    const value=await updatePrompt(cardId.value,body)
+    fillPrompt(value)
+    try{
+      await updatePrompt(cardId.value,{jailbreakPrompt:prompt.jailbreakPrompt})
+      promptNotice.value='提示词与采样参数已保存。'
+    }catch{
+      promptNotice.value='主提示词与采样参数已保存；越狱提示词需要服务端支持后生效。'
+    }
+    try{window.localStorage.setItem(positionKey(),prompt.worldInfoPosition)}catch{/* ignore */}
+    infoEditor.position=prompt.worldInfoPosition
+    saveNotice.value=''
+  }catch(e){
+    promptError.value=(e as Error).message||'保存提示词失败，请稍后重试。'
+  }finally{savingPrompt.value=false}
+}
 async function exportCard(){
   if(exporting.value)return
   exporting.value=true;exportError.value=''
@@ -113,8 +163,9 @@ async function startChat(){
 
 function openChat(chat:TavernChat){void router.push('/chats/'+encodeURIComponent(chat.id))}
 
-const infoEditor=reactive({open:false,id:'',keys:'',content:'',position:'before_char' as WorldInfoPosition,depth:4,constant:false,probability:100,order:100,enabled:true})
-function resetInfo(){infoEditor.open=false;infoEditor.id='';infoEditor.keys='';infoEditor.content='';infoEditor.position='before_char';infoEditor.depth=4;infoEditor.constant=false;infoEditor.probability=100;infoEditor.order=100;infoEditor.enabled=true}
+const infoEditor=reactive({open:false,id:'',keys:'',content:'',position:'before_char' as WorldInfoPosition,depth:4,constant:false,probability:1,order:100,enabled:true})
+function resetInfo(){infoEditor.open=false;infoEditor.id='';infoEditor.keys='';infoEditor.content='';infoEditor.position=prompt.worldInfoPosition||storedPosition();infoEditor.depth=4;infoEditor.constant=false;infoEditor.probability=1;infoEditor.order=100;infoEditor.enabled=true}
+function openInfo(){resetInfo();infoEditor.open=true}
 function editInfo(entry:WorldInfoEntry){
   infoEditor.open=true;infoEditor.id=entry.id
   infoEditor.keys=[...(entry.keys||[])].join(', ')
@@ -122,7 +173,7 @@ function editInfo(entry:WorldInfoEntry){
   infoEditor.position=entry.position
   infoEditor.depth=entry.depth
   infoEditor.constant=entry.constant
-  infoEditor.probability=entry.probability
+  infoEditor.probability=(entry.probability??100)/100
   infoEditor.order=entry.order
   infoEditor.enabled=entry.enabled
 }
@@ -135,7 +186,7 @@ async function saveInfo(){
     position:infoEditor.position,
     depth:infoEditor.depth,
     constant:infoEditor.constant,
-    probability:infoEditor.probability,
+    probability:Math.min(100,Math.max(1,Math.round((infoEditor.probability||0)*100))),
     order:infoEditor.order,
     enabled:infoEditor.enabled,
   }
@@ -235,6 +286,31 @@ onUnmounted(()=>{if(avatarUrl.value)URL.revokeObjectURL(avatarUrl.value)})
     </form>
    </section>
 
+   <section class="character-section" aria-label="提示词与采样">
+    <h2 class="section-title">提示词与采样</h2>
+    <p class="muted">这里覆盖全局设置：主提示词、越狱提示词与采样参数。留空表示沿用默认。</p>
+    <p v-if="promptLoading" class="muted" role="status">正在读取提示词设置…</p>
+    <template v-else>
+     <p v-if="promptError" class="error" role="alert">{{promptError}}</p>
+     <p v-if="promptNotice" class="tavern-notice" role="status">{{promptNotice}}</p>
+     <form class="character-form" @submit.prevent="savePrompt">
+      <label>系统提示词覆盖<textarea v-model="prompt.systemPrompt" rows="3" aria-label="系统提示词覆盖"></textarea></label>
+      <label>主提示词<textarea v-model="prompt.mainPrompt" rows="4" aria-label="主提示词"></textarea></label>
+      <label>越狱提示词<textarea v-model="prompt.jailbreakPrompt" rows="2" aria-label="越狱提示词"></textarea></label>
+      <div class="form-pair">
+       <label>temperature<input v-model.number="prompt.temperature" type="number" min="0" max="2" step="0.05" aria-label="temperature"></label>
+       <label>top_p<input v-model.number="prompt.topP" type="number" min="0" max="1" step="0.01" aria-label="top_p"></label>
+      </div>
+      <div class="form-pair">
+       <label>max_tokens<input v-model.number="prompt.maxTokens" type="number" min="16" max="8192" aria-label="max_tokens"></label>
+       <label>世界书默认位置<select v-model="prompt.worldInfoPosition" aria-label="世界书默认位置"><option value="before_char">角色前</option><option value="after_char">角色后</option><option value="before_example">示例前</option><option value="at_depth">指定深度</option></select></label>
+      </div>
+      <label>停止词（每行一个，最多 8 个）<textarea v-model="prompt.stopText" rows="2" aria-label="停止词"></textarea></label>
+      <div class="form-actions"><button type="submit" class="primary" :disabled="savingPrompt"><Save :size="17"/>{{savingPrompt?'保存中…':'保存提示词'}}</button></div>
+     </form>
+    </template>
+   </section>
+
    <section class="character-section" aria-label="示例对话">
     <h2 class="section-title">示例对话</h2>
     <pre v-if="card.exampleDialogue" class="example-dialogue">{{card.exampleDialogue}}</pre>
@@ -244,7 +320,7 @@ onUnmounted(()=>{if(avatarUrl.value)URL.revokeObjectURL(avatarUrl.value)})
    <section class="character-section" aria-label="世界书">
     <div class="section-head">
      <h2 class="section-title">世界书</h2>
-     <button v-if="!infoEditor.open" type="button" @click="infoEditor.open=true"><Plus :size="16"/>新增条目</button>
+     <button v-if="!infoEditor.open" type="button" @click="openInfo"><Plus :size="16"/>新增条目</button>
     </div>
     <p v-if="worldError" class="error" role="alert">{{worldError}}</p>
     <p v-if="!worldInfo.length&&!infoEditor.open" class="muted">还没有世界书条目；导入卡里的 character_book 会自动出现在这里。</p>
@@ -275,7 +351,7 @@ onUnmounted(()=>{if(avatarUrl.value)URL.revokeObjectURL(avatarUrl.value)})
      <div v-if="previewResult" class="preview-result" role="status">
       <p class="preview-summary">命中 {{previewResult.matched?.length||0}} 条世界书</p>
       <ul v-if="previewResult.matched?.length" class="preview-match-list">
-       <li v-for="entry in previewResult.matched" :key="entry.id">{{(entry.keys||[]).join(', ')||'（常驻）'}} · {{entry.content.slice(0,80)}}{{entry.content.length>80?'…':''}}</li>
+       <li v-for="entry in previewResult.matched" :key="entry.id"><span class="preview-reason">{{entry.constant?'常驻':('关键词「'+(entry.keys||[]).join('、')+'」')}}</span> {{entry.content.slice(0,80)}}{{entry.content.length>80?'…':''}}</li>
       </ul>
       <p v-if="previewResult.injection" class="preview-injection-label">实际注入文本</p>
       <pre v-if="previewResult.injection" class="preview-injection">{{previewResult.injection}}</pre>
@@ -290,7 +366,7 @@ onUnmounted(()=>{if(avatarUrl.value)URL.revokeObjectURL(avatarUrl.value)})
       <label>深度<input v-model.number="infoEditor.depth" type="number" min="0" aria-label="世界书深度"></label>
      </div>
      <div class="form-pair">
-      <label>概率<input v-model.number="infoEditor.probability" type="number" min="0" max="100" aria-label="世界书概率"></label>
+      <label>命中概率（0–1）<input v-model.number="infoEditor.probability" type="number" min="0" max="1" step="0.01" aria-label="世界书命中概率"></label>
       <label>顺序<input v-model.number="infoEditor.order" type="number" aria-label="世界书顺序"></label>
      </div>
      <label class="check"><input v-model="infoEditor.constant" type="checkbox"> 常驻（不依赖关键词）</label>
@@ -362,6 +438,7 @@ onUnmounted(()=>{if(avatarUrl.value)URL.revokeObjectURL(avatarUrl.value)})
 .preview-form input{flex:1;min-height:40px}
 .preview-form button{min-height:40px;white-space:nowrap}
 .preview-result{display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:10px;background:var(--wash)}
+.preview-reason{font-weight:600;color:var(--ink)}
 .preview-summary{margin:0;font-size:13px;color:var(--quiet)}
 .preview-match-list{margin:0;padding-left:18px;font-size:13px;line-height:1.7;color:var(--ink)}
 .preview-injection-label{margin:0;font-size:12px;color:var(--quiet)}

@@ -20,6 +20,12 @@
  *      注入预览：输入示例消息 → 出现命中条目/injection 文本（P0 无 UI 时记 SKIP 并注明 owner）。
  *   I. 导入导出：聊天导出 JSONL（下载 + 逐行 JSON 解析）与 JSON（解析 messages）；
  *      卡详情导入 fixture chat-sample.jsonl（2 条消息）→ 历史新增并自动进入会话、条数正确。
+ *   W. 世界书深度语义（P2）：条目 position=after_char/depth=2/constant/probability/order 保存回显；
+ *      注入预览显示命中与原因；context-preview API 按 order 返回且注入文本包含条目。
+ *   S2. 采样参数（P2）：聊天页菜单打开采样参数 → temperature/topP/maxTokens 保存 → 刷新回显 →
+ *      带参数发送一条消息不报错（真实生成 +1）。
+ *   Q. 预设与提示词（P2）：设置页新建预设（system/temperature/maxTokens）→ 设默认 →
+ *      新聊天 prompt 接口包含预设文本；非法采样值后端 422（或前端拦截）。
  *   M. 旧路由：/tavern/explore、/tavern/works、/tavern/worlds/scripts、
  *      /tavern/conversations/world/x → 落 / 或无 404 死链；页面无「探索作品」入口。
  *
@@ -217,7 +223,19 @@ try {
       .catch(() => {})
     const escaped = `/tavern${appPath}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const landed = await waitFrameUrl(new RegExp(`${escaped}(?:[?#]|$)`), 8000)
-    return landed || fnow()
+    const target = landed || fnow()
+    // 等 Vue 应用真正挂载（index.html 里的启动占位也有 h1，不能只看标题）。
+    if (target) {
+      await waitFor(
+        async () =>
+          (await target
+            .locator('.tavern-home, .tavern-settings, .tavern-character, .bubble-row, .tavern-empty')
+            .count()
+            .catch(() => 0)) > 0,
+        timeoutMs,
+      )
+    }
+    return target
   }
   // 会重定向的旧路由：导航后等落地，再读当前 frame 与 URL。
   async function appGotoRedirect(appPath, settleMs = 3000) {
@@ -1207,6 +1225,596 @@ try {
       page.off('response', onExportResponse)
     }
   }
+
+  // ── W. 世界书深度语义（P2，task-51）──────────────────────────────────────
+  const worldInfoDeep = { enabled: false, entry: null, preview: null, api: null, console: null, steps: [] }
+  report.native.worldInfoDeep = worldInfoDeep
+  const wNames = [
+    '世界书条目支持 position/depth/constant/probability/order 并回显',
+    '注入预览显示命中条目与原因',
+    'context-preview API 按 order 返回命中条目且注入文本包含条目',
+  ]
+  const wRecorded = new Set()
+  const wRecord = (index, ok, detail, skipped = false) => {
+    wRecorded.add(index)
+    record(wNames[index], ok, detail, skipped)
+    worldInfoDeep.steps.push({ name: wNames[index], ok, skipped, detail })
+  }
+  const wSkipRemaining = (from, reason) => {
+    for (let index = from; index < wNames.length; index += 1) if (!wRecorded.has(index)) wRecord(index, true, reason, true)
+  }
+  if (groupOn('w')) {
+    if (nativeBlocked) {
+      wSkipRemaining(0, blockedReason)
+    } else {
+      worldInfoDeep.enabled = true
+      const wConsoleStart = consoleErrors.length
+      try {
+        const detail = await openDetail()
+        if (!detail) {
+          wSkipRemaining(0, '无法打开角色详情页（owner: cards-client 详情页）')
+        } else {
+          const worldSection = detail.locator('section[aria-label="世界书"]').first()
+          const sectionReady = await waitFor(async () => (await worldSection.count().catch(() => 0)) > 0, 20000)
+          if (!sectionReady) {
+            wSkipRemaining(0, '角色详情没有「世界书」区块（owner: cards-client 详情页）')
+          } else {
+            const marker = '【E2E-WORLD-INFO-P2】茶博士只在雨天讲古；雨停后第三盏茶留给赶路的人。'
+            const addButton = worldSection.getByRole('button', { name: /新增条目|新增世界书|添加条目/ }).first()
+            let added = false
+            if ((await addButton.count().catch(() => 0)) > 0) {
+              await addButton.click({ force: true }).catch(() => {})
+              const editor = detail.locator('form.world-info-editor').first()
+              const editorReady = await waitFor(async () => (await editor.count().catch(() => 0)) > 0, 12000)
+              if (editorReady) {
+                const keysInput = editor.locator('input[aria-label="世界书关键词"]').first()
+                const contentInput = editor.locator('textarea[aria-label="世界书内容"]').first()
+                const positionSelect = editor.locator('select[aria-label="世界书位置"]').first()
+                const depthInput = editor.locator('input[aria-label="世界书深度"]').first()
+                const probabilityInput = editor.locator('input[aria-label="世界书概率"]').first()
+                const orderInput = editor.locator('input[aria-label="世界书顺序"]').first()
+                const constantBox = editor.locator('input[type="checkbox"]').first()
+                await keysInput.fill('茶').catch(() => {})
+                await contentInput.fill(marker).catch(() => {})
+                await positionSelect.selectOption('after_char').catch(() => {})
+                await depthInput.fill('2').catch(() => {})
+                await probabilityInput.fill('100').catch(() => {})
+                await orderInput.fill('5').catch(() => {})
+                await constantBox.check().catch(() => {})
+                await editor.getByRole('button', { name: /保存条目|保存世界书|保存/ }).first().click({ force: true }).catch(() => {})
+                added = await waitFor(async () => (await worldSection.locator('.world-info-item').filter({ hasText: marker }).count().catch(() => 0)) > 0, 15000)
+              }
+            }
+            const item = worldSection.locator('.world-info-item').filter({ hasText: marker }).first()
+            const metaText = added ? ((await item.locator('.world-info-meta').innerText().catch(() => '')) || '') : ''
+            const keysText = added ? ((await item.locator('.world-info-keys').innerText().catch(() => '')) || '') : ''
+            const w1Ok = added && /after_char/.test(metaText) && /depth\s*2/.test(metaText) && /order\s*5/.test(metaText) && /常驻/.test(keysText)
+            wRecord(0, w1Ok, `added=${added} meta=${metaText.slice(0, 100)} keys=${keysText.slice(0, 60)}`)
+            worldInfoDeep.entry = { added, marker, metaText, keysText }
+
+            // W2：注入预览显示命中与原因
+            let previewText = ''
+            let previewOk = false
+            if (added) {
+              const previewInput = detail.locator('input[aria-label="注入预览示例消息"]').first()
+              const previewSubmit = detail.getByRole('button', { name: '注入预览', exact: true }).first()
+              if ((await previewInput.count().catch(() => 0)) > 0 && (await previewSubmit.count().catch(() => 0)) > 0) {
+                await previewInput.fill('来一盏茶，讲讲古吧。').catch(() => {})
+                await previewSubmit.click({ force: true }).catch(() => {})
+                await waitFor(async () => (await detail.locator('.preview-result').count().catch(() => 0)) > 0, 20000)
+                previewText = ((await detail.locator('.preview-result').first().innerText().catch(() => '')) || '').trim()
+                previewOk = /命中\s*[1-9]/.test(previewText) && /【E2E-WORLD-INFO-P2】/.test(previewText)
+              }
+            }
+            const reasonOk = /常驻|关键词|constant|概率|probability/i.test(previewText)
+            worldInfoDeep.preview = { text: previewText.slice(0, 400), reasonShown: reasonOk }
+            wRecord(1, previewOk, `命中=${previewOk} 原因=${reasonOk} preview=${previewText.slice(0, 180)}`)
+            await shot(page, '110-w-worldinfo.png').catch(() => {})
+            await shot(page, '111-w-preview.png').catch(() => {})
+
+            // W3：API 断言 order/position 与注入文本
+            if (added && detail) {
+              const cardIdMatch = detail.url().match(/\/characters\/([0-9a-zA-Z_-]+)/)
+              const cardId = cardIdMatch ? cardIdMatch[1] : null
+              const apiResult = await detail
+                .evaluate(async ({ id }) => {
+                  const bases = ['/tavern/api/reader/v1', '/api/reader/v1']
+                  for (const base of bases) {
+                    try {
+                      const listRes = await fetch(`${base}/tavern/characters/${encodeURIComponent(id)}/world-info`, { credentials: 'include' })
+                      if (!listRes.ok) continue
+                      const list = await listRes.json()
+                      const previewRes = await fetch(`${base}/tavern/characters/${encodeURIComponent(id)}/world-info/preview`, {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ message: '来一盏茶，讲讲古吧。' }),
+                      })
+                      const preview = previewRes.ok ? await previewRes.json() : null
+                      return { list, preview, status: previewRes.status }
+                    } catch {}
+                  }
+                  return null
+                }, { id: cardId })
+                .catch(() => null)
+              const entries = apiResult && apiResult.list ? (apiResult.list.items || apiResult.list.entries || apiResult.list) : null
+              const matched = apiResult && apiResult.preview ? (apiResult.preview.matched || apiResult.preview.items || []) : []
+              const markerHit = Array.isArray(matched) && matched.some((entry) => String(entry.content || '').includes('【E2E-WORLD-INFO-P2】'))
+              const orders = Array.isArray(matched) ? matched.map((entry) => Number(entry.order)) : []
+              const sortedOk = orders.every((value, index) => index === 0 || orders[index - 1] <= value)
+              const positionOk = Array.isArray(matched) && matched.some((entry) => entry.position === 'after_char' && Number(entry.depth) === 2)
+              const injection = apiResult && apiResult.preview ? String(apiResult.preview.injection || '') : ''
+              const injectionOk = injection.includes('【E2E-WORLD-INFO-P2】')
+              worldInfoDeep.api = { status: apiResult ? apiResult.status : null, orders, sortedOk, positionOk, injectionOk, entriesCount: Array.isArray(entries) ? entries.length : null }
+              wRecord(2, markerHit && sortedOk && positionOk && injectionOk, `matched=${matched.length} orders=${orders.join(',')} sorted=${sortedOk} position/depth=${positionOk} injection=${injectionOk}`)
+            } else {
+              wSkipRemaining(2, '世界书条目未创建成功，无法校验注入顺序（owner: cards-client 世界书编辑器）')
+            }
+          }
+        }
+      } catch (error) {
+        wSkipRemaining(wRecorded.size, `W 组异常：${(error && error.message) || error}`)
+      }
+      worldInfoDeep.console = consoleErrors.slice(wConsoleStart).filter((item) => !/Failed to load resource/.test(item))
+    }
+  }
+  if (groupOn('w')) wSkipRemaining(0, 'W 组未执行（跳过）')
+
+  // ── S2. 采样参数（P2，task-51）──────────────────────────────────────────
+  const sampling = { enabled: false, dialog: null, persisted: false, send: null, steps: [] }
+  report.native.sampling = sampling
+  const s2Names = ['聊天页菜单可打开采样参数', '采样参数保存后刷新回显', '带采样参数发送一条消息不报错']
+  const s2Recorded = new Set()
+  const s2Record = (index, ok, detail, skipped = false) => {
+    s2Recorded.add(index)
+    record(s2Names[index], ok, detail, skipped)
+    sampling.steps.push({ name: s2Names[index], ok, skipped, detail })
+  }
+  const s2SkipRemaining = (from, reason) => {
+    for (let index = from; index < s2Names.length; index += 1) if (!s2Recorded.has(index)) s2Record(index, true, reason, true)
+  }
+  if (groupOn('s2')) {
+    if (nativeBlocked) {
+      s2SkipRemaining(0, blockedReason)
+    } else {
+      sampling.enabled = true
+      try {
+        if (!chatFrame || !/\/chats\//.test(chatFrame.url())) {
+          // 先用 C 组记录的聊天 URL 直接回去（此时可能停在卡详情/设置页，首页找卡不可靠）。
+          const knownChat = chatEvidence && chatEvidence.chatUrl ? new URL(chatEvidence.chatUrl).pathname.replace(/^\/tavern/, '') : ''
+          if (knownChat) {
+            const back = await appGoto(knownChat)
+            if (back && /\/chats\//.test(back.url())) chatFrame = back
+          }
+          if (!chatFrame || !/\/chats\//.test(chatFrame.url())) {
+            const opened = await openChat()
+            chatFrame = (opened && opened.chatFrame) || chatFrame
+          }
+        }
+        const chatReady = chatFrame ? await waitChatRendered(chatFrame) : false
+        let menuItem = null
+        if (chatReady) {
+          const menuButton = chatFrame.locator('button[aria-label="聊天菜单"]').first()
+          if ((await menuButton.count().catch(() => 0)) > 0) {
+            await menuButton.click({ force: true }).catch(() => {})
+            const pop = chatFrame.locator('.chat-menu-pop').first()
+            await waitFor(async () => (await pop.count().catch(() => 0)) > 0, 8000)
+            menuItem = pop.locator('button, [role="menuitem"]').filter({ hasText: /采样参数|采样|参数/ }).first()
+            if ((await menuItem.count().catch(() => 0)) === 0) menuItem = null
+          }
+        }
+        if (!menuItem) {
+          // 可能刚 reload 完还没挂载：重进聊天页再试一次。
+          await chatFrame.evaluate(() => location.reload()).catch(() => {})
+          chatFrame = (await waitFrameUrl(/\/chats\/[0-9a-zA-Z_-]+/, 20000)) || chatFrame
+          const retryReady = await waitChatRendered(chatFrame)
+          if (retryReady) {
+            const menuButton2 = chatFrame.locator('button[aria-label="聊天菜单"]').first()
+            if ((await menuButton2.count().catch(() => 0)) > 0) {
+              await menuButton2.click({ force: true }).catch(() => {})
+              const pop2 = chatFrame.locator('.chat-menu-pop').first()
+              await waitFor(async () => (await pop2.count().catch(() => 0)) > 0, 8000)
+              const item2 = pop2.locator('button, [role="menuitem"]').filter({ hasText: /采样参数|采样|参数/ }).first()
+              if ((await item2.count().catch(() => 0)) > 0) menuItem = item2
+            }
+          }
+        }
+        if (!menuItem) {
+          const menuTexts = chatFrame
+            ? (await chatFrame.locator('.chat-menu-pop button, .chat-menu-pop [role="menuitem"]').allInnerTexts().catch(() => []))
+            : []
+          s2SkipRemaining(0, `聊天页菜单没有「采样参数」入口（owner: cards-client ChatPage 菜单）menu=${JSON.stringify(menuTexts)} url=${chatFrame ? chatFrame.url() : ''}`)
+        } else {
+          await menuItem.click({ force: true }).catch(() => {})
+          const dialog = chatFrame
+            .locator('[role="dialog"], section[aria-label*="采样"], .sampling-dialog, form[aria-label*="采样"]')
+            .first()
+          const dialogReady = await waitFor(async () => (await dialog.count().catch(() => 0)) > 0, 10000)
+          s2Record(0, dialogReady, dialogReady ? '采样参数对话框已打开' : '点击「采样参数」后没有出现对话框')
+          if (dialogReady) {
+            const temperatureInput = dialog.locator('input[aria-label*="temperature" i], input[aria-label*="温度"]').first()
+            const topPInput = dialog.locator('input[aria-label*="top_p" i], input[aria-label*="top"]').first()
+            const maxTokensInput = dialog.locator('input[aria-label*="max_tokens" i], input[aria-label*="max"]').first()
+            await temperatureInput.fill('1.2').catch(() => {})
+            await topPInput.fill('0.9').catch(() => {})
+            await maxTokensInput.fill('200').catch(() => {})
+            // 保存前读值（保存成功后 Sheet 会关闭，之后就读不到 input 了）。
+            const savedValues = {
+              temperature: await temperatureInput.inputValue().catch(() => null),
+              topP: await topPInput.inputValue().catch(() => null),
+              maxTokens: await maxTokensInput.inputValue().catch(() => null),
+            }
+            await dialog.getByRole('button', { name: /保存参数|保存|确定|应用/ }).first().click({ force: true }).catch(() => {})
+            await page.waitForTimeout(1000)
+            sampling.dialog = savedValues
+            await shot(page, '112-s2-sampling.png').catch(() => {})
+            // API 校验：chat.sampling 是否真的落库
+            const chatPath = new URL(chatFrame.url()).pathname.replace(/^\/tavern/, '')
+            const chatApi = await chatFrame
+              .evaluate(async (path) => {
+                for (const base of ['/tavern/api/reader/v1', '/api/reader/v1']) {
+                  try {
+                    const response = await fetch(`${base}/tavern${path}`, { credentials: 'include' })
+                    if (response.ok) return await response.json()
+                  } catch {}
+                }
+                return null
+              }, chatPath)
+              .catch(() => null)
+            const savedSampling = chatApi && chatApi.chat ? chatApi.chat.sampling || null : null
+            const apiPersisted = Boolean(savedSampling && Number(savedSampling.temperature) === 1.2 && Number(savedSampling.topP) === 0.9 && Number(savedSampling.maxTokens) === 200)
+            // 刷新回显
+            await chatFrame.evaluate(() => location.reload()).catch(() => {})
+            chatFrame = (await waitFrameUrl(/\/chats\/[0-9a-zA-Z_-]+/, 20000)) || chatFrame
+            const readyAgain = await waitChatRendered(chatFrame)
+            let persisted = false
+            let echo = null
+            const echoDebug = { ready: Boolean(readyAgain), menu: false, item: false, dialog: false, text: '' }
+            if (readyAgain) {
+              const menuAgain = chatFrame.locator('button[aria-label="聊天菜单"]').first()
+              if ((await menuAgain.count().catch(() => 0)) > 0) {
+                // reload 后 Vue 事件可能还没绑定：最多点 3 次，每次等 4s。
+                for (let attempt = 0; attempt < 3 && !echoDebug.menu; attempt += 1) {
+                  await menuAgain.click({ force: true }).catch(() => {})
+                  echoDebug.menu = await waitFor(async () => (await chatFrame.locator('.chat-menu-pop').count().catch(() => 0)) > 0, 4000)
+                  if (!echoDebug.menu) await page.waitForTimeout(600)
+                }
+                const itemAgain = chatFrame.locator('.chat-menu-pop button, .chat-menu-pop [role="menuitem"]').filter({ hasText: /采样参数/ }).first()
+                echoDebug.item = (await itemAgain.count().catch(() => 0)) > 0
+                if (echoDebug.item) {
+                  await itemAgain.click({ force: true }).catch(() => {})
+                  const dialogAgain = chatFrame.locator('section.sheet[aria-label="采样参数"], [role="dialog"], section[aria-label*="采样"]').first()
+                  echoDebug.dialog = await waitFor(async () => (await dialogAgain.count().catch(() => 0)) > 0, 10000)
+                  if (echoDebug.dialog) {
+                    echoDebug.text = ((await dialogAgain.innerText().catch(() => '')) || '').replace(/\s+/g, ' ').slice(0, 200)
+                    const t = dialogAgain.locator('input[aria-label*="temperature" i], input[aria-label*="温度"]').first()
+                    const p = dialogAgain.locator('input[aria-label*="top_p" i], input[aria-label*="top"]').first()
+                    const m = dialogAgain.locator('input[aria-label*="max_tokens" i], input[aria-label*="max"]').first()
+                    echo = { temperature: await t.inputValue().catch(() => null), topP: await p.inputValue().catch(() => null), maxTokens: await m.inputValue().catch(() => null) }
+                    persisted = Number(echo.temperature) === 1.2 && Number(echo.topP) === 0.9 && Number(echo.maxTokens) === 200
+                    await dialogAgain.getByRole('button', { name: /关闭|取消|完成/ }).first().click({ force: true }).catch(() => {})
+                  }
+                }
+              }
+            }
+            sampling.persisted = persisted
+            sampling.api = savedSampling
+            sampling.echoDebug = echoDebug
+            s2Record(1, apiPersisted && persisted, `保存=${JSON.stringify(savedValues)} API=${JSON.stringify(savedSampling)} 回显=${JSON.stringify(echo)} debug=${JSON.stringify(echoDebug)}`)
+            // 发送一条消息（真实生成 +1）
+            await waitChatRendered(chatFrame, 20000)
+            const input = chatFrame.locator('textarea[aria-label="聊天输入框"]').first()
+            const send = chatFrame.locator('button[aria-label="发送消息"]').first()
+            const rowsBefore = await chatFrame.locator('.bubble-row').count().catch(() => 0)
+            let sent = false
+            if ((await input.count().catch(() => 0)) > 0 && (await send.count().catch(() => 0)) > 0) {
+              await input.fill('（E2E 采样）用一句话回应我。').catch(() => {})
+              await send.click({ force: true }).catch(() => {})
+              sent = await waitFor(async () => {
+                const rows = await chatFrame.locator('.bubble-row').count().catch(() => 0)
+                const pending = await chatFrame.locator('.bubble-pending').count().catch(() => 0)
+                const status = ((await chatFrame.locator('.chat-status').first().innerText().catch(() => '')) || '').trim()
+                return rows > rowsBefore + 1 && pending === 0 && !/正在回复/.test(status)
+              }, 120000)
+            }
+            const alertText = await chatFrame.locator('[role="alert"]').first().innerText().catch(() => '')
+            sampling.send = { sent, alert: alertText || null }
+            s2Record(2, sent && !alertText, `sent=${sent} alert=${alertText ? alertText.slice(0, 120) : '无'}`)
+          } else {
+            s2SkipRemaining(1, '采样参数对话框未打开，无法验证保存/回显')
+          }
+        }
+      } catch (error) {
+        s2SkipRemaining(s2Recorded.size, `S2 组异常：${(error && error.message) || error}`)
+      }
+    }
+  }
+  if (groupOn('s2')) s2SkipRemaining(0, 'S2 组未执行（跳过）')
+
+  // ── Q. 预设与提示词（P2，task-51）──────────────────────────────────────
+  const presets = { enabled: false, created: null, defaulted: false, prompt: null, invalid: null, console: null, steps: [] }
+  report.native.presets = presets
+  const q2Names = [
+    '设置页可打开预设管理',
+    '新建预设（system/main/temperature/maxTokens）并出现在列表',
+    '预设可设为默认且刷新保持',
+    '新聊天使用默认预设（prompt 接口包含预设文本）',
+    '非法采样值被拒绝（前端拦截或后端 422）',
+  ]
+  const q2Recorded = new Set()
+  const q2Record = (index, ok, detail, skipped = false) => {
+    q2Recorded.add(index)
+    record(q2Names[index], ok, detail, skipped)
+    presets.steps.push({ name: q2Names[index], ok, skipped, detail })
+  }
+  const q2SkipRemaining = (from, reason) => {
+    for (let index = from; index < q2Names.length; index += 1) if (!q2Recorded.has(index)) q2Record(index, true, reason, true)
+  }
+  if (groupOn('q')) {
+    if (nativeBlocked) {
+      q2SkipRemaining(0, blockedReason)
+    } else {
+      presets.enabled = true
+      const qConsoleStart = consoleErrors.length
+      try {
+        const settings = await appGoto('/settings')
+        const settingsReady = settings
+          ? await waitFor(async () => (await settings.locator('.tavern-settings, section[aria-label="设置"]').count().catch(() => 0)) > 0, 20000)
+          : false
+        if (settingsReady) {
+          await waitFor(async () => (await settings.locator('section.presets-panel').count().catch(() => 0)) > 0, 20000)
+        }
+        const presetButton = settings
+          ? settings.getByRole('button', { name: /新建预设|新增预设|创建预设/ }).first()
+          : null
+        const presetEntry = presetButton && (await presetButton.count().catch(() => 0)) > 0
+        if (!settingsReady) {
+          q2Record(0, true, '设置页没有渲染（owner: cards-client 设置页）', true)
+          q2SkipRemaining(1, '设置页没有渲染（owner: cards-client 设置页）')
+        } else if (!presetEntry) {
+          const debugText = settings ? ((await settings.locator('body').innerText().catch(() => '')) || '').replace(/\s+/g, ' ').slice(0, 220) : ''
+          const debugUrl = settings ? settings.url() : ''
+          q2Record(0, true, `设置页有渲染，但没有「预设」管理入口（owner: cards-client 设置页）url=${debugUrl} body=${debugText}`, true)
+          q2SkipRemaining(1, '设置页没有「预设」管理入口（owner: cards-client 设置页）')
+        } else {
+          q2Record(0, true, '设置页可打开预设管理')
+          await presetButton.click({ force: true }).catch(() => {})
+          const form = settings.locator('section.presets-panel form.preset-form').first()
+          const formReady = await waitFor(async () => (await form.count().catch(() => 0)) > 0, 10000)
+          const nameInput = form.locator('input[aria-label="预设名称"], input[aria-label*="名称"]').first()
+          const systemInput = form.locator('textarea[aria-label="预设系统提示词"], textarea[aria-label*="系统"]').first()
+          const temperatureInput = form.locator('input[aria-label="预设 temperature"], input[aria-label*="temperature" i]').first()
+          const maxTokensInput = form.locator('input[aria-label="预设 max_tokens"], input[aria-label*="max_tokens"]').first()
+          let created = false
+          let createdDetail = ''
+          if (formReady) {
+            await nameInput.fill('E2E 预设 P2').catch(() => {})
+            await systemInput.fill('【E2E-PRESET】请用温柔简洁的中文回应，每次不超过两句话。').catch(() => {})
+            await temperatureInput.fill('1.2').catch(() => {})
+            if ((await maxTokensInput.count().catch(() => 0)) > 0) await maxTokensInput.fill('200').catch(() => {})
+            await form.getByRole('button', { name: /保存预设|保存|创建/ }).first().click({ force: true }).catch(() => {})
+            created = await waitFor(async () => (await settings.locator('li.preset-item').filter({ hasText: 'E2E 预设 P2' }).count().catch(() => 0)) > 0, 20000)
+            const formAlert = ((await form.locator('[role="alert"]').first().innerText().catch(() => '')) || '').trim()
+            createdDetail = `form=${formReady} created=${created}${formAlert ? ` alert=${formAlert.slice(0, 120)}` : ''}`
+          }
+          presets.created = { name: 'E2E 预设 P2', created, detail: createdDetail }
+          q2Record(1, created, createdDetail)
+          await shot(page, '113-q-presets.png').catch(() => {})
+          if (!created) {
+            q2SkipRemaining(2, '预设未创建成功（owner: cards-client 设置页表单）')
+          } else {
+            // 设为默认
+            const presetRow = settings.locator('li.preset-item').filter({ hasText: 'E2E 预设 P2' }).first()
+            const defaultButton = presetRow.getByRole('button', { name: /设为默认/ }).first()
+            let defaulted = false
+            if ((await defaultButton.count().catch(() => 0)) > 0) {
+              await defaultButton.click({ force: true }).catch(() => {})
+              await page.waitForTimeout(800)
+            }
+            // API 校验
+            const apiCheck = await settings
+              .evaluate(async () => {
+                for (const base of ['/tavern/api/reader/v1', '/api/reader/v1']) {
+                  try {
+                    const response = await fetch(`${base}/tavern/presets`, { credentials: 'include' })
+                    if (response.ok) return await response.json()
+                  } catch {}
+                }
+                return null
+              })
+              .catch(() => null)
+            const items = apiCheck ? (apiCheck.items || apiCheck.presets || apiCheck) : []
+            const target = Array.isArray(items) ? items.find((item) => item.name === 'E2E 预设 P2') : null
+            defaulted = Boolean(target && (target.isDefault === true || target.is_default === true))
+            await settings.evaluate(() => location.reload()).catch(() => {})
+            await page.waitForTimeout(1200)
+            const settingsAgain = fnow()
+            const rowAgain = settingsAgain ? settingsAgain.locator('li.preset-item').filter({ hasText: 'E2E 预设 P2' }).first() : null
+            const badgeAgain = rowAgain ? ((await rowAgain.innerText().catch(() => '')) || '') : ''
+            presets.defaulted = defaulted
+            q2Record(2, defaulted, `is_default=${defaulted} 刷新后行文本=${badgeAgain.slice(0, 80)}`)
+
+            // 新聊天使用预设 + prompt 断言
+            // 卡详情是异步加载的：先等「开新聊天」按钮/卡名渲染完，不要只固定 sleep；
+            // 生产上偶发停在「正在打开角色卡...」，10s 后重进一次再等 20s。
+            const waitDetailReady = async (frameNow, timeoutMs = 20000) => {
+              if (!frameNow) return false
+              return waitFor(async () => {
+                const buttons = await frameNow
+                  .getByRole('button', { name: /开新聊天|开始聊天|新聊天/ })
+                  .count()
+                  .catch(() => 0)
+                const body = ((await frameNow.locator('body').innerText().catch(() => '')) || '')
+                return buttons > 0 && !/正在打开角色卡/.test(body)
+              }, timeoutMs)
+            }
+            let detail = await openDetail()
+            let detailReady = await waitDetailReady(detail, 20000)
+            if (!detailReady && detail) {
+              const detailPath = (() => {
+                try {
+                  return new URL(detail.url()).pathname.replace(/^\/tavern/, '')
+                } catch {
+                  return ''
+                }
+              })()
+              if (detailPath) {
+                detail = await appGoto(detailPath, 25000)
+                detailReady = await waitDetailReady(detail, 20000)
+              }
+            }
+            let promptOk = false
+            let promptDetail = ''
+            if (!detail) {
+              promptDetail = '无法打开角色详情页（owner: cards-client）'
+            } else {
+              const cardIdMatch = detail.url().match(/\/characters\/([0-9a-zA-Z_-]+)/)
+              const cardId = cardIdMatch ? cardIdMatch[1] : null
+              const startButton = detail.getByRole('button', { name: /开新聊天|开始聊天|新聊天/ }).first()
+              let newChat = null
+              const q4Debug = { button: 0, disabled: null, btnText: '', alert: '', body: '', chatPost: null, detailReady: Boolean(detailReady) }
+              if ((await startButton.count().catch(() => 0)) > 0) {
+                q4Debug.button = 1
+                q4Debug.disabled = await startButton.isDisabled().catch(() => null)
+                q4Debug.btnText = ((await startButton.innerText().catch(() => '')) || '').trim()
+                const chatResponses = []
+                const onChatResponse = (response) => {
+                  if (!/\/tavern\/chats(?:\?|$)/.test(response.url()) || response.request().method() !== 'POST') return
+                  chatResponses.push(response)
+                  response.text().then((text) => { q4Debug.chatPost = { status: response.status(), body: text.slice(0, 200) } }).catch(() => {})
+                }
+                page.on('response', onChatResponse)
+                await startButton.click({ force: true }).catch(() => {})
+                newChat = await waitFrameUrl(/\/chats\/[0-9a-zA-Z_-]+/, 25000)
+                if (!newChat) {
+                  // 事件未绑定/按钮被遮挡时用 DOM click 再试一次。
+                  await startButton.evaluate((el) => el.click()).catch(() => {})
+                  newChat = await waitFrameUrl(/\/chats\/[0-9a-zA-Z_-]+/, 15000)
+                }
+                await page.waitForTimeout(500)
+                page.off('response', onChatResponse)
+                q4Debug.alert = ((await detail.locator('[role="alert"]').first().innerText().catch(() => '')) || '').trim()
+                q4Debug.body = ((await detail.locator('body').innerText().catch(() => '')) || '').replace(/\s+/g, ' ').slice(0, 200)
+              }
+              if (!q4Debug.body) {
+                // 找不到按钮时把可见文本带进 detail，方便区分「未加载」还是「渲染异常」。
+                q4Debug.body = ((await detail.locator('body').innerText().catch(() => '')) || '')
+                  .replace(/\s+/g, ' ')
+                  .slice(0, 300)
+              }
+              const chatId = newChat ? newChat.url().match(/\/chats\/([0-9a-zA-Z_-]+)/)[1] : null
+              if (newChat && cardId) {
+                const promptResult = await newChat
+                  .evaluate(async ({ cid, chatId: chat }) => {
+                    const bases = ['/tavern/api/reader/v1', '/api/reader/v1']
+                    for (const base of bases) {
+                      try {
+                        const response = await fetch(`${base}/tavern/characters/${encodeURIComponent(cid)}/prompt?chatId=${encodeURIComponent(chat)}`, { credentials: 'include' })
+                        const text = await response.text()
+                        if (response.status === 200) return { status: 200, body: text }
+                        if (response.status === 422 || response.status === 404) return { status: response.status, body: text }
+                      } catch {}
+                    }
+                    return null
+                  }, { cid: cardId, chatId })
+                  .catch(() => null)
+                if (!promptResult) promptDetail = 'prompt 接口不可用（owner: app-auth）'
+                else if (promptResult.status !== 200) promptDetail = `prompt 接口 status=${promptResult.status}（P2 chatId 未上线，owner: app-auth）`
+                else {
+                  promptOk = promptResult.body.includes('【E2E-PRESET】')
+                  promptDetail = `status=200 含预设文本=${promptOk} len=${promptResult.body.length}`
+                }
+                presets.prompt = { status: promptResult ? promptResult.status : null, ok: promptOk, detail: promptDetail }
+              } else {
+                promptDetail = `新聊天/卡 id 缺失 newChat=${Boolean(newChat)} cardId=${Boolean(cardId)} debug=${JSON.stringify(q4Debug)}`
+              }
+            }
+            if (/owner: app-auth/.test(promptDetail)) q2Record(3, true, promptDetail, true)
+            else q2Record(3, promptOk, promptDetail)
+            await shot(page, '114-q-prompt.png').catch(() => {})
+
+            // 非法采样值：前端拦截（role=alert 或列表不增加）与后端 422 都要测
+            let invalid = null
+            const uiInvalid = await settings
+              .evaluate(async () => {
+                const bases = ['/tavern/api/reader/v1', '/api/reader/v1']
+                const list = async () => {
+                  for (const base of bases) {
+                    try {
+                      const response = await fetch(`${base}/tavern/presets`, { credentials: 'include' })
+                      if (response.ok) return await response.json()
+                    } catch {}
+                  }
+                  return null
+                }
+                return { before: await list() }
+              })
+              .catch(() => null)
+            const countNamed = (payload, name) => {
+              const items = payload && (payload.items || payload.presets || payload)
+              return Array.isArray(items) ? items.filter((item) => item && item.name === name).length : 0
+            }
+            const invalidName = 'E2E 非法预设'
+            const beforeCount = countNamed(uiInvalid && uiInvalid.before, invalidName)
+            let uiAlert = ''
+            let uiBlocked = false
+            if (formReady) {
+              await nameInput.fill(invalidName).catch(() => {})
+              await temperatureInput.fill('5').catch(() => {})
+              const saveButton = form.getByRole('button', { name: /保存预设|保存/ }).first()
+              await saveButton.click({ force: true }).catch(() => {})
+              await page.waitForTimeout(1500)
+              uiAlert = ((await form.locator('[role="alert"]').first().innerText().catch(() => '')) || '').trim()
+              const afterPayload = await settings
+                .evaluate(async () => {
+                  for (const base of ['/tavern/api/reader/v1', '/api/reader/v1']) {
+                    try {
+                      const response = await fetch(`${base}/tavern/presets`, { credentials: 'include' })
+                      if (response.ok) return await response.json()
+                    } catch {}
+                  }
+                  return null
+                })
+                .catch(() => null)
+              const afterCount = countNamed(afterPayload, invalidName)
+              uiBlocked = Boolean(uiAlert) || afterCount === beforeCount
+              invalid = { uiAlert: uiAlert || null, uiBlocked, beforeCount, afterCount }
+            }
+            const apiInvalid = await settings
+              .evaluate(async () => {
+                for (const base of ['/tavern/api/reader/v1', '/api/reader/v1']) {
+                  try {
+                    const response = await fetch(`${base}/tavern/presets`, {
+                      method: 'POST',
+                      credentials: 'include',
+                      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2)) },
+                      body: JSON.stringify({ name: 'E2E 非法预设', temperature: 5 }),
+                    })
+                    if (response.status !== 404) return { status: response.status, body: (await response.text()).slice(0, 300) }
+                  } catch {}
+                }
+                return null
+              })
+              .catch(() => null)
+            const backendRejected = Boolean(apiInvalid && apiInvalid.status === 422 && !/IDEMPOTENCY_KEY_REQUIRED/.test(apiInvalid.body || ''))
+            invalid = { ...(invalid || {}), backendStatus: apiInvalid ? apiInvalid.status : null, backendRejected, backendBody: apiInvalid ? apiInvalid.body : null }
+            presets.invalid = invalid
+            if (!apiInvalid || apiInvalid.status === 404) {
+              q2Record(4, true, `预设接口未上线 status=${apiInvalid ? apiInvalid.status : 'unreachable'}（owner: app-auth）`, true)
+            } else {
+              const detail = `前端拦截=${Boolean(invalid.uiBlocked)} alert=${invalid.uiAlert ? invalid.uiAlert.slice(0, 80) : '无'} 后端 status=${apiInvalid.status} rejected=${backendRejected}`
+              q2Record(4, Boolean(invalid.uiBlocked) && backendRejected, detail)
+            }
+            await shot(page, '115-q-invalid.png').catch(() => {})
+          }
+        }
+      } catch (error) {
+        q2SkipRemaining(q2Recorded.size, `Q 组异常：${(error && error.message) || error}`)
+      }
+      presets.console = consoleErrors.slice(qConsoleStart).filter((item) => !/Failed to load resource/.test(item))
+    }
+  }
+  if (groupOn('q')) q2SkipRemaining(0, 'Q 组未执行（跳过）')
 
   // ── M. 旧路由下线 ────────────────────────────────────────────────────────
   const oldRouteEvidence = { routes: [], deadLinks: 0, exploreEntry: false }

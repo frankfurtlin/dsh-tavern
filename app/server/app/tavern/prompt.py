@@ -1,9 +1,25 @@
 """Prompt assembly for native tavern chats, in SillyTavern order.
 
-Order: system prompt -> main prompt -> world info (before_char) -> character
-(name/description/personality/scenario) -> world info (before_example) ->
-examples -> world info (after_char) -> user persona -> history (with at_depth
-world info inside) -> post-history instructions -> final reply instruction.
+Order (P2): system prompt -> main prompt -> world info (before_char) ->
+character description/personality/scenario -> user persona -> examples ->
+world info (after_char, before_example) -> history (with at_depth entries
+injected near the tail) -> post-history instructions -> jailbreak -> final
+reply instruction.
+
+A chat may bind a preset; non-empty preset fields override the card/chat
+settings (main/system/post_history/jailbreak, sampling is resolved by the API
+layer). The default preset is applied when a chat has no binding.
+
+World-info semantics
+--------------------
+``position`` chooses the slot (before_char / after_char / before_example /
+at_depth), ``order`` sorts entries inside a slot, ``constant`` entries always
+match, otherwise enabled entries match when one of ``keys`` is a case-insensitive
+substring of the scan text (new message + recent user lines). ``probability``
+< 100 makes the match deterministic-per-turn via a hash of the entry id and the
+scan text, so a client can preview exactly what the next generation injects.
+``depth`` (at_depth only) inserts the entry before the Nth message from the
+tail.
 
 Trimming strategy
 -----------------
@@ -48,31 +64,71 @@ def scan_text(message, history):
     return "\n".join([message, *user_lines])
 
 
-def match_world_info(entries, text):
-    """Enabled entries that should be injected for this turn (order preserved)."""
+def _entry_order(row):
+    return (int(getattr(row, "order", 100) or 0), str(getattr(row, "id", "")))
+
+
+def match_world_info_with_reason(entries, text):
+    """Return (entry, reason) pairs for this turn, sorted by order.
+
+    ``reason`` is ``constant`` for always-on entries or ``keyword:<词>`` for
+    keyword entries (the exact keyword that hit), so previews/UI can explain
+    the injection and verifiers can assert on it.
+    """
     matched, haystack = [], (text or "").lower()
-    for row in entries:
-        if not row.enabled:
+    for row in sorted(entries, key=_entry_order):
+        if not getattr(row, "enabled", True):
             continue
-        if row.constant:
-            matched.append(row)
+        if getattr(row, "constant", False):
+            matched.append((row, "constant"))
             continue
-        keys = [str(key).strip().lower() for key in (row.keys or []) if str(key).strip()]
+        keys = [(str(key).strip(), str(key).strip().lower())
+                for key in (getattr(row, "keys", None) or []) if str(key).strip()]
         if not keys:
             continue
-        if not any(key in haystack for key in keys):
+        hit = next((original for original, lowered in keys if lowered in haystack), None)
+        if hit is None:
             continue
-        if int(row.probability or 100) < 100:
-            roll = int(hashlib.sha256((row.id + "|" + haystack).encode("utf-8")).hexdigest()[:8], 16) % 100
-            if roll >= int(row.probability):
+        raw_probability = getattr(row, "probability", 100)
+        probability = 100 if raw_probability is None else int(raw_probability)
+        if probability < 100:
+            roll = int(hashlib.sha256((str(row.id) + "|" + haystack).encode("utf-8")).hexdigest()[:8], 16) % 100
+            if roll >= probability:
                 continue
-        matched.append(row)
+        matched.append((row, f"keyword:{hit}"))
     return matched
+
+
+def match_world_info(entries, text):
+    """Enabled entries that should be injected for this turn, sorted by order."""
+    return [row for row, _reason in match_world_info_with_reason(entries, text)]
 
 
 def _section(title, body):
     body = (body or "").strip()
     return f"{title}\n{body}" if body else ""
+
+
+def _preset_field(preset, name):
+    if preset is None:
+        return ""
+    value = preset.get(name) if isinstance(preset, dict) else getattr(preset, name, "")
+    return value.strip() if isinstance(value, str) else (value or "")
+
+
+def effective_prompts(card, settings=None, preset=None):
+    """Resolve main/system/post-history/jailbreak with preset-over-card precedence."""
+    settings = settings or {}
+    main = _preset_field(preset, "main") or (settings.get("mainPrompt") or "").strip() or DEFAULT_MAIN_PROMPT
+    return {
+        "main": main,
+        "system": (_preset_field(preset, "system") or (settings.get("system") or "").strip()
+                   or (card.system_prompt or "").strip()),
+        "postHistory": (_preset_field(preset, "post_history")
+                        or (settings.get("postHistory") or "").strip()
+                        or (card.post_history_instructions or "").strip()),
+        "jailbreak": _preset_field(preset, "jailbreak") or (settings.get("jailbreakPrompt") or "").strip(),
+    }
 
 
 def character_section(card, char_name):
@@ -103,15 +159,15 @@ def persona_section(persona, user_name):
     return "[你的角色]\n" + "\n".join(lines)
 
 
-def world_section(entries):
+def world_section(entries, title="[世界书]"):
     if not entries:
         return ""
     parts = []
     for row in entries:
-        keys = "、".join(str(key) for key in (row.keys or []))
+        keys = "、".join(str(key) for key in (getattr(row, "keys", None) or []))
         head = f"- {row.content}" if not keys else f"- （关键词：{keys}）{row.content}"
         parts.append(head)
-    return "[世界书]\n" + "\n".join(parts)
+    return title + "\n" + "\n".join(parts)
 
 
 def history_lines(card, history, char_name, user_name, budget_chars):
@@ -135,59 +191,84 @@ def history_lines(card, history, char_name, user_name, budget_chars):
     return picked
 
 
+def _matched_view(pairs):
+    return [{"id": row.id, "keys": list(getattr(row, "keys", None) or []),
+             "position": getattr(row, "position", "before_char"),
+             "depth": int(getattr(row, "depth", 4) or 0),
+             "order": int(getattr(row, "order", 100) or 0),
+             "reason": reason, "content": row.content} for row, reason in pairs]
+
+
 def build(card, chat, *, history, message, user_name="User", persona=None,
-          settings=None, profile=None, output_limit=512, world_info=None):
+          settings=None, profile=None, output_limit=512, world_info=None,
+          preset=None):
     settings = settings or {}
     world_info = world_info or []
     char_name = card.name
-    main_prompt = (settings.get("mainPrompt") or "").strip() or DEFAULT_MAIN_PROMPT
+    resolved = effective_prompts(card, settings, preset)
+
+    matched_pairs = match_world_info_with_reason(world_info, scan_text(message, history))
+    matched = [row for row, _reason in matched_pairs]
+    before_char = [row for row in matched if getattr(row, "position", "") == "before_char"]
+    before_example = [row for row in matched if getattr(row, "position", "") == "before_example"]
+    after_char = [row for row in matched if getattr(row, "position", "") == "after_char"]
+    at_depth = [row for row in matched if getattr(row, "position", "") == "at_depth"]
+
     blocks = []
-    if card.system_prompt and card.system_prompt.strip():
-        blocks.append("[系统提示词]\n" + replace_macros(card.system_prompt.strip(), char_name, user_name))
-    blocks.append("[主提示词]\n" + replace_macros(main_prompt, char_name, user_name))
+    world_parts = []
 
-    matched = match_world_info(world_info, scan_text(message, history))
-    before_char = [row for row in matched if row.position == "before_char"]
-    before_example = [row for row in matched if row.position == "before_example"]
-    after_char = [row for row in matched if row.position == "after_char"]
-    at_depth = [row for row in matched if row.position == "at_depth"]
+    def add_world(title, rows):
+        text = world_section(rows, "")
+        body = text.lstrip("\n")
+        blocks.append((title, body))
+        world_parts.append(title + "\n" + body)
 
+    if resolved["system"]:
+        blocks.append(("[系统提示词]", replace_macros(resolved["system"], char_name, user_name)))
+    blocks.append(("[主提示词]", replace_macros(resolved["main"], char_name, user_name)))
     if before_char:
-        blocks.append(world_section(before_char))
-    blocks.append(character_section(card, char_name))
-    if before_example:
-        blocks.append(world_section(before_example))
-    examples = example_section(card, char_name, user_name)
-    if examples:
-        blocks.append(examples)
-    if after_char:
-        blocks.append(world_section(after_char))
+        add_world(POSITION_LABELS["before_char"], before_char)
+    blocks.append(("[角色设定]", character_section(card, char_name).split("\n", 1)[1]))
     persona_block = persona_section(persona, user_name)
     if persona_block:
-        blocks.append(persona_block)
+        blocks.append(("[你的角色]", persona_block.split("\n", 1)[1]))
+    examples = example_section(card, char_name, user_name)
+    if examples:
+        blocks.append(("[示例对话]", examples.split("\n", 1)[1]))
+    if before_example:
+        add_world(POSITION_LABELS["before_example"], before_example)
+    if after_char:
+        add_world(POSITION_LABELS["after_char"], after_char)
 
     context_window = int(getattr(profile, "context_window", 32768) or 32768)
     budget_chars = max(1200, min(60000, (context_window - output_limit - 1024) * 3))
     lines = history_lines(card, history, char_name, user_name, budget_chars)
+    depth_blocks = []
     if at_depth:
-        # Entries with different depths are inserted from the requested depth.
         groups = {}
         for row in at_depth:
-            groups.setdefault(max(0, int(row.depth or 4)), []).append(row)
+            groups.setdefault(max(0, int(getattr(row, "depth", 4) or 0)), []).append(row)
         for depth in sorted(groups):
-            text = world_section(groups[depth])
+            depth_blocks.append((depth, world_section(groups[depth], POSITION_LABELS["at_depth"])))
+            world_parts.append(POSITION_LABELS["at_depth"] + "\n" + groups[depth][0].content)
+        for depth, text in depth_blocks:
             index = max(0, len(lines) - depth)
             lines.insert(index, text)
-    blocks.append("[对话历史]\n" + ("\n".join(lines) if lines else "（暂无历史）"))
-    if card.post_history_instructions and card.post_history_instructions.strip():
-        blocks.append("[后置指令]\n" + replace_macros(card.post_history_instructions.strip(), char_name, user_name))
-    blocks.append("[本轮要求]\n" + DEFAULT_REPLY_INSTRUCTION.format(char=char_name, user=user_name))
+    blocks.append(("[对话历史]", "\n".join(lines) if lines else "（暂无历史）"))
+    if resolved["postHistory"]:
+        blocks.append(("[后置指令]", replace_macros(resolved["postHistory"], char_name, user_name)))
+    if resolved["jailbreak"]:
+        blocks.append(("[越狱提示]", replace_macros(resolved["jailbreak"], char_name, user_name)))
+    blocks.append(("[本轮要求]", DEFAULT_REPLY_INSTRUCTION.format(char=char_name, user=user_name)))
 
-    system_prompt = "tavern-v1\n\n" + "\n\n".join(block for block in blocks if block)
+    rendered = [{"title": title, "chars": len(body)} for title, body in blocks]
+    system_prompt = "tavern-v1\n\n" + "\n\n".join(_section(title, body) for title, body in blocks)
     data = {
         "message": message,
         "character": {"id": card.id, "name": char_name},
         "chatId": chat.id,
         "mode": "reply",
     }
-    return {"systemPrompt": system_prompt, "data": data}
+    return {"systemPrompt": system_prompt, "data": data, "sections": rendered,
+            "matched": _matched_view(matched_pairs), "worldInjection": "\n\n".join(world_parts),
+            "prompts": resolved}

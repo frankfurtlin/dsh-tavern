@@ -232,6 +232,9 @@ iframe → 父（主动，节流）：
 
 - 每条 assistant 消息：`swipes: [{content, model, createdAt}]`、`activeSwipe` 下标；
   接口输出的 `text` 恒等于 `swipes[activeSwipe].content`；
+- 落库前对最终文本应用账号级 `world.regex_scripts` 输出替换（仅 `enabled`，按
+  `order` 逐条 `re.sub`；非法正则记 warning 跳过，不影响回复）；SSE `delta` 仍为
+  模型原文，刷新/读库看到替换结果。
 - 「重新生成」只作用于最后一条 assistant：以目标之前的历史重新生成，**追加**一个
   swipe 并把 `activeSwipe` 指到新版本，旧版本保留；
 - 切换版本 `POST .../swipes/{index}/select` 只改 `activeSwipe`，不生成、不删版本；
@@ -253,7 +256,77 @@ iframe → 父（主动，节流）：
 - 客户端：聊天页「导出聊天 (JSONL/JSON)」菜单 + 顶部「加载更早」；角色页
   「导入聊天记录」上传 JSONL。
 
-## 10. 文档索引
+## 10. 预设 / 提示词组装 / 采样（P2，已实现）
+
+预设是用户级的生成配置，聊天可绑定一条预设；未绑定时使用内置「默认」预设
+（懒创建，`isDefault=true`，不可删除）。非空预设字段覆盖卡片/聊天设置。
+
+表 `world.tavern_presets`：`name`、`is_default`、`system`、`main`、
+`jailbreak`、`post_history`、`temperature`、`top_p`、`max_tokens`、
+`stop`（JSON 数组，≤4 条、每条 ≤200 字）；`world.tavern_chats.preset_id`
+可空、`world.tavern_chats.sampling`（JSONB 可空，形如
+`{"temperature":0.8,"topP":0.95,"maxTokens":1024,"stop":[]}`）。
+P2 新表/列由 `app.world.migrate` 幂等创建（`create_all` +
+`ADD COLUMN IF NOT EXISTS`，可重复执行），生产部署需先跑迁移再重启
+`dsh-tavern-api`。
+
+API：
+
+- `GET /api/reader/v1/tavern/presets` → `{items: PresetOut[]}`（默认预设排最前）。
+  `PresetOut`：`{id,name,isDefault,system,main,jailbreak,postHistory,temperature,
+  topP,maxTokens,stop,createdAt,updatedAt}`。
+- `POST /tavern/presets` → 201 `{preset}`；`name` 1–80 必填；`temperature` 0–2、
+  `topP` 0–1、`maxTokens` 16–8192；`stop` 超限 → 422 `PRESET_INVALID`。
+- `PATCH /tavern/presets/{id}` → `{preset}`；空 body 422；删除默认预设 →
+  409 `PRESET_IMMUTABLE`；`DELETE /tavern/presets/{id}` → 204（解绑所有引用会话）。
+- `PATCH /tavern/chats/{id}` 支持 `title`、`presetId`（`null` 清空 → 回退默认
+  预设）与 `sampling`（`temperature`/`topP`/`maxTokens`/`stop`，兼容
+  `top_p`/`max_tokens`；非法值 422；`null` 清空）。`GET /tavern/chats/{id}`
+  与所有 chat 响应都带 `sampling`（无值时为 `{}`）。
+- `PATCH /tavern/presets/{id}` 支持 `isDefault: true`：切换唯一默认预设（原
+  默认自动取消）；内置「默认」预设不可删除（409 `PRESET_IMMUTABLE`）。
+
+提示词按 SillyTavern 顺序组装，`GET /tavern/characters/{id}/prompt?chatId=`
+返回全文与分段（`chatId` 可选，不属于该卡 → 404）：
+
+1. `[系统提示词]` → `[主提示词]` → `[世界书 · 角色设定之前]` →
+2. `[角色设定]`（姓名/描述/性格/场景）→ `[你的角色]`（人设）→
+3. `[示例对话]` → `[世界书 · 示例对话之前]` → `[世界书 · 角色设定之后]` →
+4. `[对话历史]`（`at_depth` 条目按 `depth` 注入在倒数第 N 条之前，历史按
+   字符预算从旧到新裁剪，超长单条保留最新尾部）→
+5. `[后置指令]` → `[越狱提示]` → `[本轮要求]`。
+
+响应：`{prompt, presetId, presetName, system, main, jailbreakPrompt, postHistory,
+worldInfoPosition, systemPrompt（组装后全文）, sections/segments:[{title,chars}],
+matched:[{id,keys,position,depth,order,reason,content}], worldInjection}`。
+`PATCH /tavern/characters/{id}/prompt` 接受 `{system?, main?, jailbreakPrompt?,
+postHistory?, worldInfoPosition?}`（同时兼容 `systemPrompt`/`mainPrompt` 与
+`system_prompt`/`main_prompt` 等 snake_case），落 `character_cards.prompt_settings`。
+
+世界书语义：`position` 取 `before_char` / `after_char` / `before_example` /
+`at_depth`；`order` 决定同段内顺序；`constant` 恒命中；否则 `enabled` 且
+`keys`（大小写不敏感子串）命中「本条消息 + 最近 4 条用户消息」；`probability`
+<100 时按 `sha256(entryId + "|" + scanText) % 100 < probability` 决定当轮是否
+命中（可复算，预览与生成结果一致）。`at_depth` 用 `depth` 指定注入深度。
+`POST /tavern/characters/{id}/world-info/preview`（body 可带 `message`/`chatId`）
+与生成共用同一实现，返回 `{matched（每条带 reason：`constant` 或
+`keyword:<词>`）, reasons, injection, worldInfoPosition, sections, systemPrompt}`。
+
+采样参数：卡片 prompt 设置（`temperature`/`topP`/`maxTokens`/`stop`）与绑定预设
+预设的并发/幂等保证（2026-11-05 修复）：每个 owner 至多一条内置预设
+（`builtin=true`，由 `(owner_id) WHERE builtin` 唯一索引保证）且至多一条
+`is_default=true`（`(owner_id) WHERE is_default` 唯一索引）。内置「默认」由
+`default_preset` 在 advisory lock 内懒创建，不会重复；`GET /tavern/presets`
+的每项包含 `builtin` 标记。`app.world.migrate` 幂等清理历史重复「默认」行
+（保留最早一条，若其中有 default 则保留该条），并把指向重复行的 chat
+`preset_id` 重指到保留行；删除内置预设返回 409 `PRESET_IMMUTABLE`。
+
+`chat.sampling` > 预设 > 卡片设置合并后传给适配器（`temperature`、`top_p`、
+`stop` 随 `/complete` 与 `/stream` 请求体发送；`maxTokens` 取
+`chat.sampling.maxTokens`/预设 `max_tokens`/卡片设置与模型策略上限的较小值）。注意：生产
+DSH 网关未重启到支持采样参数的版本前，网关侧会忽略部分参数，属于预期。
+
+## 11. 文档索引
 
 | 文档 | 状态 |
 | --- | --- |

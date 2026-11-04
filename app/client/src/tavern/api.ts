@@ -36,6 +36,13 @@ export interface CharacterPatch{
   tags?:string[]
 }
 
+export interface ChatSampling{
+  temperature:number
+  topP:number
+  maxTokens:number
+  stop:string[]
+}
+
 export interface TavernChat{
   id:string
   cardId:string
@@ -43,6 +50,7 @@ export interface TavernChat{
   modelName?:string|null
   characterName?:string|null
   lastMessage?:string|null
+  sampling?:ChatSampling|null
   createdAt?:string
   updatedAt?:string
   lastMessageAt?:string|null
@@ -170,6 +178,11 @@ export async function getChat(id:string,options:{limit?:number;before?:number}={
   return result as ChatDetail
 }
 
+export async function updateChatSampling(id:string,sampling:ChatSampling):Promise<TavernChat>{
+  const result=await api<TavernChat|{chat:TavernChat}>(TAVERN+'/chats/'+encodeURIComponent(id),{method:'PATCH',key:newKey(),body:{sampling}})
+  return unwrap<TavernChat>(result,'chat')
+}
+
 export async function updateChat(id:string,title:string):Promise<TavernChat>{
   const result=await api<TavernChat|{chat:TavernChat}>(TAVERN+'/chats/'+encodeURIComponent(id),{method:'PATCH',key:newKey(),body:{title}})
   return unwrap<TavernChat>(result,'chat')
@@ -216,6 +229,149 @@ export async function exportChatBlob(id:string,format:'jsonl'|'json'='jsonl'):Pr
     throw new Error('导出聊天失败（'+response.status+'），请稍后重试。')
   }
   return response.blob()
+}
+
+export interface TavernPrompt{
+  systemPrompt:string
+  mainPrompt:string
+  jailbreakPrompt?:string
+  postHistoryPrompt?:string
+  temperature:number
+  topP:number
+  maxTokens:number
+  stop:string[]
+  worldInfoPosition?:WorldInfoPosition
+}
+
+export type TavernPromptPatch=Partial<Omit<TavernPrompt,'systemPrompt'>> & {systemPrompt?:string}
+
+function promptEnvelope(value:TavernPrompt|{prompt:TavernPrompt}):TavernPrompt{
+  const prompt='prompt' in value?(value as {prompt:TavernPrompt}).prompt:value as TavernPrompt
+  return {systemPrompt:prompt.systemPrompt??'',mainPrompt:prompt.mainPrompt??'',
+    jailbreakPrompt:prompt.jailbreakPrompt??'',postHistoryPrompt:prompt.postHistoryPrompt??'',
+    temperature:prompt.temperature??0.8,topP:prompt.topP??0.95,maxTokens:prompt.maxTokens??1024,
+    stop:Array.isArray(prompt.stop)?prompt.stop:[],worldInfoPosition:prompt.worldInfoPosition??'before_char'}
+}
+
+export async function getPrompt(cardId:string):Promise<TavernPrompt>{
+  const result=await api<TavernPrompt|{prompt:TavernPrompt}>(TAVERN+'/characters/'+encodeURIComponent(cardId)+'/prompt')
+  return promptEnvelope(result)
+}
+
+export async function updatePrompt(cardId:string,patch:TavernPromptPatch):Promise<TavernPrompt>{
+  const result=await api<TavernPrompt|{prompt:TavernPrompt}>(TAVERN+'/characters/'+encodeURIComponent(cardId)+'/prompt',{method:'PATCH',key:newKey(),body:patch})
+  return promptEnvelope(result)
+}
+
+export interface TavernPreset{
+  id:string
+  name:string
+  systemPrompt?:string
+  mainPrompt?:string
+  jailbreakPrompt?:string
+  postHistoryPrompt?:string
+  temperature?:number
+  topP?:number
+  maxTokens?:number
+  stop?:string[]
+  isDefault?:boolean
+  createdAt?:string
+  updatedAt?:string
+}
+
+export interface TavernPresetInput{
+  name:string
+  systemPrompt?:string
+  mainPrompt?:string
+  jailbreakPrompt?:string
+  postHistoryPrompt?:string
+  temperature?:number
+  topP?:number
+  maxTokens?:number
+  stop?:string[]
+  isDefault?:boolean
+}
+
+// The tavern presets API uses bare SillyTavern field names (docs/contract.md §10:
+// system/main/jailbreak/postHistory) while the settings UI speaks *Prompt names.
+// Keep the translation in this one place so the panel never has to know the wire shape.
+interface TavernPresetWire{
+  id:string
+  name:string
+  system?:string|null
+  main?:string|null
+  jailbreak?:string|null
+  postHistory?:string|null
+  temperature?:number|null
+  topP?:number|null
+  maxTokens?:number|null
+  stop?:string[]|null
+  isDefault?:boolean
+  createdAt?:string
+  updatedAt?:string
+}
+
+interface TavernPresetWireInput{
+  name?:string
+  system?:string
+  main?:string
+  jailbreak?:string
+  postHistory?:string
+  temperature?:number
+  topP?:number
+  maxTokens?:number
+  stop?:string[]
+}
+
+function presetFromWire(value:TavernPresetWire):TavernPreset{
+  return {
+    id:value.id, name:value.name,
+    systemPrompt:value.system??'', mainPrompt:value.main??'',
+    jailbreakPrompt:value.jailbreak??'', postHistoryPrompt:value.postHistory??'',
+    temperature:value.temperature??undefined, topP:value.topP??undefined,
+    maxTokens:value.maxTokens??undefined, stop:value.stop??[],
+    isDefault:!!value.isDefault, createdAt:value.createdAt, updatedAt:value.updatedAt,
+  }
+}
+
+function presetToWire(input:Partial<TavernPresetInput>):TavernPresetWireInput{
+  const out:TavernPresetWireInput={}
+  if(input.name!==undefined)out.name=input.name
+  if(input.systemPrompt!==undefined)out.system=input.systemPrompt
+  if(input.mainPrompt!==undefined)out.main=input.mainPrompt
+  if(input.jailbreakPrompt!==undefined)out.jailbreak=input.jailbreakPrompt
+  if(input.postHistoryPrompt!==undefined)out.postHistory=input.postHistoryPrompt
+  if(input.temperature!==undefined)out.temperature=input.temperature
+  if(input.topP!==undefined)out.topP=input.topP
+  if(input.maxTokens!==undefined)out.maxTokens=input.maxTokens
+  if(input.stop!==undefined)out.stop=input.stop
+  // isDefault is intentionally not part of PresetInput/PresetUpdate bodies: the
+  // Strict server model rejects unknown fields. Use setDefaultPreset() for that.
+  return out
+}
+
+export async function listPresets():Promise<TavernPreset[]>{
+  const result=await api<{items:TavernPresetWire[]}|TavernPresetWire[]>(TAVERN+'/presets')
+  return itemsOf(result).map(presetFromWire)
+}
+
+export async function createPreset(input:TavernPresetInput):Promise<TavernPreset>{
+  const result=await api<TavernPresetWire|{preset:TavernPresetWire}>(TAVERN+'/presets',{method:'POST',key:newKey(),body:presetToWire(input)})
+  return presetFromWire(unwrap<TavernPresetWire>(result,'preset'))
+}
+
+export async function updatePreset(id:string,input:Partial<TavernPresetInput>):Promise<TavernPreset>{
+  const result=await api<TavernPresetWire|{preset:TavernPresetWire}>(TAVERN+'/presets/'+encodeURIComponent(id),{method:'PATCH',key:newKey(),body:presetToWire(input)})
+  return presetFromWire(unwrap<TavernPresetWire>(result,'preset'))
+}
+
+export async function deletePreset(id:string):Promise<void>{
+  await api<unknown>(TAVERN+'/presets/'+encodeURIComponent(id),{method:'DELETE',key:newKey()})
+}
+
+export async function setDefaultPreset(id:string):Promise<TavernPreset>{
+  const result=await api<TavernPresetWire|{preset:TavernPresetWire}>(TAVERN+'/presets/'+encodeURIComponent(id),{method:'PATCH',key:newKey(),body:{isDefault:true}})
+  return presetFromWire(unwrap<TavernPresetWire>(result,'preset'))
 }
 
 export async function listWorldInfo(cardId:string):Promise<WorldInfoEntry[]>{

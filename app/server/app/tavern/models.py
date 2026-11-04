@@ -5,7 +5,8 @@ revision is needed; ``app.world.migrate`` creates them via ``create_all``.
 """
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (Boolean, DateTime, Float, Index, Integer, String, Text,
+                        UniqueConstraint, text)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,6 +19,8 @@ class TavernChat(WorldOwned, WorldBase):
     __table_args__ = {"schema": "world"}
 
     card_id: Mapped[str] = mapped_column(String(32), index=True)
+    preset_id: Mapped[str | None] = mapped_column(String(32), index=True)
+    sampling: Mapped[dict | None] = mapped_column(JSONB)
     title: Mapped[str] = mapped_column(String(160), default="")
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     model_name: Mapped[str] = mapped_column(String(150), default="")
@@ -53,4 +56,30 @@ class TavernWorldInfo(WorldOwned, WorldBase):
     order: Mapped[int] = mapped_column(Integer, default=100)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     source: Mapped[str] = mapped_column(String(12), default="manual")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class TavernPreset(WorldOwned, WorldBase):
+    """User-level SillyTavern-style prompt preset (one built-in default)."""
+
+    __tablename__ = "tavern_presets"
+    __table_args__ = (
+        Index("uq_world_tavern_presets_builtin", "owner_id", unique=True,
+              postgresql_where=text("builtin")),
+        Index("uq_world_tavern_presets_default", "owner_id", unique=True,
+              postgresql_where=text("is_default")),
+        {"schema": "world"},
+    )
+
+    name: Mapped[str] = mapped_column(String(80), default="")
+    builtin: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    system: Mapped[str] = mapped_column(Text, default="")
+    main: Mapped[str] = mapped_column(Text, default="")
+    jailbreak: Mapped[str] = mapped_column(Text, default="")
+    post_history: Mapped[str] = mapped_column(Text, default="")
+    temperature: Mapped[float | None] = mapped_column(Float)
+    top_p: Mapped[float | None] = mapped_column(Float)
+    max_tokens: Mapped[int | None] = mapped_column(Integer)
+    stop: Mapped[list] = mapped_column(JSONB, default=list)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
