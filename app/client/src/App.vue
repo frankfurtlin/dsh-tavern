@@ -13,7 +13,6 @@ import './presentation/workspace.css'
 import RecoveryNotice from './foundation/RecoveryNotice.vue'
 import StartupPlaceholder from './components/StartupPlaceholder.vue'
 import {workspaceNavigation,workspaceGroups} from './workspace/navigation'
-import HeaderActions from './workspace/HeaderActions.vue'
 import './workspace/workspace.css'
 import './workspace/secondary-pages.css'
 import './catalog/catalog.css'
@@ -28,7 +27,6 @@ onMounted(async()=>{cleanup=await lifecycle(async()=>{if(await refreshAuth()){st
 <template>
  <StartupPlaceholder v-if="!store.booted"/>
  <AppShell v-else-if="store.user&&!['/login','/register','/recover'].includes(route.path)" :navigation="workspaceNavigation" :groups="workspaceGroups" :immersive="!!reading" :work-entry="route.path.startsWith('/stories/')" main-id="main" scope-label="酒馆">
-  <template #header-actions><HeaderActions/></template>
   <div v-if="!store.online" class="offline"><WifiOff :size="16"/>离线阅读 · 仅显示此账号已缓存内容</div>
   <div v-if="store.user?.aiMode==='mock'" class="mock-banner">测试模式 · AI 使用确定性 mock，不能作为真实模型验收</div>
   <div v-if="store.notice" class="notice" role="status">{{store.notice}}<button class="icon-button" aria-label="关闭提示" @click="store.notice=''"><X :size="18"/></button></div>
