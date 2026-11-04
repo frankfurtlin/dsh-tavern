@@ -112,14 +112,14 @@ onUnmounted(()=>{stopWatching();commandGeneration++})
 
 <template>
   <section class="character-cards" aria-label="角色卡">
-    <div class="character-intro"><span class="eyebrow"><Users :size="16"/> 故事里的人</span><h3>想和谁聊一聊？</h3><p>{{fullBook?'全书模式已开启，可以聊整本书。':'角色资料跟着你的阅读进度展开。'}}</p><RouterLink to="/settings" class="character-mode-link">{{fullBook?'切换阅读模式':'在设置中开启全书模式'}} <ArrowRight :size="14"/></RouterLink></div>
+    <div class="character-intro"><span class="eyebrow"><Users :size="16"/> 故事里的人</span><h3>想和谁聊一聊？</h3><p>{{fullBook?'全书模式已开启，可以聊整本书。':'角色资料跟着你的阅读进度展开。'}}</p><span class="character-mode-link">{{fullBook?'当前为全书模式':'角色资料跟随阅读进度'}}</span></div>
     <p v-if="loading" class="muted" role="status">正在打开角色卡…</p>
     <p v-if="error" class="error" role="alert">{{error}}</p>
     <div v-if="indexing" class="character-index-status" role="status"><span class="character-status-dot"></span><p>正在整理这本书的角色<small>可以继续阅读，角色卡会陆续出现。</small></p></div>
     <div v-if="cards.length" class="character-card-list"><article v-for="card in cards" :key="card.id" class="character-card"><div class="character-card-heading"><StoryImages :scope="card.identityId?{kind:'book',bookId,branchId:anchor.branchId,revisionId:anchor.revisionId,anchor,identityId:card.identityId}:null" purpose="avatar" :editable="!!card.identityId" :alt="card.name"><template #fallback><span class="character-avatar" aria-hidden="true">{{card.name.slice(0,1)}}</span></template></StoryImages><div><h4>{{card.name}}</h4><p>{{card.description||'这段故事里出现的人物'}}</p></div></div><div v-if="card.traits?.length" class="character-traits"><span v-for="trait in card.traits.slice(0,4)" :key="trait">{{trait}}</span></div><ul v-if="card.relations?.length" class="character-relations"><li v-for="relation in card.relations.slice(0,3)" :key="relation">{{relation}}</li></ul><p v-if="!card.available" class="character-unavailable">{{reason(card)}}</p><p v-if="card.recognition?.identityStatus==='uncertain'" class="character-unavailable">存在身份歧义，可以查看原文证据并纠正。</p><button v-if="card.recognition" class="secondary" :disabled="busy" @click="recognizing=card">查看识别证据与纠正</button><button class="primary" :disabled="busy||!store.online||!card.available||!!pendingChat&&pendingChat.body.characterId!==card.id" @click="openChat(card)"><MessagesSquare :size="17"/>{{opening===card.id?'正在打开…':'和 TA 聊天'}} <ArrowRight :size="16"/></button></article></div>
     <div v-else-if="!loading&&!indexing&&!error" class="character-empty"><Users :size="30"/><p>这个阅读进度还没有可展示的角色。</p><small>继续读下去，新的角色卡会出现在这里。</small></div>
     <button v-if="confirmedIndex||pendingIndex||indexRun?.state==='failed'||indexState==='failed'||error&&!indexing&&!pendingChat" class="character-retry" :disabled="busy||!store.online" @click="startIndex(indexRun?.state==='failed'||indexState==='failed')"><RefreshCw :size="16"/>{{confirmedIndex?'查看角色整理':'重新整理角色'}}</button>
-    <RouterLink v-if="error" to="/settings/models" class="inline-link">模型设置 <ArrowRight :size="15"/></RouterLink>
+    <span v-if="error" class="inline-link">可检查角色卡索引或稍后重试</span>
   </section>
   <CharacterRecognition v-if="recognizing" :book-id="bookId" :anchor="anchor" :card="recognizing" @close="recognizing=null" @saved="corrected"/>
 </template>

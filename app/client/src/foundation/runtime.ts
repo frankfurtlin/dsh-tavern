@@ -57,7 +57,7 @@ export function installProductFoundation(router:Router){
       const path=to.matched.at(-1)?.path||'/other'
       tracker.track('page_view',path,{path})
     }
-    if(!store.user&&['/login','/register','/recover','/help','/data-use'].includes(to.path))tracker.track('page_view','public.visit',{path:to.path})
+    if(!store.user&&['/login','/register','/recover','/data-use'].includes(to.path))tracker.track('page_view','public.visit',{path:to.path})
     requestAnimationFrame(()=>{if(!to.meta.immersive)document.getElementById('main')?.focus({preventScroll:true})})
   })
   window.addEventListener('reader-private-cleared',()=>{

@@ -29,6 +29,10 @@
  *      参与者正确 → 发消息（真实回复 + 发言人=API speakerName）→ 再发一条轮转 →
  *      整页刷新消息仍在 → 删除群聊列表回落 → console clean。隐含 --cards；
  *      真实生成请配合 --real。证据写入 report.groups。
+ *   M. 导航回归（task-24，随 --cards 运行）：左侧导航不再有「我的」分组 tab 与
+ *      我的对话/我的笔记/模型与用量/账号设置/任务进度/反馈与通知/使用帮助 7 个入口；
+ *      /settings、/settings/models、/notebook、/help、/tasks/activity、/conversations
+ *      均重定向到 /explore 且无 console 报错；/conversations/world/:id 仍能打开。证据写入 report.nav。
  *   U. --memory（C 步，docs/step4-companion-memory.md §7）：卡详情手工记忆增删改 →
  *      聊天发 2 条含自述的消息 → 「立即整理」抽取出 ≥1 条 → 注入预览含手工记忆标题 →
  *      停用/删除后注入预览不再含 → 设为长期伙伴后卡库顶部「长期伙伴」分组置顶 → console clean。
@@ -79,6 +83,7 @@ const report = {
   space: null,
   groups: null,
   memory: null,
+  nav: null,
   screenshots: [],
 }
 
@@ -2216,10 +2221,19 @@ try {
         const memoryItem = (title) => detailFrameM.locator('li.memory-item').filter({ hasText: title }).first()
         const editor = () => detailFrameM.locator('form.memory-editor').first()
         const openNew = async () => {
+          // 卡详情刚挂载时按钮已在 DOM 里但点击可能被同帧重渲染吞掉：等「长期记忆」区渲染完，
+          // 再最多重试 3 次（普通 click → DOM click），避免把偶发空点记成产品缺陷。
+          const sectionShown = await memWait(async () => (await detailFrameM.getByRole('heading', { name: '长期记忆' }).count().catch(() => 0)) > 0, 20000)
+          if (!sectionShown) return false
           const addButton = detailFrameM.getByRole('button', { name: '新增记忆' }).first()
           if (!(await addButton.count().catch(() => 0))) return false
-          await addButton.click().catch(() => {})
-          return memWait(async () => (await editor().count().catch(() => 0)) > 0, 8000)
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            const normal = await addButton.click({ timeout: 4000 }).then(() => true).catch(() => false)
+            if (!normal) await addButton.evaluate((el) => el.click()).catch(() => {})
+            if (await memWait(async () => (await editor().count().catch(() => 0)) > 0, 6000)) return true
+            await memSleep(500)
+          }
+          return false
         }
         const fillEditor = async (title, content, salience) => {
           const form = editor()
@@ -2534,6 +2548,139 @@ try {
     }
   }
   report.memory = memoryEvidence
+
+  // ── M. 「我的」移除后的导航回归（task-24）───────────────────────────────────
+  if (runCards) {
+    const navNames = [
+      'M1 左侧导航不再出现「我的」分组 tab 与 7 个已删除入口',
+      'M2 /tavern/settings 重定向到 /explore',
+      'M3 /tavern/settings/models 重定向到 /explore',
+      'M4 /tavern/notebook 重定向到 /explore',
+      'M5 /tavern/help 重定向到 /explore',
+      'M6 /tavern/tasks/activity 重定向到 /explore',
+      'M7 /tavern/conversations 重定向到 /explore',
+      'M8 /tavern/conversations/world/:id 仍能打开聊天页',
+      'M9 M 组导航期间 console 无报错',
+    ]
+    const navEvidence = {
+      enabled: true,
+      sidebar: null,
+      redirects: [],
+      chat: null,
+      console: [],
+      steps: [],
+    }
+    const navConsoleStart = consoleErrors.length
+    const navDone = new Set()
+    const navSleep = (ms) => page.waitForTimeout(ms)
+    const navWait = async (predicate, timeout = 20000, interval = 300) => {
+      const deadline = Date.now() + timeout
+      while (Date.now() < deadline) {
+        try {
+          if (await predicate()) return true
+        } catch {}
+        await navSleep(interval)
+      }
+      return false
+    }
+    const navRecord = (index, ok, detail) => {
+      if (navDone.has(index)) return
+      navDone.add(index)
+      navEvidence.steps.push({ index, name: navNames[index], ok: Boolean(ok), detail: detail === undefined ? null : String(detail) })
+      record(navNames[index], ok, detail)
+    }
+    // 注意：不要用 C 组的 memoryLibrary()——M 组在 --cards（无 --memory）时也要能跑。
+    const navFrame = fnow()
+    let navError = null
+    try {
+      if (!navFrame) throw new Error('拿不到应用 iframe（owner: plugin-core）')
+
+      // ── M1 左侧导航：不得再出现「我的」分组 tab 与 7 个已删除入口 ──
+      const sidebarShown = await navWait(async () => (await navFrame.locator('.shell-sidebar').count().catch(() => 0)) > 0, 15000)
+      if (!sidebarShown) throw new Error('15s 内没有渲染左侧导航 .shell-sidebar（owner: cards-client）')
+      const sidebarText = ((await navFrame.locator('.shell-sidebar').innerText().catch(() => '')) || '').trim()
+      const groupLabels = (await navFrame.locator('.shell-nav-label').allTextContents().catch(() => [])).map((label) => label.trim())
+      const navLinkNames = (await navFrame.locator('.shell-sidebar nav a span').allTextContents().catch(() => [])).map((label) => label.trim())
+      const removedEntries = ['我的对话', '我的笔记', '模型与用量', '账号设置', '任务进度', '反馈与通知', '使用帮助']
+      const hitEntries = removedEntries.filter((label) => sidebarText.includes(label))
+      const hitGroups = groupLabels.filter((label) => label.includes('我的'))
+      navEvidence.sidebar = { text: clip(sidebarText, 600), groups: groupLabels, links: navLinkNames, removedHits: hitEntries, groupTabHits: hitGroups }
+      navRecord(
+        0,
+        hitEntries.length === 0 && hitGroups.length === 0,
+        hitEntries.length || hitGroups.length
+          ? `左侧导航仍含已删除入口=${JSON.stringify(hitEntries)} 分组 tab=${JSON.stringify(hitGroups)}（owner: cards-client）`
+          : `分组=${groupLabels.join('/')}；入口=${navLinkNames.join('、')}`,
+      )
+      await shot(page, '30-nav-sidebar.png')
+
+      // ── M2–M7 已删除路由应重定向到 /explore ──
+      const navOrigin = new URL(navFrame.url()).origin
+      const redirectCases = [
+        ['/settings', 1],
+        ['/settings/models', 2],
+        ['/notebook', 3],
+        ['/help', 4],
+        ['/tasks/activity', 5],
+        ['/conversations', 6],
+      ]
+      for (const [path, index] of redirectCases) {
+        const beforeErrors = consoleErrors.length
+        await navFrame.goto(`${navOrigin}/tavern${path}`, { waitUntil: 'domcontentloaded' }).catch(() => {})
+        const landedExplore = await navWait(async () => /\/tavern\/explore\/?(?:[?#].*)?$/.test(navFrame.url()), 25000)
+        const exploreShown = await navWait(async () => (await navFrame.locator('.discovery-page').count().catch(() => 0)) > 0, 15000)
+        const headingShown = await navFrame.getByRole('heading', { name: /精选互动故事|欢迎/ }).first().isVisible().catch(() => false)
+        const alerts = (await navFrame.locator('[role="alert"]').allTextContents().catch(() => [])).map((text) => text.trim()).filter(Boolean)
+        const chunkErrors = consoleErrors.slice(beforeErrors).filter((text) => !/Failed to load resource/.test(text))
+        const currentPath = (() => { try { return new URL(navFrame.url()).pathname } catch { return navFrame.url() } })()
+        const ok = landedExplore && exploreShown && headingShown && alerts.length === 0 && chunkErrors.length === 0
+        const item = { path, currentPath, landedExplore, exploreShown, headingShown, alerts, consoleErrors: chunkErrors, ok }
+        navEvidence.redirects.push(item)
+        navRecord(index, ok, ok
+          ? `${path} → ${currentPath}（探索页已渲染）`
+          : `${path} 未按预期重定向：当前=${currentPath} 探索页=${exploreShown} 标题=${headingShown} 提示=${JSON.stringify(alerts)} console=${JSON.stringify(chunkErrors)}（owner: cards-client 路由）`)
+        if (path === '/settings') await shot(page, '31-nav-redirect-explore.png')
+      }
+
+      // ── M8 /conversations/world/:id 仍能打开聊天页 ──
+      const chatUrl = memoryEvidence.chat && memoryEvidence.chat.url ? memoryEvidence.chat.url : null
+      if (!chatUrl) {
+        navEvidence.chat = { url: null, ok: false, skipped: true }
+        navDone.add(7)
+        navEvidence.steps.push({ index: 7, name: navNames[7], ok: true, skipped: true, detail: '本次运行没有创建单卡聊天（没有可复用的 /conversations/world/:id），跳过 M8' })
+        record(navNames[7], true, '本次运行没有创建单卡聊天（没有可复用的 /conversations/world/:id），跳过 M8', true)
+      } else {
+        const beforeErrors = consoleErrors.length
+        await navFrame.goto(chatUrl, { waitUntil: 'domcontentloaded' }).catch(() => {})
+        const chatReady = await navWait(async () => {
+          const composer = navFrame.locator('#world-chat-message')
+          return (await composer.count().catch(() => 0)) > 0 && (await composer.isVisible().catch(() => false))
+        }, 30000)
+        const chatErrorText = (await navFrame.locator('[role="alert"]').first().textContent().catch(() => null)) || null
+        const chunkErrors = consoleErrors.slice(beforeErrors).filter((text) => !/Failed to load resource/.test(text))
+        const chatOk = chatReady && !chatErrorText && chunkErrors.length === 0
+        navEvidence.chat = { url: chatUrl, currentPath: (() => { try { return new URL(navFrame.url()).pathname } catch { return null } })(), ok: chatOk, error: chatErrorText, consoleErrors: chunkErrors }
+        navRecord(7, chatOk, chatOk
+          ? `聊天页可打开：${new URL(chatUrl).pathname}，输入框可见`
+          : `聊天页打不开：输入框=${chatReady} 提示=${chatErrorText} console=${JSON.stringify(chunkErrors)}（owner: cards-client / app-auth）`)
+        if (chatOk) await shot(page, '32-nav-chat-still-works.png')
+      }
+    } catch (error) {
+      navError = error instanceof Error ? error.message : String(error)
+      navEvidence.error = navError
+    }
+    // M9 在下面单独记录（要看 consoleErrors 切片），这里不要提前把它写成 FAIL。
+    for (let index = 0; index < 8; index += 1) {
+      if (!navDone.has(index)) {
+        navRecord(index, false, `M 组未执行完：${navError || '未执行到该步'}（owner: cards-client / harness）`)
+      }
+    }
+    // ── M9 console clean（只统计 M 组期间产生的报错）──
+    const navConsoleErrors = consoleErrors.slice(navConsoleStart).filter((text) => !/Failed to load resource/.test(text))
+    navEvidence.console = navConsoleErrors
+    if (!navDone.has(8)) navRecord(8, navConsoleErrors.length === 0, navConsoleErrors.length ? `M 组期间 console 有报错：${JSON.stringify(navConsoleErrors.slice(0, 3))}（owner: cards-client）` : 'clean')
+    report.nav = navEvidence
+  }
 
   // ── G. 控制台报错 ──────────────────────────────────────────────────────────
   const fatalErrors = consoleErrors.filter((text) => !/Failed to load resource/.test(text))

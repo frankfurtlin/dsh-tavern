@@ -209,7 +209,7 @@ onUnmounted(()=>{selectionEpoch++;clearTimeout(timer);releaseWait?.();releaseWai
   <div class="work-entry">
     <div class="work-entry-layout">
       <div class="work-entry-stage">
-        <header class="work-entry-bar"><span>{{story.title}}</span><nav aria-label="作品工具"><RouterLink to="/library" aria-label="返回书架"><Home :size="17"/></RouterLink><RouterLink to="/worlds" aria-label="我的世界与存档"><FolderOpen :size="17"/></RouterLink><RouterLink to="/settings/models" aria-label="模型设置"><Settings2 :size="17"/></RouterLink><RouterLink v-if="timeline" :to="timeline" aria-label="故事线"><GitBranch :size="17"/></RouterLink></nav></header>
+        <header class="work-entry-bar"><span>{{story.title}}</span><nav aria-label="作品工具"><RouterLink to="/library" aria-label="返回书架"><Home :size="17"/></RouterLink><RouterLink to="/worlds" aria-label="我的世界与存档"><FolderOpen :size="17"/></RouterLink><RouterLink to="/features?group=账号与权益" aria-label="功能与权益"><Settings2 :size="17"/></RouterLink><RouterLink v-if="timeline" :to="timeline" aria-label="故事线"><GitBranch :size="17"/></RouterLink></nav></header>
         <div class="work-entry-scroll" tabindex="0" aria-label="作品设置">
         <div class="work-mode-switch" role="group" aria-label="体验模式">
           <button :class="{selected:mode==='read'}" :aria-pressed="mode==='read'" :disabled="busy" @click="setMode('read')"><BookOpen :size="22"/><span><strong>阅读模式</strong><small>沉浸文字，走进故事</small></span><Check v-if="mode==='read'" :size="17"/></button>
@@ -273,7 +273,7 @@ onUnmounted(()=>{selectionEpoch++;clearTimeout(timer);releaseWait?.();releaseWai
           <label v-if="mode==='explore'" class="work-opening-composer"><span class="sr-only">探索开场</span><textarea v-model="opening" :disabled="locked" maxlength="1200" rows="2" placeholder="写下你的开场，或直接开始探索…" @focus="editOpening"></textarea></label>
           <div v-if="error" class="work-entry-error" role="alert">{{error}}<RouterLink v-if="lockedCreate||creation||lockedBegin" to="/worlds">查看我的世界<ArrowRight :size="15"/></RouterLink></div>
           <div class="work-start-actions">
-            <div v-if="mode==='explore'" class="work-model-links"><RouterLink to="/settings/models"><Sparkles :size="14"/>文字模型<ChevronDown :size="12"/></RouterLink><RouterLink to="/settings/models"><Image :size="14"/>图像模型<ChevronDown :size="12"/></RouterLink></div>
+            <div v-if="mode==='explore'" class="work-model-links"><span class="work-model-link"><Sparkles :size="14"/>文字模型</span><span class="work-model-link"><Image :size="14"/>图像模型</span></div>
             <div v-else class="work-start-caption"><span class="work-mode-label"><BookOpen :size="16"/>文字阅读</span><small>{{current?.title}}</small></div>
             <button class="primary" :disabled="!canStart" @click="start"><LoaderCircle v-if="busy" class="work-spin" :size="19"/><Compass v-else-if="mode==='explore'" :size="18"/><Send v-else :size="18"/>{{startLabel}}</button>
           </div>

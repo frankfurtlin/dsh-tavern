@@ -16,8 +16,8 @@ import {APP_BASE} from './platform/base'
 const app=createApp(App);app.use(createPinia())
 export const router=createRouter({history:createWebHistory(APP_BASE),scrollBehavior(to,_from,saved){if(to.meta.immersive)return false;return saved||{top:0,left:0}},routes:[
   {path:'/',redirect:'/explore'},
-  {path:'/help/feedback',component:()=>import('./experience/FeedbackPage.vue'),meta:{title:'反馈与服务通知'}},
-  {path:'/tasks/activity',component:()=>import('./experience/TaskActivityPage.vue'),meta:{title:'我的任务进度'}},
+  {path:'/help/feedback',redirect:'/explore'},
+  {path:'/tasks/activity',redirect:'/explore'},
   {path:'/data-use',component:()=>import('./experience/DataUsePage.vue'),meta:{public:true,title:'数据与使用说明'}},
   {path:'/worlds/:worldId/author',component:()=>import('./authoring/AuthorPage.vue'),props:route=>({key:String(route.params.worldId)}),meta:{title:'作者工作台'}},
   {path:'/published/:publicationId',component:()=>import('./authoring/PublicDetailPage.vue'),props:route=>({key:String(route.params.publicationId)}),meta:{title:'公开作品'}},
@@ -42,7 +42,7 @@ export const router=createRouter({history:createWebHistory(APP_BASE),scrollBehav
   {path:'/earnings',component:()=>import('./workspace/UnavailablePage.vue'),meta:{title:'创作者收益'}},
   {path:'/affiliate',component:()=>import('./workspace/UnavailablePage.vue'),meta:{title:'邀请与联盟'}},
   {path:'/welcome',redirect:'/login'},
-  {path:'/help',component:()=>import('./foundation/PublicPage.vue'),meta:{public:true,title:'使用帮助'}},
+  {path:'/help',redirect:'/explore'},
   {path:'/cases/blue-carbuncle',component:()=>import('./foundation/PublicPage.vue'),meta:{public:true,title:'蓝宝石案'}},
   {path:'/product/account',component:()=>import('./foundation/AccountPage.vue')},
   {path:'/product/wallet',component:()=>import('./foundation/WalletPage.vue')},
@@ -66,12 +66,13 @@ export const router=createRouter({history:createWebHistory(APP_BASE),scrollBehav
   {path:'/worlds/:worldId/lines',component:()=>import('./world/WorldLinesPage.vue')},
   {path:'/books/:bookId/read',component:()=>import('./pages/ReaderPage.vue')},
   {path:'/books/:bookId/branches',component:()=>import('./pages/BranchesPage.vue')},
-  {path:'/downloads',component:()=>import('./pages/DownloadsPage.vue')},{path:'/notebook',component:()=>import('./pages/NotebookPage.vue')},
+  {path:'/downloads',component:()=>import('./pages/DownloadsPage.vue')},
+  {path:'/notebook',redirect:'/explore'},
   {path:'/insights',component:()=>import('./pages/InsightsPage.vue')},
   {path:'/conversations/world/:sessionId',component:()=>import('./play-controls/WorldChatPage.vue'),props:route=>({key:String(route.params.sessionId)}),meta:{title:'角色独立对话'}},
-  {path:'/conversations',component:()=>import('./pages/ConversationsPage.vue')},
-  {path:'/settings',component:()=>import('./pages/SettingsPage.vue')},
-  {path:'/settings/models',component:()=>import('./pages/ModelsPage.vue')},
+  {path:'/conversations',redirect:'/explore'},
+  {path:'/settings',redirect:'/explore'},
+  {path:'/settings/models',redirect:'/explore'},
   {path:'/:pathMatch(.*)*',redirect:ACCOUNT_HOME}
 ]})
 installProductFoundation(router)

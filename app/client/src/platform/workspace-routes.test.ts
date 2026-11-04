@@ -1,6 +1,8 @@
 import {it,expect} from 'vitest'
-import {legacyDestination,HISTORY_IMPORT} from './workspace-routes'
+import {legacyDestination,ACCOUNT_HOME,HISTORY_IMPORT} from './workspace-routes'
 it.each(['/local','/local/library','/local/discover','/local/agent','/local/agent/mcp','/local/new-world','/local/play/a','/local/new-story','/local/read/a','/local/lines/a','/local/stage/a','/local/chat-stage/a','/local/chat/a','/local/settings/models','/local/settings/media','/local/plugins','/local/agent/skills','/local/gallery','/local/vectors','/local/video','/local/settings/tasks','/local/settings/appearance','/local/settings/data','/local/notebook','/local/insights','/local/characters','/local/companions','/local/companions/a','/local/discover','/local/lorebooks','/local/tavern/quick-replies','/local/tavern/presets','/local/tavern/regex','/local/tavern/personas','/local/tavern/import-chat','/local/settings'])('keeps old entry %s in the account app',path=>{
  const target=legacyDestination(path);expect(target.startsWith('/')).toBe(true);expect(target.startsWith('/local')).toBe(false);expect(target.startsWith('//')).toBe(false)
 })
 it('routes old story links to recovery instead of inventing an account story ID',()=>expect(legacyDestination('/local/read/story-old')).toBe(HISTORY_IMPORT))
+it('retires removed account pages to the discovery home',()=>{for(const path of ['/local/settings','/local/settings/models','/local/settings/media','/local/settings/tasks','/local/settings/appearance','/local/settings/data','/local/notebook'])expect(legacyDestination(path)).toBe(ACCOUNT_HOME)})
+it('keeps the character library reachable from the old characters entry',()=>expect(legacyDestination('/local/characters')).toBe('/characters'))

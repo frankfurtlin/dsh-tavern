@@ -1,4 +1,4 @@
 <script setup lang="ts">
 defineProps<{admin?:boolean}>()
 </script>
-<template><nav class="product-nav" aria-label="账号服务"><RouterLink to="/product/account">个人资料</RouterLink><RouterLink to="/settings">账号设置</RouterLink><RouterLink to="/product/wallet">积分与会员</RouterLink><RouterLink v-if="admin" to="/product/admin">运营管理</RouterLink></nav></template>
+<template><nav class="product-nav" aria-label="账号服务"><RouterLink to="/product/account">个人资料</RouterLink><RouterLink to="/product/wallet">积分与会员</RouterLink><RouterLink v-if="admin" to="/product/admin">运营管理</RouterLink></nav></template>
