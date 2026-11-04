@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import {computed,nextTick,onMounted,onUnmounted,ref,watch} from 'vue'
 import {useRoute,useRouter} from 'vue-router'
-import {ArrowLeft,ChevronLeft,ChevronRight,Pencil,RefreshCw,Send,Square,X} from 'lucide-vue-next'
+import {ArrowLeft,ChevronLeft,ChevronRight,Download,Pencil,RefreshCw,Send,Square,Trash2,X} from 'lucide-vue-next'
 import {useApp} from '../stores/app'
 import {useRequestScope} from '../platform/request-scope'
-import {editMessage,getChat,messageText,selectSwipe,updateChat,type ChatDetail,TavernMessage} from './api'
+import {deleteMessage,editMessage,exportChatBlob,getChat,messageText,selectSwipe,updateChat,type ChatDetail,TavernMessage} from './api'
+import {saveBlob,safeFileName} from '../platform/download'
 import {streamChat} from './sse'
 
 const route=useRoute(),router=useRouter(),store=useApp(),scope=useRequestScope()
@@ -23,9 +24,15 @@ const savingEdit=ref(false)
 const swipeBusy=ref(false)
 const titleEditing=ref(false)
 const titleText=ref('')
+const deletingId=ref('')
+const exporting=ref('')
+const exportMenuOpen=ref(false)
+const hasMore=ref(false)
+const loadingEarlier=ref(false)
 const log=ref<HTMLElement|null>(null)
 let abort:AbortController|null=null
 let mounted=true
+const PAGE_SIZE=200
 
 const characterName=computed(()=>detail.value?.chat.characterName||detail.value?.chat.title||'聊天')
 const canRegenerate=computed(()=>!streaming.value&&messages.value.length>0&&messages.value[messages.value.length-1]?.role==='assistant')
@@ -37,10 +44,11 @@ async function load(silent=false){
   error.value=''
   const ticket=scope()
   try{
-    const value=await getChat(chatId.value)
+    const value=await getChat(chatId.value,{limit:PAGE_SIZE})
     if(!ticket.valid())return
     detail.value=value
     messages.value=value.messages||[]
+    hasMore.value=value.hasMore??messages.value.length>=PAGE_SIZE
     if(!titleEditing.value)titleText.value=value.chat.title||''
     scrollToBottom()
   }catch(e){
@@ -48,6 +56,27 @@ async function load(silent=false){
   }finally{
     if(ticket.valid())loading.value=false
   }
+}
+
+async function loadEarlier(){
+  const first=messages.value[0]?.sequence
+  if(loadingEarlier.value||first===undefined||first<=1)return
+  const ticket=scope()
+  const node=log.value
+  const previousHeight=node?.scrollHeight??0
+  const previousTop=node?.scrollTop??0
+  loadingEarlier.value=true
+  try{
+    const value=await getChat(chatId.value,{limit:PAGE_SIZE,before:first})
+    if(!ticket.valid())return
+    const known=new Set(messages.value.map(message=>message.id))
+    const earlier=(value.messages||[]).filter(message=>!known.has(message.id))
+    messages.value=[...earlier,...messages.value]
+    hasMore.value=value.hasMore??earlier.length>=PAGE_SIZE
+    if(node)await nextTick(()=>{node.scrollTop=node.scrollHeight-previousHeight+previousTop})
+  }catch(e){
+    if(ticket.valid())streamError.value=(e as Error).message||'更早的消息加载失败，请稍后重试。'
+  }finally{loadingEarlier.value=false}
 }
 
 function extractUserMessage(payload:{userMessage?:unknown;message?:unknown;text?:string}|unknown):TavernMessage|null{
@@ -162,6 +191,27 @@ async function moveSwipe(message:TavernMessage,delta:number){
   }finally{swipeBusy.value=false}
 }
 
+function askDelete(message:TavernMessage){if(streaming.value)return;deletingId.value=message.id}
+async function confirmDelete(message:TavernMessage){
+  if(deletingId.value!==message.id)return
+  try{
+    await deleteMessage(chatId.value,message.id)
+    deletingId.value=''
+    await load(true)
+  }catch(e){streamError.value=(e as Error).message||'删除消息失败，请稍后重试。'}
+}
+async function exportChat(format:'jsonl'|'json'){
+  if(exporting.value)return
+  exporting.value=format;exportMenuOpen.value=false;streamError.value=''
+  try{
+    const blob=await exportChatBlob(chatId.value,format)
+    const suffix=format==='jsonl'?'.jsonl':'.json'
+    saveBlob(blob,safeFileName(characterName.value,'chat')+suffix)
+    store.message(format==='jsonl'?'聊天已导出为 JSONL。':'聊天已导出为 JSON。')
+  }catch(e){streamError.value=(e as Error).message||'导出聊天失败，请稍后重试。'}
+  finally{exporting.value=''}
+}
+
 function startTitleEdit(){if(!detail.value)return;titleEditing.value=true;titleText.value=detail.value.chat.title||''}
 async function saveTitle(){
   const title=titleText.value.trim()
@@ -194,6 +244,13 @@ onUnmounted(()=>{mounted=false;abort?.abort();abort=null})
      <button type="submit">保存</button>
     </form>
    </div>
+   <div class="chat-menu">
+    <button type="button" class="chat-icon" aria-label="聊天菜单" @click="exportMenuOpen=!exportMenuOpen"><Download :size="19"/></button>
+    <div v-if="exportMenuOpen" class="chat-menu-pop" role="menu">
+     <button type="button" role="menuitem" :disabled="!!exporting" @click="exportChat('jsonl')">{{exporting==='jsonl'?'导出中…':'导出聊天 (JSONL)'}}</button>
+     <button type="button" role="menuitem" :disabled="!!exporting" @click="exportChat('json')">{{exporting==='json'?'导出中…':'导出聊天 (JSON)'}}</button>
+    </div>
+   </div>
    <span class="chat-status" role="status">{{streaming?'正在回复…':(streamError?'出错':'')}}</span>
   </header>
 
@@ -201,6 +258,9 @@ onUnmounted(()=>{mounted=false;abort?.abort();abort=null})
   <p v-if="loading" class="chat-loading" role="status">正在加载聊天…</p>
 
   <div v-else ref="log" class="chat-log" aria-live="polite">
+   <div v-if="hasMore" class="chat-load-earlier">
+    <button type="button" :disabled="loadingEarlier" @click="loadEarlier">{{loadingEarlier?'加载中…':'加载更早消息'}}</button>
+   </div>
    <p v-if="!messages.length&&!streaming" class="chat-empty">还没有消息，说点什么开始吧。</p>
    <article v-for="message in messages" :key="message.id" class="bubble-row" :class="message.role">
     <div class="bubble" :class="message.role">
@@ -218,16 +278,24 @@ onUnmounted(()=>{mounted=false;abort?.abort();abort=null})
      </template>
     </div>
     <div v-if="editingId!==message.id&&!streaming" class="bubble-actions">
-     <template v-if="message.role==='user'">
-      <button type="button" aria-label="编辑这条消息" @click="startEdit(message)"><Pencil :size="15"/>编辑</button>
+     <template v-if="deletingId===message.id">
+      <span class="bubble-confirm">删除这条消息？</span>
+      <button type="button" class="danger-text" aria-label="确认删除消息" @click="confirmDelete(message)">确认删除</button>
+      <button type="button" @click="deletingId=''">取消</button>
      </template>
      <template v-else>
-      <span v-if="(message.swipes?.length||0)>1" class="swipe-controls">
-       <button type="button" aria-label="上一个版本" :disabled="swipeBusy||(message.activeSwipe??0)<=0" @click="moveSwipe(message,-1)"><ChevronLeft :size="15"/></button>
-       <span class="swipe-count">{{(message.activeSwipe??0)+1}}/{{message.swipes.length}}</span>
-       <button type="button" aria-label="下一个版本" :disabled="swipeBusy||(message.activeSwipe??0)>=message.swipes.length-1" @click="moveSwipe(message,1)"><ChevronRight :size="15"/></button>
-      </span>
-      <button v-if="message.id===messages[messages.length-1]?.id&&canRegenerate" type="button" @click="regenerate"><RefreshCw :size="15"/>重新生成</button>
+      <template v-if="message.role==='user'">
+       <button type="button" aria-label="编辑这条消息" @click="startEdit(message)"><Pencil :size="15"/>编辑</button>
+      </template>
+      <template v-else-if="message.id===messages[messages.length-1]?.id">
+       <span v-if="(message.swipes?.length||0)>1" class="swipe-controls">
+        <button type="button" aria-label="上一个版本" :disabled="swipeBusy||(message.activeSwipe??0)<=0" @click="moveSwipe(message,-1)"><ChevronLeft :size="15"/></button>
+        <span class="swipe-count">{{(message.activeSwipe??0)+1}}/{{message.swipes.length}}</span>
+        <button type="button" aria-label="下一个版本" :disabled="swipeBusy||(message.activeSwipe??0)>=message.swipes.length-1" @click="moveSwipe(message,1)"><ChevronRight :size="15"/></button>
+       </span>
+       <button v-if="canRegenerate" type="button" @click="regenerate"><RefreshCw :size="15"/>重新生成</button>
+      </template>
+      <button v-if="message.role==='user'||message.id===messages[messages.length-1]?.id" type="button" aria-label="删除这条消息" @click="askDelete(message)"><Trash2 :size="15"/>删除</button>
      </template>
     </div>
    </article>
@@ -251,9 +319,18 @@ onUnmounted(()=>{mounted=false;abort?.abort();abort=null})
 
 <style scoped>
 .tavern-chat{display:flex;flex-direction:column;height:100dvh;background:var(--paper);color:var(--ink)}
-.chat-top{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:8px;min-height:56px;padding:6px 10px;padding-top:calc(6px + env(safe-area-inset-top));border-bottom:1px solid var(--edge);background:var(--paper);position:sticky;top:0;z-index:20}
+.chat-top{display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:8px;min-height:56px;padding:6px 10px;padding-top:calc(6px + env(safe-area-inset-top));border-bottom:1px solid var(--edge);background:var(--paper);position:sticky;top:0;z-index:20}
 .chat-icon{display:flex;align-items:center;justify-content:center;width:44px;height:44px;border:0;background:transparent;color:var(--quiet);border-radius:10px;cursor:pointer}
 .chat-icon:hover{background:var(--wash);color:var(--ink)}
+.chat-menu{position:relative}
+.chat-menu-pop{position:absolute;right:0;top:46px;z-index:30;min-width:190px;padding:6px;border:1px solid var(--edge);border-radius:12px;background:var(--canvas);box-shadow:0 12px 32px rgba(0,0,0,.12);display:flex;flex-direction:column;gap:2px}
+.chat-menu-pop button{min-height:40px;justify-content:flex-start;border:0;background:transparent;color:var(--ink);text-align:left;padding:0 10px;border-radius:8px;cursor:pointer}
+.chat-menu-pop button:hover:not(:disabled){background:var(--wash)}
+.chat-load-earlier{display:flex;justify-content:center}
+.chat-load-earlier button{min-height:36px;border:1px solid var(--edge);background:var(--canvas);border-radius:999px;padding:0 14px;font-size:13px;color:var(--quiet);cursor:pointer}
+.bubble-confirm{font-size:12px;color:var(--quiet)}
+.bubble-actions .danger-text{color:#b23b3b}
+.bubble-actions .danger-text:hover{background:rgba(178,59,59,.08)}
 .chat-title{min-width:0;text-align:center}
 .chat-name{max-width:100%;min-height:40px;padding:0 10px;border:0;background:transparent;font-family:var(--font-serif);font-size:17px;color:var(--ink);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .chat-title-form{display:flex;gap:6px;align-items:center;justify-content:center}

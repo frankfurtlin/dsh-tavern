@@ -7,8 +7,9 @@ import {useRequestScope} from '../platform/request-scope'
 import {saveBlob,safeFileName} from '../platform/download'
 import {
  characterAvatarBlob,createCharacterChat,deleteCharacter,deleteWorldInfo,exportCharacterBlob,
- getCharacter,listCharacterChats,listWorldInfo,updateCharacter,updateWorldInfo,createWorldInfo,
- type TavernCharacter,TavernChat,WorldInfoEntry,WorldInfoInput,WorldInfoPosition,
+ getCharacter,importChats,listCharacterChats,listWorldInfo,previewWorldInfo,updateCharacter,
+ updateWorldInfo,createWorldInfo,
+ type TavernCharacter,TavernChat,WorldInfoEntry,WorldInfoInput,WorldInfoPosition,WorldInfoPreview,
 } from './api'
 
 const route=useRoute(),router=useRouter(),store=useApp(),scope=useRequestScope()
@@ -26,6 +27,11 @@ const exporting=ref(false)
 const exportError=ref('')
 const worldError=ref('')
 const startingChat=ref(false)
+const importingChats=ref(false)
+const previewMessage=ref('')
+const previewLoading=ref(false)
+const previewError=ref('')
+const previewResult=ref<WorldInfoPreview|null>(null)
 
 const form=reactive({name:'',description:'',personality:'',scenario:'',firstMessage:'',systemPrompt:'',postHistoryInstructions:'',tagsText:''})
 function fillForm(value:TavernCharacter){
@@ -140,6 +146,31 @@ async function saveInfo(){
     resetInfo()
   }catch(e){worldError.value=(e as Error).message||'保存世界书失败，请稍后重试。'}
 }
+async function runPreview(){
+  if(previewLoading.value)return
+  previewError.value='';previewResult.value=null
+  previewLoading.value=true
+  try{
+    previewResult.value=await previewWorldInfo(cardId.value,previewMessage.value.trim())
+  }catch(e){previewError.value=(e as Error).message||'注入预览失败，请稍后重试。'}
+  finally{previewLoading.value=false}
+}
+
+async function importChat(event:Event){
+  const input=event.target as HTMLInputElement
+  const file=input.files?.[0]
+  input.value=''
+  if(!file||importingChats.value)return
+  importingChats.value=true;worldError.value=''
+  try{
+    const chat=await importChats(cardId.value,file)
+    chats.value=await listCharacterChats(cardId.value).catch(()=>chats.value)
+    store.message('聊天记录已导入。')
+    void router.push('/chats/'+encodeURIComponent(chat.id))
+  }catch(e){worldError.value=(e as Error).message||'导入聊天失败，请检查 JSONL 文件。'}
+  finally{importingChats.value=false}
+}
+
 async function removeInfo(entry:WorldInfoEntry){
   try{
     await deleteWorldInfo(cardId.value,entry.id)
@@ -230,6 +261,27 @@ onUnmounted(()=>{if(avatarUrl.value)URL.revokeObjectURL(avatarUrl.value)})
       </div>
      </li>
     </ul>
+    <div class="world-info-preview">
+     <div class="section-head">
+      <h3 class="preview-title">注入预览</h3>
+      <button type="button" :aria-expanded="previewResult!==null" @click="previewResult=previewResult?null:previewResult">{{previewResult?'收起结果':'预览'}}</button>
+     </div>
+     <p class="muted">输入一句示例消息，看看哪些世界书条目会被命中。</p>
+     <form class="preview-form" @submit.prevent="runPreview">
+      <input v-model="previewMessage" aria-label="注入预览示例消息" placeholder="例如：外面开始下雨了" maxlength="400">
+      <button type="submit" class="primary" :disabled="previewLoading">{{previewLoading?'预览中…':'注入预览'}}</button>
+     </form>
+     <p v-if="previewError" class="error" role="alert">{{previewError}}</p>
+     <div v-if="previewResult" class="preview-result" role="status">
+      <p class="preview-summary">命中 {{previewResult.matched?.length||0}} 条世界书</p>
+      <ul v-if="previewResult.matched?.length" class="preview-match-list">
+       <li v-for="entry in previewResult.matched" :key="entry.id">{{(entry.keys||[]).join(', ')||'（常驻）'}} · {{entry.content.slice(0,80)}}{{entry.content.length>80?'…':''}}</li>
+      </ul>
+      <p v-if="previewResult.injection" class="preview-injection-label">实际注入文本</p>
+      <pre v-if="previewResult.injection" class="preview-injection">{{previewResult.injection}}</pre>
+      <p v-else class="muted">这次没有命中任何世界书条目。</p>
+     </div>
+    </div>
     <form v-if="infoEditor.open" class="world-info-editor" @submit.prevent="saveInfo">
      <label>关键词（逗号分隔）<input v-model="infoEditor.keys" aria-label="世界书关键词"></label>
      <label>内容<textarea v-model="infoEditor.content" rows="3" aria-label="世界书内容"></textarea></label>
@@ -253,7 +305,13 @@ onUnmounted(()=>{if(avatarUrl.value)URL.revokeObjectURL(avatarUrl.value)})
    <section class="character-section" aria-label="聊天历史">
     <div class="section-head">
      <h2 class="section-title">聊天历史</h2>
-     <button type="button" class="primary" :disabled="startingChat" @click="startChat"><MessageSquarePlus :size="16"/>开新聊天</button>
+     <div class="history-actions">
+      <label class="import-chat-button" :class="{disabled:importingChats}">
+       <Upload :size="16"/>{{importingChats?'导入中…':'导入酒馆聊天'}}
+       <input type="file" accept=".jsonl,.json,application/jsonl,application/json" aria-label="导入酒馆聊天 JSONL" :disabled="importingChats" @change="importChat">
+      </label>
+      <button type="button" class="primary" :disabled="startingChat" @click="startChat"><MessageSquarePlus :size="16"/>开新聊天</button>
+     </div>
     </div>
     <p v-if="!chats.length" class="muted">还没有聊天记录，开一段新对话吧。</p>
     <ul v-else class="chat-history">
@@ -298,6 +356,20 @@ onUnmounted(()=>{if(avatarUrl.value)URL.revokeObjectURL(avatarUrl.value)})
 .world-info-actions{display:flex;flex-direction:column;gap:6px;flex:none}
 .world-info-editor{display:flex;flex-direction:column;gap:12px;margin-top:14px;padding:14px;border:1px dashed var(--edge);border-radius:12px}
 .check{flex-direction:row!important;align-items:center;gap:8px!important}
+.world-info-preview{margin-top:16px;padding:14px;border:1px dashed var(--edge);border-radius:12px;display:flex;flex-direction:column;gap:10px}
+.preview-title{margin:0;font-size:15px;font-family:var(--font-serif)}
+.preview-form{display:flex;gap:8px}
+.preview-form input{flex:1;min-height:40px}
+.preview-form button{min-height:40px;white-space:nowrap}
+.preview-result{display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:10px;background:var(--wash)}
+.preview-summary{margin:0;font-size:13px;color:var(--quiet)}
+.preview-match-list{margin:0;padding-left:18px;font-size:13px;line-height:1.7;color:var(--ink)}
+.preview-injection-label{margin:0;font-size:12px;color:var(--quiet)}
+.preview-injection{margin:0;white-space:pre-wrap;font-size:13px;line-height:1.7;background:var(--canvas);border:1px solid var(--edge);border-radius:8px;padding:10px;max-height:220px;overflow:auto}
+.history-actions{display:flex;gap:8px;flex-wrap:wrap}
+.import-chat-button{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 14px;border:1px solid var(--edge);border-radius:10px;background:var(--canvas);color:var(--ink);font-size:14px;cursor:pointer}
+.import-chat-button input{display:none}
+.import-chat-button.disabled{opacity:.55;pointer-events:none}
 .inline-link{min-height:0;padding:0 6px;border:0;background:transparent;color:var(--accent);text-decoration:underline;cursor:pointer}
 .chat-history{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
 .chat-history-item{width:100%;display:flex;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid var(--edge);border-radius:12px;background:var(--canvas);cursor:pointer;text-align:left}

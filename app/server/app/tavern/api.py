@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import AliasChoices, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from ..cards import exporting, parse, personas
 from ..cards import service as card_service
@@ -24,6 +24,21 @@ router = APIRouter(prefix="/tavern", tags=["tavern"])
 
 PROMPT_DEFAULTS = {"mainPrompt": "", "temperature": 0.8, "topP": 0.95, "maxTokens": 1024, "stop": []}
 
+IMPORT_MAX_BYTES = 32 * 1024 * 1024
+IMPORT_MAX_LINES = 20000
+
+
+def _stamp() -> str:
+    return now().strftime("%Y%m%d-%H%M%S")
+
+
+def _default_chat_title(db, owner_id: str, card, requested: str | None) -> str:
+    if requested:
+        return requested.strip()[:160]
+    count = db.scalar(select(func.count()).select_from(TavernChat).where(
+        TavernChat.owner_id == owner_id, TavernChat.card_id == card.id)) or 0
+    return f"{card.name} · {count + 1}"[:160]
+
 
 class TavernCardPatch(Strict):
     name: str | None = Field(default=None, min_length=1, max_length=160)
@@ -39,6 +54,7 @@ class TavernCardPatch(Strict):
 
 class ChatCreate(Strict):
     greetingId: int | None = Field(default=None, ge=0)
+    title: str | None = Field(default=None, min_length=1, max_length=160)
 
 
 class ChatPatch(Strict):
@@ -255,7 +271,7 @@ def create_chat(card_id: str, payload: ChatCreate | None = None,
             raise Problem("GREETING_INVALID", "这个开场白不存在", 422)
         greeting = greetings[payload.greetingId]
     chat = TavernChat(id=service.uid(), owner_id=user.id, card_id=card.id,
-                      title=f"{card.name} 的对话"[:160], model_name="",
+                      title=_default_chat_title(db, user.id, card, payload.title), model_name="",
                       updated_at=now())
     db.add(chat)
     db.flush()
@@ -266,11 +282,111 @@ def create_chat(card_id: str, payload: ChatCreate | None = None,
 
 
 @router.get("/chats/{chat_id}")
-def get_chat(chat_id: str, user=Depends(current_user), db=Depends(get_db)):
+def get_chat(chat_id: str, before: int | None = Query(default=None, ge=1),
+             limit: int = Query(default=200, ge=1, le=500),
+             user=Depends(current_user), db=Depends(get_db)):
     chat = service.chat_or_404(db, user.id, chat_id)
     card = service.card_or_404(db, user.id, chat.card_id)
+    all_rows = service.list_messages(db, chat)
+    latest = all_rows[-1].sequence if all_rows else 0
+    candidates = [row for row in all_rows if before is None or row.sequence < before]
+    has_more = len(candidates) > limit
+    page = candidates[-limit:] if has_more else candidates
     return {"chat": {**service.chat_out(chat), "card": service.card_summary(card)},
-            "messages": [service.message_out(row) for row in service.list_messages(db, chat)]}
+            "messages": [service.message_out(row) for row in page],
+            "hasMore": has_more, "latestSequence": latest}
+
+
+@router.get("/chats/{chat_id}/export")
+def export_chat(chat_id: str, format: str = Query(default="jsonl"),
+                user=Depends(current_user), db=Depends(get_db)):
+    chat = service.chat_or_404(db, user.id, chat_id)
+    card = service.card_or_404(db, user.id, chat.card_id)
+    rows = service.list_messages(db, chat)
+    if format == "json":
+        document = {"chat": {**service.chat_out(chat), "card": service.card_summary(card)},
+                    "card": service.card_summary(card),
+                    "messages": [service.message_out(row) for row in rows]}
+        return Response(json.dumps(document, ensure_ascii=False), media_type="application/json",
+                        headers=exporting.filename_header(f"{card.name}-{_stamp()}", ".json"))
+    if format == "jsonl":
+        lines = []
+        for row in rows:
+            swipes = list(row.swipes or [])
+            payload = {
+                "user_name": "User",
+                "character_name": card.name,
+                "create_date": service.iso(row.updated_at or row.created_at),
+                "mes": service.swipe_content(row.swipes, row.active_swipe),
+                "is_user": row.role == "user",
+                "is_name": True,
+            }
+            if len(swipes) > 1:
+                payload["swipes"] = [str((item or {}).get("content", "")) for item in swipes]
+                payload["swipe_id"] = int(row.active_swipe or 0)
+            lines.append(json.dumps(payload, ensure_ascii=False))
+        body = "\n".join(lines) + ("\n" if lines else "")
+        return Response(body, media_type="text/plain; charset=utf-8",
+                        headers=exporting.filename_header(f"{card.name}-{_stamp()}", ".jsonl"))
+    raise Problem("INVALID_REQUEST", "导出格式仅支持 jsonl 或 json", 422)
+
+
+@router.post("/characters/{card_id}/chats/imports", status_code=201)
+async def import_chat(card_id: str, file: UploadFile = File(...),
+                      user=Depends(current_user), db=Depends(get_db)):
+    card = service.card_or_404(db, user.id, card_id)
+    raw = await file.read()
+    if len(raw) > IMPORT_MAX_BYTES:
+        raise Problem("CHAT_IMPORT_TOO_LARGE", "聊天文件超过 32 MiB", 422)
+    text = raw.decode("utf-8", errors="replace").lstrip("\ufeff")
+    lines = [line for line in text.splitlines() if line.strip()]
+    if not lines:
+        raise Problem("CHAT_IMPORT_EMPTY", "文件里没有可以导入的聊天记录", 422)
+    if len(lines) > IMPORT_MAX_LINES:
+        raise Problem("CHAT_IMPORT_TOO_LARGE", "聊天记录超过 20000 行", 422)
+    title = (file.filename or "").rsplit(".", 1)[0].strip()
+    chat = TavernChat(id=service.uid(), owner_id=user.id, card_id=card.id,
+                      title=(title or _default_chat_title(db, user.id, card, None))[:160],
+                      model_name="", updated_at=now())
+    db.add(chat)
+    db.flush()
+    imported, skipped, sequence = 0, 0, 0
+    for line in lines:
+        try:
+            payload = json.loads(line)
+            if not isinstance(payload, dict):
+                raise ValueError("not an object")
+            mes = payload.get("mes")
+            if not isinstance(mes, str) or not mes.strip():
+                raise ValueError("missing mes")
+            role = "user" if payload.get("is_user") else "assistant"
+            swipes = payload.get("swipes")
+            if isinstance(swipes, list) and swipes:
+                entries = []
+                for item in swipes:
+                    content = str(item).strip() if not isinstance(item, dict) else str(item.get("content") or "").strip()
+                    if content:
+                        entries.append({"content": content, "model": "", "createdAt": None})
+                if not entries:
+                    entries = [{"content": mes.strip(), "model": "", "createdAt": None}]
+            else:
+                entries = [{"content": mes.strip(), "model": "", "createdAt": None}]
+            active = payload.get("swipe_id")
+            active = int(active) if isinstance(active, int) else 0
+            active = max(0, min(active, len(entries) - 1))
+            sequence += 1
+            db.add(TavernMessage(id=service.uid(), owner_id=user.id, chat_id=chat.id,
+                                 role=role, sequence=sequence, swipes=entries,
+                                 active_swipe=active, updated_at=now()))
+            imported += 1
+        except (ValueError, TypeError, json.JSONDecodeError):
+            skipped += 1
+    if imported == 0:
+        db.rollback()
+        raise Problem("CHAT_IMPORT_EMPTY", "所有行都无法解析，未导入任何消息", 422)
+    service.touch_chat(db, chat, "")
+    db.commit()
+    return {"chat": service.chat_out(chat), "imported": imported, "skipped": skipped}
 
 
 @router.patch("/chats/{chat_id}")

@@ -10,10 +10,16 @@
  *   N. 角色列表：首页角色卡网格；导入 fixture 卡（PNG v2）→ 卡名/头像出现；搜索过滤。
  *   C. 聊天：点卡进角色页 → 开新聊天 /chats/<id> → 发「你好」→ 用户气泡 →
  *      assistant 文本流式增长（250ms 采样至少 2 个不同长度）→ 完成后落库、刷新仍在。
+ *   C2. 停止生成：流式中出现「停止生成」按钮，点击后停止且不报错（复用 R 后的流式）。
  *   R. 重新生成：最后一条 assistant「重新生成」→ 文本变化、版本数增加、消息数不重复。
+ *   P. swipe：版本计数 1/1→2/2 后点 ‹ 切到旧版本（文本变化）→ 刷新仍保持 → 点 › 切回最新。
+ *   E. 编辑/删除消息：编辑 user 文本保存后更新；删除一条消息后列表减少；无 console 报错。
+ *   T. 标题：点击聊天标题改名保存 → 刷新保持。
  *   H. 历史：角色页聊天历史列表 → 再进入消息完整。
  *   S. 世界书：卡详情新增条目（key「茶」，position after_char）→ 列表可见 → 删除；
- *      P0 无注入预览 UI 时记 SKIP 并注明 owner。
+ *      注入预览：输入示例消息 → 出现命中条目/injection 文本（P0 无 UI 时记 SKIP 并注明 owner）。
+ *   I. 导入导出：聊天导出 JSONL（下载 + 逐行 JSON 解析）与 JSON（解析 messages）；
+ *      卡详情导入 fixture chat-sample.jsonl（2 条消息）→ 历史新增并自动进入会话、条数正确。
  *   M. 旧路由：/tavern/explore、/tavern/works、/tavern/worlds/scripts、
  *      /tavern/conversations/world/x → 落 / 或无 404 死链；页面无「探索作品」入口。
  *
@@ -55,7 +61,20 @@ const report = {
   url: url.replace(/token=[^&]+/, 'token=***'),
   startedAt: new Date().toISOString(),
   checks: [],
-  native: { home: null, characters: null, chat: null, regenerate: null, history: null, worldInfo: null, oldRoutes: null },
+  native: {
+    home: null,
+    characters: null,
+    chat: null,
+    stop: null,
+    regenerate: null,
+    swipe: null,
+    title: null,
+    edit: null,
+    history: null,
+    worldInfo: null,
+    exportImport: null,
+    oldRoutes: null,
+  },
   app: {},
   screenshots: [],
 }
@@ -392,6 +411,15 @@ try {
     }
     return null
   }
+  async function waitChatRendered(frameNow, timeoutMs = 20000) {
+    if (!frameNow) return false
+    return waitFor(async () => {
+      const rows = await frameNow.locator('.bubble-row').count().catch(() => 0)
+      const chrome =
+        (await frameNow.locator('.chat-name, button[aria-label="聊天菜单"]').count().catch(() => 0)) > 0
+      return rows > 0 && chrome
+    }, timeoutMs)
+  }
   async function rowText(row) {
     if (!row) return ''
     const text = row.locator('.bubble-text').first()
@@ -487,6 +515,7 @@ try {
           const assistantFirst = finalText.slice(0, 20)
           await chatFrame.evaluate(() => location.reload()).catch(() => {})
           chatFrame = (await waitFrameUrl(/\/chats\/[0-9a-zA-Z_-]+/, 20000)) || fnow()
+          await waitChatRendered(chatFrame, 25000)
           const persisted = chatFrame
             ? await waitFor(async () => {
                 const text = await bodyText(chatFrame)
@@ -496,6 +525,51 @@ try {
           chatEvidence.persisted = persisted
           check('刷新后消息仍在（落库）', persisted, persisted ? '刷新后用户消息与 assistant 回复均存在' : `刷新后找不到消息（assistant 前 20 字=${clip(assistantFirst)}；owner: app-auth 落库 / cards-client 渲染）`)
         }
+      }
+    }
+  }
+
+  // ── C2. 停止生成（在 R 之前制造一次可取消的流式，不新增成功回复）────────────
+  const stopEvidence = { visible: false, clicked: false, ended: false, error: null }
+  report.native.stop = stopEvidence
+  if (groupOn('c')) {
+    if (nativeBlocked || !chatFrame) {
+      skip('停止生成按钮出现、可点且不报错', nativeBlocked ? blockedReason : '前置：聊天页未打开')
+    } else {
+      await waitChatRendered(chatFrame, 20000)
+      const regenAgain = chatFrame.getByRole('button', { name: /重新生成|重生成|重新回复/ }).first()
+      const regenReady = await waitFor(async () => (await regenAgain.count().catch(() => 0)) > 0, 20000)
+      if (!regenReady) {
+        skip('停止生成按钮出现、可点且不报错', '聊天页没有「重新生成」按钮，无法制造流式（owner: cards-client ChatPage）')
+      } else {
+        await regenAgain.click({ force: true }).catch(() => {})
+        const stopLocator = chatFrame.locator('button[aria-label*="停止"], button:has-text("停止")').first()
+        let visible = false
+        for (let i = 0; i < 100 && !stopEvidence.clicked; i += 1) {
+          if ((await stopLocator.count().catch(() => 0)) > 0) {
+            visible = true
+            await stopLocator.click({ force: true }).catch(() => {})
+            stopEvidence.clicked = true
+            break
+          }
+          await page.waitForTimeout(100)
+        }
+        stopEvidence.visible = visible
+        const ended = await waitFor(async () => {
+          const pending =
+            (await chatFrame.locator('.bubble-pending').count().catch(() => 0)) > 0 ||
+            /正在回复/.test(await bodyText(chatFrame))
+          return !pending
+        }, 30000)
+        const alert = await chatFrame.locator('[role=alert]').first().innerText().catch(() => '')
+        stopEvidence.ended = ended
+        stopEvidence.error = alert || null
+        check(
+          '停止生成按钮出现、可点且不报错',
+          visible && stopEvidence.clicked && ended && !alert,
+          `visible=${visible} clicked=${stopEvidence.clicked} ended=${ended} alert=${clip(alert || '无')}`,
+        )
+        await shot(page, '100-c-stop.png')
       }
     }
   }
@@ -551,6 +625,113 @@ try {
     }
   }
 
+  // ── P. swipe 版本切换 ─────────────────────────────────────────────────────
+  const swipeEvidence = { versions: null, switched: false, persisted: false, backToLatest: false, oldVersionText: null, latestText: null }
+  report.native.swipe = swipeEvidence
+  if (groupOn('p')) {
+    if (nativeBlocked || !chatFrame) {
+      skip('swipe：切换到旧版本后文本变化且刷新保持', nativeBlocked ? blockedReason : '前置：聊天页未打开')
+    } else {
+      await waitFor(async () => (await chatFrame.locator('.swipe-count').count().catch(() => 0)) > 0, 15000)
+      const versions = ((await chatFrame.locator('.swipe-count').first().innerText().catch(() => '')) || '').trim()
+      swipeEvidence.versions = versions || null
+      const prevButton = chatFrame.locator('button[aria-label="上一个版本"], button[aria-label*="上一个"]').first()
+      const nextButton = chatFrame.locator('button[aria-label="下一个版本"], button[aria-label*="下一个"]').first()
+      const latestRow = await lastAssistantRow(chatFrame)
+      const latestText = await rowText(latestRow)
+      const hasControls = (await prevButton.count().catch(() => 0)) > 0 && (await nextButton.count().catch(() => 0)) > 0
+      if (!hasControls) {
+        skip('swipe：切换到旧版本后文本变化且刷新保持', '聊天页没有版本切换按钮（owner: cards-client ChatPage swipe）')
+      } else {
+        await prevButton.click({ force: true }).catch(() => {})
+        const switched = await waitFor(async () => {
+          const text = await rowText(await lastAssistantRow(chatFrame))
+          return text.length > 0 && text !== latestText
+        }, 20000)
+        const oldRow = await lastAssistantRow(chatFrame)
+        const oldText = await rowText(oldRow)
+        const countAfterSwitch = ((await chatFrame.locator('.swipe-count').first().innerText().catch(() => '')) || '').trim()
+        swipeEvidence.switched = switched
+        swipeEvidence.oldVersionText = oldText.slice(0, 60)
+        swipeEvidence.latestText = latestText.slice(0, 60)
+        await shot(page, '101-p-swipe.png')
+
+        await chatFrame.evaluate(() => location.reload()).catch(() => {})
+        chatFrame = (await waitFrameUrl(/\/chats\/[0-9a-zA-Z_-]+/, 20000)) || fnow()
+        await waitChatRendered(chatFrame, 25000)
+        await waitFor(async () => (await chatFrame.locator('.swipe-count').count().catch(() => 0)) > 0, 15000)
+        const persisted = await waitFor(async () => {
+          const text = await rowText(await lastAssistantRow(chatFrame))
+          return text.length > 0 && oldText.length > 0 && text.includes(oldText.slice(0, 20))
+        }, 25000)
+        swipeEvidence.persisted = persisted
+        const nextAfterReload = chatFrame.locator('button[aria-label="下一个版本"], button[aria-label*="下一个"]').first()
+        const nextReady = await waitFor(async () => (await nextAfterReload.count().catch(() => 0)) > 0, 15000)
+        if (nextReady) {
+          await nextAfterReload.click({ force: true }).catch(() => {})
+          swipeEvidence.backToLatest = await waitFor(async () => {
+            const text = await rowText(await lastAssistantRow(chatFrame))
+            return text.length > 0 && latestText.length > 0 && text.includes(latestText.slice(0, 20))
+          }, 20000)
+        }
+        check(
+          'swipe：切换到旧版本后文本变化且刷新保持',
+          switched && persisted && swipeEvidence.backToLatest,
+          `版本=${clip(versions || '无')}→${clip(countAfterSwitch || '无')} switched=${switched} persisted=${persisted} 切回最新=${swipeEvidence.backToLatest} 旧=${clip(swipeEvidence.oldVersionText || '')} 新=${clip(swipeEvidence.latestText || '')}`,
+        )
+      }
+    }
+  }
+
+  // ── T. 聊天标题改名 ───────────────────────────────────────────────────────
+  const titleEvidence = { before: null, after: null, updated: false, persisted: false }
+  report.native.title = titleEvidence
+  if (groupOn('t')) {
+    if (nativeBlocked || !chatFrame) {
+      skip('标题改名后刷新保持', nativeBlocked ? blockedReason : '前置：聊天页未打开')
+    } else {
+      await waitChatRendered(chatFrame, 20000)
+      let titleElement = chatFrame.locator('.chat-name').first()
+      const titleReady = await waitFor(async () => (await titleElement.count().catch(() => 0)) > 0, 15000)
+      if (!titleReady) titleElement = chatFrame.locator('header h1').first()
+      if (!(await titleElement.count().catch(() => 0))) {
+        skip('标题改名后刷新保持', '聊天页没有可点击标题（owner: cards-client ChatPage）')
+      } else {
+        const before = ((await titleElement.innerText().catch(() => '')) || '').trim()
+        titleEvidence.before = before
+        await titleElement.click({ force: true }).catch(() => {})
+        const titleInput = chatFrame.locator('input[aria-label="聊天名称"], input[aria-label*="标题"], input.chat-title-input').first()
+        const formShown = await waitFor(async () => (await titleInput.count().catch(() => 0)) > 0, 10000)
+        if (!formShown) {
+          skip('标题改名后刷新保持', '点击标题没有出现编辑框（owner: cards-client ChatPage）')
+        } else {
+          const nextTitle = `E2E 改标题 ${Date.now().toString().slice(-4)}`
+          await titleInput.fill(nextTitle).catch(() => {})
+          await titleInput.press('Enter').catch(() => {})
+          let updated = await waitFor(async () => (await bodyText(chatFrame)).includes(nextTitle), 10000)
+          if (!updated) {
+            const saveButton = chatFrame.getByRole('button', { name: /保存|确定/ }).first()
+            if (await saveButton.count().catch(() => 0)) await saveButton.click({ force: true }).catch(() => {})
+            updated = await waitFor(async () => (await bodyText(chatFrame)).includes(nextTitle), 10000)
+          }
+          titleEvidence.after = nextTitle
+          titleEvidence.updated = updated
+          await shot(page, '104-t-title.png')
+          await chatFrame.evaluate(() => location.reload()).catch(() => {})
+          chatFrame = (await waitFrameUrl(/\/chats\/[0-9a-zA-Z_-]+/, 20000)) || fnow()
+          await waitChatRendered(chatFrame, 25000)
+          const persisted = await waitFor(async () => (await bodyText(chatFrame)).includes(nextTitle), 20000)
+          titleEvidence.persisted = persisted
+          check(
+            '标题改名后刷新保持',
+            updated && persisted,
+            `before=${clip(before)} after=${clip(nextTitle)} updated=${updated} persisted=${persisted}`,
+          )
+        }
+      }
+    }
+  }
+
   // ── H. 聊天历史 ──────────────────────────────────────────────────────────
   const historyEvidence = { listShown: false, reentered: false, messagesIntact: false }
   report.native.history = historyEvidence
@@ -571,18 +752,140 @@ try {
       if (listShown && detail) {
         await detail.locator('.chat-history-item').first().click({ force: true }).catch(() => {})
         const reentered = await waitFrameUrl(/\/chats\/[0-9a-zA-Z_-]+/, 15000)
+        if (reentered) chatFrame = reentered
+        if (chatFrame) await waitChatRendered(chatFrame, 20000)
+        let expectedRows = null
+        let expectedTail = ''
+        if (reentered) {
+          const chatId = new URL(reentered.url()).pathname.split('/').filter(Boolean).pop()
+          const detailApi = await reentered
+            .evaluate(async (id) => {
+              for (const base of ['/tavern/api/reader/v1/tavern/chats/', '/api/reader/v1/tavern/chats/']) {
+                try {
+                  const response = await fetch(base + encodeURIComponent(id), { credentials: 'include' })
+                  if (response.ok) return await response.json()
+                } catch {}
+              }
+              return null
+            }, chatId)
+            .catch(() => null)
+          const apiMessages = detailApi && Array.isArray(detailApi.messages) ? detailApi.messages : []
+          if (apiMessages.length) {
+            expectedRows = apiMessages.length
+            const lastAssistant = [...apiMessages].reverse().find((item) => item.role === 'assistant')
+            if (lastAssistant) {
+              const swipes = Array.isArray(lastAssistant.swipes) ? lastAssistant.swipes : []
+              const active = swipes[lastAssistant.activeSwipe ?? 0] || swipes[0]
+              expectedTail = String((active && active.content) || '').slice(0, 12)
+            }
+          }
+        }
         const intact = reentered
           ? await waitFor(async () => {
+              const rows = await reentered.locator('.bubble-row').count().catch(() => 0)
               const text = await bodyText(reentered)
-              return text.includes('你好') && (regenEvidence.afterFirst60 ? text.includes(regenEvidence.afterFirst60.slice(0, 12)) : true)
-            }, 20000)
+              const countOk = expectedRows ? rows >= expectedRows : rows >= 2
+              const tailOk = !expectedTail || text.includes(expectedTail)
+              return countOk && tailOk && text.includes('你好')
+            }, 25000)
           : false
+        if (reentered) {
+          historyEvidence.diagnostics = {
+            url: reentered.url(),
+            rows: await reentered.locator('.bubble-row').count().catch(() => 0),
+            expectedRows,
+            expectedTail,
+            textHead: ((await bodyText(reentered).catch(() => '')) || '').slice(0, 160),
+          }
+        }
         historyEvidence.reentered = Boolean(reentered)
         historyEvidence.messagesIntact = intact
         check('从历史重新进入聊天，消息完整', Boolean(reentered) && intact, `reentered=${Boolean(reentered)} intact=${intact}`)
       } else {
         skip('从历史重新进入聊天，消息完整', '前置：角色页没有聊天历史条目')
       }
+    }
+  }
+
+  // ── E. 编辑 / 删除消息 ────────────────────────────────────────────────────
+  const editEvidence = { edited: false, editedText: null, deleted: false, countBefore: null, countAfter: null, alert: null }
+  report.native.edit = editEvidence
+  if (groupOn('e')) {
+    if (nativeBlocked || !chatFrame) {
+      skip('编辑 user 消息后文本更新', nativeBlocked ? blockedReason : '前置：聊天页未打开')
+      skip('删除消息后列表减少', nativeBlocked ? blockedReason : '前置：聊天页未打开')
+    } else {
+      const rows = chatFrame.locator('.bubble-row')
+      const countBefore = await rows.count().catch(() => 0)
+      const targetRow = await lastAssistantRow(chatFrame)
+      let deleteButton = targetRow ? targetRow.locator('button[aria-label="删除这条消息"]').first() : null
+      let deleteHost = targetRow
+      if (!deleteButton || (await deleteButton.count().catch(() => 0)) === 0) {
+        const lastUser = chatFrame.locator('.bubble-row.user').last()
+        if ((await lastUser.count().catch(() => 0)) > 0) {
+          const userDelete = lastUser.locator('button[aria-label="删除这条消息"]').first()
+          if ((await userDelete.count().catch(() => 0)) > 0) {
+            deleteButton = userDelete
+            deleteHost = lastUser
+          }
+        }
+      }
+      if (!deleteButton || (await deleteButton.count().catch(() => 0)) === 0) {
+        editEvidence.diagnostics = {
+          rows: countBefore,
+          rowClass: targetRow ? await targetRow.getAttribute('class').catch(() => null) : null,
+          rowText: targetRow ? ((await targetRow.innerText().catch(() => '')) || '').slice(0, 160) : null,
+          actionButtons: targetRow ? await targetRow.locator('button').count().catch(() => 0) : 0,
+          deleteAny: await chatFrame.locator('button[aria-label*="删除"]').count().catch(() => 0),
+          bodyHead: ((await bodyText(chatFrame).catch(() => '')) || '').slice(0, 220),
+        }
+        skip('删除消息后列表减少', 'assistant 消息没有「删除」按钮（owner: cards-client ChatPage）')
+      } else {
+        await deleteButton.click({ force: true }).catch(() => {})
+        const confirm = chatFrame.locator('button[aria-label="确认删除消息"]').first()
+        if ((await confirm.count().catch(() => 0)) > 0) await confirm.click({ force: true }).catch(() => {})
+        const deleted = await waitFor(async () => (await chatFrame.locator('.bubble-row').count().catch(() => 0)) < countBefore, 15000)
+        editEvidence.deleted = deleted
+        editEvidence.countBefore = countBefore
+        editEvidence.countAfter = await chatFrame.locator('.bubble-row').count().catch(() => 0)
+        editEvidence.alert = (await chatFrame.locator('[role=alert]').first().innerText().catch(() => '')) || null
+        check(
+          '删除消息后列表减少',
+          deleted && !editEvidence.alert,
+          `消息数 ${countBefore}→${editEvidence.countAfter} alert=${clip(editEvidence.alert || '无')}`,
+        )
+        await shot(page, '103-e-delete.png')
+      }
+
+      const userRows = chatFrame.locator('.bubble-row.user')
+      if ((await userRows.count().catch(() => 0)) === 0) {
+        skip('编辑 user 消息后文本更新', '聊天页没有 user 消息可编辑')
+      } else {
+        const lastUser = userRows.last()
+        const editButton = lastUser.locator('button[aria-label*="编辑"], button:has-text("编辑")').first()
+        if ((await editButton.count().catch(() => 0)) === 0) {
+          skip('编辑 user 消息后文本更新', 'user 消息没有「编辑」按钮（owner: cards-client ChatPage）')
+        } else {
+          await editButton.click({ force: true }).catch(() => {})
+          const editor = lastUser.locator('textarea, input[type="text"]').first()
+          const editorShown = await waitFor(async () => (await editor.count().catch(() => 0)) > 0, 10000)
+          if (!editorShown) {
+            skip('编辑 user 消息后文本更新', '点「编辑」后没有出现编辑器（owner: cards-client ChatPage）')
+          } else {
+            const newText = `你好，改一下 ${Date.now().toString().slice(-4)}`
+            await editor.fill(newText).catch(() => {})
+            const saveButton = chatFrame.getByRole('button', { name: /保存并重发|保存|确定/ }).first()
+            if ((await saveButton.count().catch(() => 0)) > 0) await saveButton.click({ force: true }).catch(() => {})
+            else await editor.press('Enter').catch(() => {})
+            const edited = await waitFor(async () => (await bodyText(chatFrame)).includes(newText), 20000)
+            editEvidence.edited = edited
+            editEvidence.editedText = newText
+            check('编辑 user 消息后文本更新', edited, edited ? `新文本=${clip(newText)}` : '保存后文本没有更新（owner: cards-client 编辑 / app-auth PATCH messages）')
+            await shot(page, '102-e-edit.png')
+          }
+        }
+      }
+
     }
   }
 
@@ -620,16 +923,30 @@ try {
             check('新增世界书条目（key「茶」）后列表可见', added, added ? '条目已出现在世界书列表' : '保存后列表没出现条目（owner: cards-client 世界书编辑 / app-auth world-info API）')
             await shot(page, '98-world-info.png')
 
-            const previewButton = detail.getByRole('button', { name: /预览|注入预览|试写/ }).first()
+            // P1：注入预览（打开预览 → 输入示例消息 → 出现命中条目/injection 文本）。
+            const previewButton = detail.getByRole('button', { name: '注入预览', exact: true }).first()
             if (await previewButton.count().catch(() => 0)) {
-              const previewInput = detail.locator('input[placeholder*="说"], textarea[placeholder*="说"]').first()
+              const previewInput = detail
+                .locator('input[aria-label="注入预览示例消息"], textarea[aria-label*="预览"], input[aria-label*="预览"]')
+                .first()
               if (await previewInput.count().catch(() => 0)) await previewInput.fill('来一盏茶').catch(() => {})
               await previewButton.click({ force: true }).catch(() => {})
-              const previewOk = await waitFor(async () => /【E2E-WORLD-INFO】|茶博士/.test(await bodyText(detail)), 20000)
-              worldInfoEvidence.preview = { ok: previewOk }
-              check('世界书条目注入预览可见', previewOk, previewOk ? '预览结果命中 key「茶」的条目' : '预览结果没有命中条目（owner: cards-client 预览 / app-auth 注入）')
+              const previewOk = await waitFor(async () => {
+                const result = await detail.locator('.preview-result').first().innerText().catch(() => '')
+                return /命中\s*[1-9]/.test(result) && /【E2E-WORLD-INFO】|茶博士/.test(result)
+              }, 20000)
+              const previewText = await bodyText(detail)
+              worldInfoEvidence.preview = { ok: previewOk, snippet: previewText.slice(0, 200) }
+              check(
+                '世界书条目注入预览可见',
+                previewOk,
+                previewOk
+                  ? `预览结果命中 key「茶」的条目（${clip(worldInfoEvidence.preview.snippet)}）`
+                  : `预览结果没有命中条目/injection（${clip(previewText.slice(0, 120))}；owner: cards-client 预览 / app-auth world-info/preview）`,
+              )
+              await shot(page, '107-s-preview.png')
             } else {
-              skip('世界书条目注入预览可见', 'P0 卡详情没有注入预览 UI（owner: cards-client；服务端注入接口已由 app-auth 提供，P1 补 UI）')
+              skip('世界书条目注入预览可见', '卡详情没有「注入预览」按钮（owner: cards-client；P1 客户端未交付该 UI）')
             }
 
             const item = detail.locator('.world-info-item').filter({ hasText: '【E2E-WORLD-INFO】' }).first()
@@ -649,6 +966,245 @@ try {
           skip('新增世界书条目（key「茶」）后列表可见', '世界书区块没有「新增条目」按钮（owner: cards-client）')
         }
       }
+    }
+  }
+
+  // ── I. 导入导出（聊天 JSONL/JSON 下载；卡详情导入 ST JSONL）────────────────
+  const exportImportEvidence = { exportJsonl: null, exportJson: null, import: null, responses: [] }
+  report.native.exportImport = exportImportEvidence
+  if (groupOn('i')) {
+    const downloadsDir = path.join(outDir, 'downloads')
+    await mkdir(downloadsDir, { recursive: true })
+    const exportResponses = []
+    const onExportResponse = (response) => {
+      if (/\/export\?format=/.test(response.url())) {
+        exportResponses.push({
+          url: response.url(),
+          status: response.status(),
+          disposition: response.headers()['content-disposition'] || '',
+        })
+      }
+    }
+    page.on('response', onExportResponse)
+    try {
+      if (nativeBlocked || !chatFrame) {
+        skip('导出聊天 JSONL（下载并逐行解析）', nativeBlocked ? blockedReason : '前置：聊天页未打开')
+        skip('导出聊天 JSON（下载并可解析）', nativeBlocked ? blockedReason : '前置：聊天页未打开')
+      } else {
+        if (!/\/chats\//.test(chatFrame.url())) {
+          const chatPath = chatEvidence && chatEvidence.chatUrl ? new URL(chatEvidence.chatUrl).pathname.replace(/^\/tavern/, '') : ''
+          if (chatPath) {
+            await appGoto(chatPath)
+            chatFrame = (await waitFrameUrl(/\/chats\/[0-9a-zA-Z_-]+/, 15000)) || fnow()
+          } else {
+            const reopened = await openChat()
+            if (reopened && reopened.chatFrame) chatFrame = reopened.chatFrame
+          }
+        }
+        const menuButton = chatFrame
+          .locator('button[aria-label*="菜单"], button[aria-label*="更多"], button[aria-label*="选项"]')
+          .first()
+        const menuDiagnostics = { button: false, pop: false, items: 0, header: '' }
+        exportImportEvidence.menu = menuDiagnostics
+        const exportItems = async () => {
+          const items = chatFrame
+            .locator('[role="menuitem"], .chat-menu-pop button, .chat-menu-pop a')
+            .filter({ hasText: /导出聊天|导出会话|导出记录/ })
+          const count = await items.count().catch(() => 0)
+          const list = []
+          for (let index = 0; index < count; index += 1) {
+            const text = ((await items.nth(index).innerText().catch(() => '')) || '').trim()
+            if (text) list.push({ locator: items.nth(index), text })
+          }
+          return list
+        }
+        const openChatMenu = async () => {
+          menuDiagnostics.button = await waitFor(async () => (await menuButton.count().catch(() => 0)) > 0, 20000)
+          if (!menuDiagnostics.button) {
+            menuDiagnostics.header = ((await bodyText(chatFrame)) || '').slice(0, 200)
+            return false
+          }
+          await menuButton.click({ force: true }).catch(() => {})
+          let list = await waitFor(async () => {
+            const found = await exportItems()
+            return found.length ? found : null
+          }, 6000)
+          if (!list) {
+            // 菜单可能被前一次点击关掉，重试一次。
+            await menuButton.click({ force: true }).catch(() => {})
+            list = await waitFor(async () => {
+              const found = await exportItems()
+              return found.length ? found : null
+            }, 6000)
+          }
+          menuDiagnostics.pop = (await chatFrame.locator('.chat-menu-pop, [role="menu"]').count().catch(() => 0)) > 0
+          menuDiagnostics.items = list ? list.length : 0
+          if (!list) menuDiagnostics.header = ((await bodyText(chatFrame)) || '').slice(0, 200)
+          return Boolean(list)
+        }
+        const downloadVia = async (kind) => {
+          const opened = await openChatMenu()
+          const list = opened ? await exportItems() : []
+          if (!list.length) return null
+          const isJson = (text) => /JSON(?!L)/i.test(text) && !/JSONL/i.test(text)
+          const isJsonl = (text) => /JSONL|jsonl|\.jsonl/i.test(text)
+          let target = null
+          if (kind === 'jsonl') target = list.find((item) => isJsonl(item.text)) || list.find((item) => !isJson(item.text)) || list[0]
+          else target = list.find((item) => isJson(item.text)) || null
+          if (!target) return null
+          const [download] = await Promise.all([
+            page.waitForEvent('download', { timeout: 30000 }).catch(() => null),
+            target.locator.click({ force: true }).catch(() => {}),
+          ])
+          if (!download) return { clicked: target.text, download: false }
+          const filename = download.suggestedFilename() || `chat-export-${kind}`
+          const file = path.join(downloadsDir, filename)
+          await download.saveAs(file).catch(() => {})
+          return { clicked: target.text, download: true, file, filename }
+        }
+
+        const jsonl = await downloadVia('jsonl')
+        if (!jsonl || !jsonl.download) {
+          check(
+            '导出聊天 JSONL（下载并逐行解析）',
+            false,
+            jsonl ? `点击「${clip(jsonl.clicked)}」没有触发下载（owner: cards-client 导出菜单 / app-auth export）` : '聊天页没有「导出聊天」入口（owner: cards-client ChatPage 菜单）',
+          )
+        } else {
+          const raw = await readFile(jsonl.file, 'utf8').catch(() => '')
+          const lines = raw.split('\n').map((line) => line.trim()).filter(Boolean)
+          const parsed = []
+          let badLines = 0
+          for (const line of lines) {
+            try {
+              parsed.push(JSON.parse(line))
+            } catch {
+              badLines += 1
+            }
+          }
+          const sample = parsed[0] || null
+          const disposition = exportResponses.find((item) => /format=jsonl/.test(item.url))?.disposition || ''
+          const ok =
+            jsonl.download &&
+            parsed.length >= 1 &&
+            badLines === 0 &&
+            parsed.some((row) => typeof row.mes === 'string') &&
+            /attachment|jsonl|\.txt/i.test(disposition || '')
+          exportImportEvidence.exportJsonl = {
+            filename: jsonl.filename,
+            lines: lines.length,
+            parsed: parsed.length,
+            badLines,
+            disposition,
+            first: sample ? { mes: String(sample.mes || '').slice(0, 40), isUser: sample.is_user } : null,
+          }
+          check(
+            '导出聊天 JSONL（下载并逐行解析）',
+            ok,
+            `file=${clip(jsonl.filename)} lines=${lines.length} parsed=${parsed.length} bad=${badLines} disposition=${clip(disposition || '无')} 首行=${clip(exportImportEvidence.exportJsonl.first)}`,
+          )
+          await shot(page, '105-i-export.png')
+        }
+
+        const jsonExport = await downloadVia('json')
+        if (!jsonExport || !jsonExport.download) {
+          skip(
+            '导出聊天 JSON（下载并可解析）',
+            jsonExport ? `点击「${clip(jsonExport.clicked)}」没有触发下载（owner: cards-client 导出菜单 / app-auth export）` : '聊天页没有「导出聊天 (JSON)」入口（owner: cards-client ChatPage 菜单）',
+          )
+        } else {
+          const raw = await readFile(jsonExport.file, 'utf8').catch(() => '')
+          let payload = null
+          try {
+            payload = JSON.parse(raw)
+          } catch {}
+          const messages = payload ? payload.messages || payload.chat?.messages || [] : []
+          const ok = Boolean(payload) && Array.isArray(messages) && messages.length >= 1
+          exportImportEvidence.exportJson = {
+            filename: jsonExport.filename,
+            bytes: raw.length,
+            messages: messages.length,
+          }
+          check(
+            '导出聊天 JSON（下载并可解析）',
+            ok,
+            `file=${clip(jsonExport.filename)} bytes=${raw.length} messages=${messages.length}`,
+          )
+        }
+      }
+
+      // 导入：卡详情「导入酒馆聊天」→ 新会话 + 消息条数正确。
+      const importFixture = path.join(fixturesDir, 'chat-sample.jsonl')
+      const fixtureRaw = await readFile(importFixture, 'utf8').catch(() => '')
+      if (!fixtureRaw) {
+        skip('导入 ST JSONL 聊天后历史新增且消息条数正确', `fixture 不存在：${importFixture}（owner: scripts/check.sh fixture）`)
+      } else {
+        let detail = await openDetail()
+        let historySection = detail ? detail.locator('section[aria-label="聊天历史"]').first() : null
+        let fileInput = null
+        const findImportInput = async (frameNow) => {
+          if (!frameNow) return null
+          const section = frameNow.locator('section[aria-label="聊天历史"]').first()
+          const inSection = section.locator('input[type="file"]').first()
+          if ((await inSection.count().catch(() => 0)) > 0) return inSection
+          const anywhere = frameNow
+            .locator('input[aria-label="导入酒馆聊天 JSONL"], input[type="file"][accept*="jsonl"]')
+            .first()
+          if ((await anywhere.count().catch(() => 0)) > 0) return anywhere
+          return null
+        }
+        const waitImportInput = async (frameNow, timeoutMs) => {
+          const deadline = Date.now() + timeoutMs
+          while (Date.now() < deadline) {
+            const found = await findImportInput(frameNow)
+            if (found) return found
+            await page.waitForTimeout(250)
+          }
+          return null
+        }
+        fileInput = await waitImportInput(detail, 15000)
+        if (!fileInput) {
+          // 详情页可能还没挂载好，重进一次。
+          detail = await openDetail()
+          historySection = detail ? detail.locator('section[aria-label="聊天历史"]').first() : null
+          fileInput = await waitImportInput(detail, 15000)
+        }
+        const beforeCount = historySection ? await historySection.locator('.chat-history-item').count().catch(() => 0) : 0
+        if (!detail || !fileInput || (await fileInput.count().catch(() => 0)) === 0) {
+          skip('导入 ST JSONL 聊天后历史新增且消息条数正确', '卡详情没有「导入酒馆聊天」文件输入（owner: cards-client 卡详情）')
+        } else {
+          await fileInput.setInputFiles(importFixture).catch(() => {})
+          const entered = await waitFrameUrl(/\/chats\/[0-9a-zA-Z_-]+/, 20000)
+          const importedFrame = entered || chatFrame
+          const messageCount = importedFrame ? await importedFrame.locator('.bubble-row').count().catch(() => 0) : 0
+          const text = importedFrame ? await bodyText(importedFrame) : ''
+          const textOk = /雨下得正好/.test(text) && /来一盏茶/.test(text)
+          // 导入成功后客户端会自动跳进新会话，历史列表已离开 DOM；回卡详情再数历史条目。
+          const detailAgain = await openDetail()
+          const historyAgain = detailAgain ? detailAgain.locator('section[aria-label="聊天历史"]').first() : null
+          if (historyAgain) {
+            await waitFor(async () => (await historyAgain.locator('.chat-history-item').count().catch(() => 0)) > 0, 15000)
+          }
+          const afterCount = historyAgain ? await historyAgain.locator('.chat-history-item').count().catch(() => 0) : 0
+          if (entered) chatFrame = entered
+          const ok = Boolean(entered) && afterCount > beforeCount && messageCount >= 2 && textOk
+          exportImportEvidence.import = {
+            beforeCount,
+            afterCount,
+            entered: Boolean(entered),
+            messageCount,
+            textOk,
+          }
+          check(
+            '导入 ST JSONL 聊天后历史新增且消息条数正确',
+            ok,
+            `历史 ${beforeCount}→${afterCount} 自动进入=${Boolean(entered)} 消息数=${messageCount} 文本命中=${textOk}`,
+          )
+          await shot(page, '106-i-import.png')
+        }
+      }
+    } finally {
+      page.off('response', onExportResponse)
     }
   }
 

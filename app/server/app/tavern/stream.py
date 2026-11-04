@@ -26,7 +26,15 @@ PROFILE_FIELDS = ("id", "base_url", "model_id", "key_cipher", "output_parameter"
 
 
 def sse(payload):
-    return "data: " + json.dumps(payload, ensure_ascii=False) + "\n\n"
+    """Encode one SSE frame.
+
+    The client dispatches on the SSE ``event:`` field (message/delta/done/error),
+    so mirror ``payload["type"]`` there; otherwise every frame would be parsed as
+    a plain ``message`` event and incremental text would never render.
+    """
+    event = payload.get("type") if isinstance(payload, dict) else None
+    prefix = "event: " + event + "\n" if event else ""
+    return prefix + "data: " + json.dumps(payload, ensure_ascii=False) + "\n\n"
 
 
 def profile_view(profile):

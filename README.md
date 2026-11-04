@@ -1,51 +1,49 @@
 # dsh-tavern · 酒馆（DSH 插件）
 
-把一个本地写作应用「酒馆」装进 DSH：DSH 侧栏「插件」组里多一行 **酒馆**，
-点开不用等跳转，就是写作页本身；看中的正文可以一键交给 DSH 的 Agent
-**续写下一段**，或者让 Agent 以某个角色做**第一人称角色扮演**。
-应用按**单用户精简**：顶部固定导航栏只有品牌「酒馆」+ 两个 tab
-**「探索作品」`/explore`** 和 **「角色卡库」`/characters`**（没有左侧栏与面包屑），
-创作工作台从「创作作品」按钮进入；应用内带**角色卡空间**（角色卡编辑 / 世界书 /
-预设 / 输出正则）和**长期记忆 / 长期伙伴**，单卡聊天已接 DSH 真生成。
-界面**固定浅色**（`documentElement.dataset.theme='light'`），没有明暗切换按钮。
+把本地「酒馆」装进 DSH：DSH 侧栏多一行 **酒馆**，点开不用跳站，面板里就是
+**角色卡网格**；点一张卡进入**全屏聊天**（`/tavern/chats/<id>`），回复按 SSE
+**逐字流出**，重新生成会追加一个**版本**（`‹n/m›` 切换），角色卡的世界书按
+关键词注入本轮 prompt。生成走 DSH 当前模型（本机 `opencode-go / deepseek-v4.1-flash`），
+不依赖浏览器里的模型登录态。
+
+酒馆 2.0 是**单用户、单卡聊天**的原生酒馆：没有故事模式、探索页、群聊、
+长期记忆与「长期伙伴」等旧能力（旧 UI 已下线，服务端旧代码暂留、待 P3 清理）。
+界面**固定浅色**，没有明暗切换。
 
 - 侧栏顺序：紫微斗数(20) → **酒馆(24)** → Skill Center(30)
 - 插件目录：`/root/workspace/plugins/dsh-tavern`，已在
   `/root/.dsh/profiles/web/package.json` 里以 `link:` 依赖注册进 `dsh.profile.bundles`
 - 应用目录：本仓库 `app/`，由四个 systemd 单元跑在回环地址上：
-  - `dsh-tavern-api.service` → `127.0.0.1:8001`（FastAPI / uvicorn）
+  - `dsh-tavern-api.service` → `127.0.0.1:8001`（FastAPI / uvicorn；聊天 SSE 在**请求线程**里直连 DSH 网关）
   - `dsh-tavern-web.service` → `127.0.0.1:8810`（`app/client/dist` 静态站）
-  - `dsh-tavern-worker.service` → 生成任务 worker
-  - `dsh-tavern-world-worker.service` → 世界观任务 worker
-- 公开入口只有 `https://dsh.frankfurtlin.top/tavern/`（受 DSH 登录保护）；
-  旧的外站入口 `hermes.frankfurtlin.top/story` 已退休。插件内部只连 `127.0.0.1`，不额外开端口
+  - `dsh-tavern-worker.service`、`dsh-tavern-world-worker.service` → 旧 story 模式的生成/世界观任务 worker（2.0 聊天不再用任务队列，进程保留给暂未清理的旧代码）
+- 公开入口只有 `https://dsh.frankfurtlin.top/tavern/`（受 DSH 登录保护）。
+  插件内部只连 `127.0.0.1`，不额外开端口
 
 ## 功能一览
 
 | 能力 | 说明 |
 | --- | --- |
-| 单卡聊天 | 导入角色卡（PNG / JSON）后选一张开聊。`AI_MODE=dsh` 时由插件 `/tavern-agent/v1` 网关走 DSH 当前模型真生成；`AI_MODE=mock` 用内置确定性回复，只用于离线自测/回滚 |
-| 单用户界面 | 顶部 sticky header：「酒馆」品牌 + 「探索作品」「角色卡库」两个 tab，右侧全局操作区；无左侧栏、无面包屑，移动端底部保留两项导航。`/works`、`/recent`、`/my-prompts`、`/characters/groups`、`/published/*`、`/authors/*`、`/creators`、`/community` 等旧多用户路由一律 redirect `/explore`；创作工作台从「创作作品」按钮进入 |
-| 固定浅色主题 | 没有明暗切换按钮，启动即 `dataset.theme='light'`；`settings.theme` 字段保留兼容但不再参与界面；`LocalApplication` 旧壳仍在仓库但已无路由/引用（内部外观逻辑不影响主界面） |
-| 角色卡空间（B1） | 卡详情可改设定（`PATCH /character-cards/{id}`）、维护世界书（含 SillyTavern v2/v3 `character_book` 导入）、绑定/新建预设、维护输出正则。聊天时把【角色卡设定】【世界书】【预设】追加进 system prompt，回复落库前按正则改写 |
-| 长期记忆 / 长期伙伴（C） | 卡详情「长期记忆」可手工增删改或「立即整理」同步抽取；每 8 条助手回复自动整理一次；勾「长期伙伴」后卡库「长期伙伴」分组置顶 |
-| P0 上手与对话手感 | 探索页「开始游玩/继续游玩」带 `auto=1`，进世界后自动选第一个可用角色并开局（不再停在身份选择页）；顶部「继续上次」直接回到最近会话；助手回复边生成边增长（pending 气泡），最后一条可「重新生成」，用户消息可「编辑并重发」 |
-| P1 人设 / 导出 / 透明 | 聊天页「我是谁」人设（新建/切换，注入【你的对话对象】）；卡详情「导出角色卡」（PNG + v2 chara，可回导 SillyTavern）与聊天「导出 JSONL」；「本轮记忆」抽屉展示实际注入的世界书/记忆/人设；卡库搜索/排序/批量导入/6 张示例卡；正文字号/行高/衬线字体可调并记忆 |
-| P2 分支 / 互通 / 创作助手 | 任意消息「从这里分支」开新会话；人物「把 TA 存成角色卡」、卡详情「进入互动世界」；卡库「AI 写卡」按一句话生成草案、卡详情「生成候选」开场白（候选可写入备用开场白） |
+| 角色卡 | 角色卡网格 + 搜索；导入 SillyTavern 卡（PNG / JSON，v2/v3 `character_book` 自动进世界书）；卡详情改设定（简介/性格/场景/开场白/系统提示词/后置指令/标签）、导出 PNG/JSON、删除（软删）；头像 |
+| 聊天 | 点卡直接进最近一段对话，没有则新建；`/chats/<id>` 全屏聊天：发送、**SSE 逐字流式**、停止生成、重新生成（追加 swipe）、`‹n/m›` 切换版本、编辑/删除自己的消息、改聊天标题、**导出聊天**（JSONL / JSON）、**导入聊天记录**（ST JSONL）；长聊天按 200 条分页，向上翻「加载更早」 |
+| 世界书 | 卡详情维护条目：关键词（≤20 个）、内容（≤8000 字）、注入位置（角色前/角色后/示例前/指定深度）、常驻、概率、顺序、启用；导入卡自带条目；卡详情有**注入预览**：输入一句示例消息，返回命中的条目与拼好的注入文本 |
+| 设置（占位） | `/settings` 列出后续模块：人设（我是谁）、预设与采样（主提示词 / temperature / top_p）、正则替换、导入导出、世界书入口说明；当前均标「即将开放」 |
+| 生成通道 | `AI_MODE=dsh` 时应用服务端走插件网关 `/tavern-agent/v1/stream` → `ctx.llm.stream`；网关不可用就如实报错，不伪造回复 |
 
 ## 使用路径
 
-1. DSH 侧栏点 **酒馆**（等价于打开 `/tavern/`），应用落到「探索作品」（`/explore`），
-   顶部 header 显示品牌「酒馆」与「探索作品 / 角色卡库」两个 tab。
-2. 「探索作品」：精选卡就是入口；有游玩记录（`lineId`）的卡显示「最近游玩」徽标，
-   按钮变「继续游玩」直接回到上次的世界线；顶部右侧「创作作品」进入创作工作台
-   （`/worlds/scripts` 起）。
-3. 进「角色卡库」（`/characters`）：
-   - 「导入」上传 SillyTavern 角色卡（PNG / JSON；v2/v3 的 `character_book` 会自动带进世界书）；
-   - 选一张卡「开聊」= 单卡聊天；卡详情（`/characters/:id`）里改**角色设定**、管**世界书**、
-     绑**预设**、看/管**长期记忆**、勾**长期伙伴**，还能预览下一轮会注入什么；
-   - 「输出替换规则」（`/characters/regex`）维护回复落库前的正则（按 order 逐条 `re.sub`，流式 delta 不变）。
-4. 酒馆面板工具条的「让 DSH 续写 / 角色扮演」仍走 P2 上下文，与上述页面互不影响。
+1. DSH 侧栏点 **酒馆**（等价于打开 `/tavern/`），面板里是角色卡网格；
+   顶栏「酒馆」品牌 + 右侧「设置」。
+2. 首次使用：点「导入卡」上传 SillyTavern 角色卡（PNG 或 JSON），卡出现在网格里；
+   搜索框按角色名 / 简介过滤。
+3. 点卡片主体直接进聊天：有历史进最近一段，没有就按开场白新建；
+   卡片右上「设置」进卡详情。
+4. 聊天页：输入框发消息 → 回复逐字出现 → 「停止」可中断（已收到的内容不落库）；
+   最后一条回复可「重新生成」，每次生成追加一个版本，用 `‹n/m›` 切换；
+   点「编辑」可改自己的消息（会截断其后的消息）；标题可点开改名；可导出聊天。
+5. 想让模型知道更多设定：卡详情「世界书」加条目（关键词命中本轮消息或最近 4 条
+   用户消息时注入）；卡详情同时可改角色设定与系统提示词。
+6. 「设置」页当前是占位，人设/预设/正则等 P2 再开放。
 
 ## 它由哪几块组成
 
@@ -53,13 +51,13 @@
 | --- | --- |
 | `package.json` | 声明 `dsh.bundle.patch`（cordis patch）、`dsh.client.platform=web`、`exports["./client"]`；`npm run check` 做语法检查 |
 | `cordis.patch.yml` | `- insert: [{id: dsh-tavern, name: dsh-tavern}]`，`id` 必须等于包名 |
-| `lib/index.js` | host 半：注册 `prefix /tavern` 反向代理（旧 `/story` 为 302 兼容别名）；先过 DSH 登录闸门；`/api/**`、`/health/**` → 8001 并附加可信头，其余 → 8810 静态站。另外注册 `prefix /tavern-agent` 模型网关，给应用 worker 调 DSH 真生成 |
-| `client.js` | client 半：注册侧栏行（`sidebar.panellist` 座位）+ 主面板（`main` 座位，`key=tavern`）；工具条 + 同源 iframe + P2 `postMessage` 桥 |
-| `app/` | 写作应用本体（Vue 前端 + FastAPI 后端）：顶部导航（探索作品 + 角色卡库）、固定浅色主题、卡空间/记忆 UI 与服务端任务。应用侧为插件做的改动（可信登录、P2 桥、DSH 生成 adapter）也在这个目录里，随本仓库 git 管理。单用户精简时删除了群聊全链路、无 UI 的 experience/公开目录接口，以及 24 个零引用页面组件 |
-| `docs/contract.md` | 与应用侧的集成契约（路由分流、可信头、P2 协议、UI 座位）——**先读它再改代码** |
-| `docs/architecture.md` | 本插件的实现架构：请求链路、鉴权、面板结构、P2 协议、prompt 规则、卡片/记忆、风险 |
-| `docs/step3-card-space.md`、`docs/step4-companion-memory.md` | B1/C 的设计与验收清单（表结构、端点、提示词、验收点） |
-| `docs/step3b-group-chat.md` | 历史设计：B2 群聊（**UI 与服务端均已删除**，仅作历史参考） |
+| `lib/index.js` | host 半：注册 `prefix /tavern` 反向代理（旧 `/story` 为 302 兼容别名）；先过 DSH 登录闸门；`/api/**`、`/health/**` → 8001 并附加可信头，其余 → 8810 静态站。另外注册 `prefix /tavern-agent` 模型网关，给应用服务端调 DSH 真生成 |
+| `client.js` | client 半：注册侧栏行（`sidebar.panellist` 座位）+ 主面板（`main` 座位，`key=tavern`）；工具条 + 同源 iframe（`tavern/`）；记住应用最后的路由以便切面板后恢复 |
+| `app/` | 酒馆 2.0 应用本体（Vue 前端 + FastAPI 后端）：`tavern/` 模块（角色/聊天/世界书/prompt/SSE）、`cards/` 角色卡解析与存储。旧 story/world/experience/cards 空间/记忆代码暂留但已无 UI 入口，待 P3 清理 |
+| `docs/contract.md` | 与应用侧的集成契约（路由分流、可信头、P2、UI 座位、网关字段、应用 API/SSE/swipe）——**先读它再改代码** |
+| `docs/architecture.md` | 实现架构：请求链路、网关、原生酒馆数据模型与 prompt 组装、面板结构、配置、风险 |
+| `docs/step6-native-tavern.md` | 酒馆 2.0 的设计与验收清单（当前设计） |
+| `docs/step1–step5*.md` | **历史设计**：故事模式 / 卡片空间 / 群聊 / 长期记忆 / P0–P2 体验；其中 UI 多已下线，仅作参考 |
 | `docs/testing.md` | 验收方法：静态检查 + 隔离实例真实浏览器 E2E |
 | `scripts/check.sh`、`verify.mjs` | 验收工具：静态检查 + 隔离实例端到端 |
 
@@ -78,72 +76,52 @@
 
 应用以 host 侧 systemd 单元运行（单元文件在 `/etc/systemd/system/`，不在本仓库内）；
 插件本身由 `dsh web` 进程加载，改完 `lib/` 或 `client.js` 后需要**重启 DSH Web 服务**
-并刷新页面（详见 [docs/architecture.md](docs/architecture.md#配置)）。本仓库的插件代码
-不存在独立构建步骤：`cordis.patch.yml` + 手写 `client.js` 由宿主直接加载。
+并刷新页面。本仓库的插件代码没有独立构建步骤：`cordis.patch.yml` + 手写
+`client.js` 由宿主直接加载。
 
 ## 请求链路一句话
 
-浏览器 → DSH Web `:3080` → 登录闸门（`requestRejection`）→ `prefix /tavern`（旧 `/story` 302 兼容）
-→ 剥前缀分两路：API 请求带 `x-dsh-trusted` 去 `:8001`，静态资源去 `:8810`。
+浏览器 → DSH Web `:3080` → 登录闸门（`requestRejection`）→ `prefix /tavern`
+→ 剥前缀：`/api/**` 带 `x-dsh-trusted` 去 `:8001`，静态资源去 `:8810`。
+chat 的 `POST /api/reader/v1/tavern/chats/<id>/messages` 由 8001 **直接在响应里
+回 SSE**；应用服务端同时以 Bearer secret 调 `/tavern-agent/v1/stream` 拿模型增量。
 详细分流表、头处理、超时策略见 [docs/architecture.md](docs/architecture.md)。
 
-## P2 桥：页面怎么把「当前故事」交给 DSH
+## DSH 模型网关：应用服务端怎么用真生成
 
-面板与 iframe 同源（`/tavern/`），用 `postMessage` 通信，协议见
-`docs/contract.md` §3：
-
-| 方向 | 消息 | 用途 |
-| --- | --- | --- |
-| 父 → iframe | `dsh-tavern:ping` | 握手，应用回 `pong` |
-| iframe → 父 | `dsh-tavern:pong` | 带上 `appPath`，面板显示「当前：…」 |
-| iframe → 父 | `dsh-tavern:state` | 应用主动上报 `appPath` / `hasContext` |
-| 父 → iframe | `dsh-tavern:context-request` | `kind: "continue" | "roleplay"`，带请求 id |
-| iframe → 父 | `dsh-tavern:context` | 作品/章节/模式/角色/最近正文/`activeCharacter` |
-
-拿到上下文后插件组装 prompt，通过宿主的 `uiWorkspace.startSession()` 新开一个
-DSH 会话，并尝试把 prompt 预填进新会话编辑器（写不进去就退化为复制到剪贴板）。
-角色扮演默认对象优先用 `context.activeCharacter`，为空时退化为 `characters`
-末位；用户可以在工具条输入框里用 `@角色名` 强制指定。
-
-**位置记忆**：DSH 切走面板会卸载 iframe，应用回来时默认停在 `/explore`。
-插件会记住应用上报的最后一次有效路由（`state.hasContext=true` 或 `/worlds/`
-路径；模块内存 + `sessionStorage` 镜像，key `dsh-tavern:last-app-path`），
-重新挂载面板时把 iframe 恢复到那里；点「刷新」清空记忆并回应用首页，
-用于恢复失败时兜底。详见 [docs/architecture.md](docs/architecture.md)。
-
-## DSH 模型网关：应用 worker 怎么用真生成
-
-应用的生成 worker 是服务端进程，没有浏览器会话。插件在 `/tavern` 旁边开了一个
+应用的 API 进程是服务端进程，没有浏览器会话。插件在 `/tavern` 旁边开了一个
 平级前缀 `/tavern-agent`，用共享 secret 做服务端到服务端鉴权，复用 DSH 已经
 跑着的模型通道（`ctx.llm.stream`）：
 
 | 端点 | 方法 | 用途 |
 | --- | --- | --- |
-| `/tavern-agent/v1/health` | `GET` | 探活 + 返回当前默认模型 |
+| `/tavern-agent/v1/health` | `GET` | 探活 + 返回当前默认模型 + 支持的采样参数 `features` |
 | `/tavern-agent/v1/complete` | `POST` | 一次性返回整段文本 |
 | `/tavern-agent/v1/stream` | `POST` | SSE 增量返回（每段文本一帧，末尾 `data: [DONE]`） |
 
 - 鉴权：`Authorization: Bearer <secret>`；secret 读 `app/.env` 的
   `DSH_TAVERN_AGENT_SECRET`，缺省回退 `DSH_TRUSTED_SECRET`，**没配则一律 401**；
 - 模型：请求可用 `model:{provider,model}` 指定，否则用 DSH 当前默认模型
-  （`agentDefaultModel`）；可选 `sessionId`（应用按会话传稳定值，缺省每次随机
-  UUID，opencode-go 等 provider 靠它做上游会话）；`reasoningEffort` 默认
-  `low`（覆盖 profile 的 high，避免把 maxTokens 烧在思考里；当前聊天模型只支持
-  `low`/`high`）；
-- 失败：401 `AGENT_UNAUTHORIZED`、400 `AGENT_BAD_REQUEST`、
+  （`agentDefaultModel`）；可选 `sessionId`（opencode-go 等 provider 靠它做上游会话）；
+  `reasoningEffort` 默认 `low`（避免把 maxTokens 烧在思考里）；
+- 采样参数：`temperature`（0–2）、`topP`（0–1，兼容 `top_p`）、`stop`
+  （string 或 ≤4 条、单条 ≤200 字符）已支持透传，非法值 400 `INVALID_ARGUMENT`；
+- **生效边界**：网关只把它们放进 `ctx.llm.stream` 的选项；本机 `opencode-go`
+  的 pi-ai 适配器只消费 temperature/maxTokens/sessionId，**topP 与 stop 会被忽略**，
+  且采样参数要等 DSH Web 重启后新代码才生效；
+- 失败：401 `AGENT_UNAUTHORIZED`、400 `AGENT_BAD_REQUEST`/`INVALID_ARGUMENT`、
   502 `AGENT_UPSTREAM_FAILED`；SSE 开始后失败走 `{"type":"error"}` 帧；
 - 超时 120s，客户端断开/超时会中断上游；日志只记模型名、字数、耗时、错误码，
   **不记 prompt、消息内容和 secret**。
 
 应用侧在 `AI_MODE=dsh` 时使用它（`DSH_AGENT_URL=http://127.0.0.1:3080/tavern-agent/v1`，
 `DSH_AGENT_SECRET` 与 `DSH_TAVERN_AGENT_SECRET` 同值）；回滚改 `AI_MODE=mock`。
-详见 [docs/architecture.md](docs/architecture.md)。
 
 ## 配置
 
 | 位置 | 键 | 说明 |
 | --- | --- | --- |
-| `app/.env` | `AI_MODE` | `dsh` = 应用通过插件网关用 DSH 模型真生成；`mock` = 内置确定性回复（离线自测/回滚）；默认 `real`（走应用自己的 provider 通道，与插件无关） |
+| `app/.env` | `AI_MODE` | `dsh` = 应用走插件网关用 DSH 模型真生成；`mock` = 内置确定性回复（离线自测/回滚）；默认 `real`（应用自己的 provider 通道，与插件无关） |
 | `app/.env` | `DSH_AGENT_URL` | 应用侧调网关的地址，生产是 `http://127.0.0.1:3080/tavern-agent/v1` |
 | `app/.env` | `DSH_AGENT_SECRET` | 应用调网关的 Bearer secret，与 `DSH_TAVERN_AGENT_SECRET` 配同一个值 |
 | `app/.env` | `DSH_TRUSTED_SECRET` | 应用侧校验可信登录头的 secret，插件转发 API 请求时附加 |
@@ -166,81 +144,75 @@ node --check lib/index.js && node --check client.js   # 同 npm run check
 npm run check
 ```
 
-涉及 `/tavern` 反代或面板行为的改动，请再跑 verifier 的端到端验收
-（`scripts/check.sh` / `verify.mjs`，以它们的文档为准）。UI 改动必须用真实
-浏览器验证过工具条与 iframe 交互，不能只看构建通过。
-
-角色卡空间 / 记忆的改动，用同一个入口跑真实浏览器验收（会写测试库）：
+涉及 `/tavern` 反代、面板或应用 UI 的改动，请再跑端到端验收（真实浏览器）：
 
 ```bash
-scripts/check.sh --instance --open-story --cards --space --real --memory
+bash scripts/check.sh                 # 静态检查 + 隔离 DSH 实例 + verify.mjs（默认）
+bash scripts/check.sh --static        # 只跑静态检查（快）
+bash scripts/check.sh --instance      # 只跑隔离实例 + E2E
+bash scripts/check.sh --with-app-tests # 额外跑应用前端 typecheck + 单测（慢）
 ```
 
-- `--cards`：导入角色卡 → 开聊 → 发消息 → 刷新仍在 → 删卡；
-- `--space`：S1–S6（改名、世界书导入/手工条目、正则生效、预设 + context-preview）；
-- `--memory`：C1–C6（手工记忆增删改、立即整理、注入预览、停用/删除、长期伙伴置顶）；
-- `--real`：断言回复不是 mock、长度 ≥20、刷新后仍在（需要 `AI_MODE=dsh` 且 DSH 已登录模型）；
-- 产物在 `/tmp/dsh-tavern-verify/check`：`report.json` + 截图 + 日志。
+也可以直接驱动 `verify.mjs`（需要已有一个跑起来的 DSH Web 和 token）：
 
-`--space` / `--memory` 都隐含 `--cards`；对应前后端未就绪时相关项记 SKIP
-并写明 owner，不会让整轮验收崩掉。`--groups` 已随群聊功能（UI + 服务端）删除而废弃，
-传了只提示忽略（不再产生检查项）。
+```bash
+node verify.mjs --url "http://127.0.0.1:3080/?token=..." \
+  --fixtures /tmp/dsh-tavern-native/cards --out /tmp/dsh-tavern-native/check
+```
+
+- `verify.mjs` 检查分组（设计见 `docs/step6-native-tavern.md` §8）：
+  A 基础（匿名 401、侧栏入口、iframe、原生 UI 已交付）、N 角色列表（导入/头像/搜索）、
+  C 聊天（开新聊、用户气泡、assistant 文本**流式增长**、刷新后仍在）、
+  C2 停止生成、R 重新生成、P swipe 版本切换、E 编辑/删除消息、T 聊天标题、
+  H 历史、S 世界书（条目增删 + 注入预览）、I 导入导出（聊天 JSONL/JSON 下载与解析、
+  角色页导入聊天记录）、M 旧路由（`/tavern/explore`、`/works` 等不死链，
+  页面无「探索作品」入口）；`--only c,n` 可只跑部分分组；
+- 产物在 `/tmp/dsh-tavern-native/check`：`report.json`（逐项 PASS/FAIL/SKIP）、
+  `logs/*.log`（含隔离实例 `dsh.log`）、截图 `90-sidebar.png`…`99-old-routes.png`；
+- 隔离实例用的是临时 `DSH_HOME`（`/tmp/dsh-tavern-native/instance`，端口默认 3099），
+  不碰生产 3080；`--keep-home` 可保留现场排查。
+
+应用前端改动另跑（在 `app/client` 下）：`npm run typecheck`、`npm test`。
 
 ## 已知限制 / 待验证
 
-- **应用侧可信登录**：`x-dsh-trusted` 由应用 `app/server/app/security.py` 做常量时间
-  校验；应用进程需带 `DSH_TRUSTED_AUTH=1` + `DSH_TRUSTED_SECRET` 重启后才生效，
-  否则面板里的 API 请求会被应用按未登录处理（401）。
-- **编辑器预填依赖 DOM**：宿主没有「往会话草稿写文本」的公开 API，插件用
-  Lexical 编辑器的原生插入命令模拟粘贴；宿主改编辑器实现时需要复核
-  `client.js` 里的 `COMPOSER_SELECTOR`。
-- **主题同步是附加消息**：`dsh-tavern:theme` 不在契约里，应用侧可选实现；
-  不实现时 iframe 维持自己的主题，不影响功能。
-- **P2 超时 8 秒**：应用侧读 store 较慢时会提示「应用没有响应」，可重试；
-  不会卡死界面。
-- **位置记忆只记「页面路由」**：恢复的是应用路由（如 `/worlds/w1/play`），
-  应用内部未写进路由的临时状态（滚动位置、未保存草稿等）仍以应用自身为准；
-  恢复的地址若失效，应用会回落 `/explore`，点「刷新」即可回首页。
-- **模型网关依赖应用侧 adapter**：网关只负责转发一次模型调用；`AI_MODE=dsh` 下
-  应用 worker 的 `DshAgentAdapter` 必须按契约调它，否则应用仍走 mock 生成。
-  网关 secret 在插件启动时读入，轮换后需要重启 DSH Web；没配 secret 时连
-  `/v1/health` 都 401，这是「配置错就明确失败」的预期行为。
-- **真生成依赖 DSH 侧条件**：需要 DSH 已登录、`agentDefaultModel` 有默认模型
-  （本机是 `opencode-go / deepseek-v4.1-flash`）。网关不可用时应用如实报错
-  （`AGENT_UPSTREAM_FAILED` 等），不会伪造回复。
-- **群聊已彻底删除**：群聊 UI、群聊页与入口删除后，服务端 `cards/groups.py`、
-  5 条 `/card-group-chats` 路由、`CardGroupChat/CardGroupMessage` 模型、
-  worker 的 `card_group_chat` 分支与提示词也一并删除；`/characters/groups` 仍
-  redirect `/explore`。DB 里的 `world.card_group_chats`、`world.card_group_messages`
-  已无代码引用，并已由 host 侧 DROP（2026-11-04；历史设计见 `docs/step3b-group-chat.md`）。
-- **主题固定浅色**：明暗切换按钮与主题设置入口已删除，应用启动即
-  `dataset.theme='light'`；`settings.theme` 仅为兼容旧数据保留、不影响 UI。
-  宿主仍会推 `dsh-tavern:theme`（契约外可选消息），应用不跟随。
-- **部分无 UI 的服务端能力已删**：experience 的 feedback / notices / tasks / usage
-  （`usage.py` 整个文件）、authoring 的公开目录（`GET /authoring/catalog`、
-  `GET /authoring/authors/{id}`）随页面一起删除；`product_feedback` 不再有 API。
-  保留的只有运维集成（curated publish/beta、支付/邀请/analytics）与
-  `product_notices`（moderation notify 仍写）。`/product/knowledge`、`/my-prompts`
-  等已 redirect `/explore`；`AuthorPage`/`WalletPage`/`AdminPage`/`PublicPage` 与
-  `Local*` 旧壳仍保留（部分未挂路由）。
-- **删除的零引用页面**：单用户精简时删了 24 个客户端文件（PublicCatalog/
-  PublicCover/AgentPage/McpPage/DiscoverPage/OriginalStoryPage/companion 页面/
-  CharacterPreferences/RecoverySettings/media 四页/PlayCreatePage/PluginsPage/
-  SkillsPage/tavern 的 ChatImport/Lorebooks/Personas/Presets/QuickReplies/
-  StagePage/SceneModelSettings），源码与路由均无引用。
-- **注入有预算**：世界书最多命中 6 条、合计 ≤6000 字；长期记忆 ≤6 条、合计 ≤3000 字；
-  角色卡设定 ≤6000 字。超出部分不会进 prompt（`context-preview` 能看到实际注入结果）。
-- **记忆整理依赖模型**：手工「立即整理」失败返回 502 `MEMORY_EXTRACT_FAILED`，
-  不写半成品；每 8 条回复的自动整理失败不会打断聊天，可稍后手动重试。
+- **真生成依赖 DSH 侧条件**：DSH 需已登录、`agentDefaultModel` 有默认模型
+  （本机 `opencode-go / deepseek-v4.1-flash`），且应用 `AI_MODE=dsh`。
+  网关不可用时应用如实报错（`PROVIDER_UNAVAILABLE` 等），不伪造回复。
+- **采样参数还没有在生产生效**：`temperature/topP/stop` 的网关支持已合入，
+  但生产 DSH Web 尚未重启；即使重启，`opencode-go` 适配器也会忽略 topP/stop
+  （只有 temperature 真正传给上游）。
+- **旧 story 后端代码暂留**：`world/play_controls/experience`、卡片空间
+  （`cards/space.py`、`chat_presets`、`regex_scripts`）、长期记忆
+  （`cards/memory.py`）等已从 UI 下线，代码与旧表保留待 P3 清理；
+  `worker`/`world-worker` 进程仍在跑，但 2.0 聊天不依赖它们。
+- **旧路由**：应用不再有探索/作品/群聊页，`/tavern/explore`、`/tavern/works`、
+  `/tavern/worlds/scripts` 等都会落到角色卡首页（`/`），不会 404 死链。
+- **面板工具条仍有 1.x 遗留动作**：「让 DSH 续写 / 角色扮演 / 续写要求」来自
+  故事模式，当前应用没有故事上下文可读，点击会提示读不到内容；刷新/新窗口
+  正常可用。这部分在 `client.js`，计划随 P3 与旧代码一起清掉。
+- **世界书注入预览已可用**：卡详情「注入预览」输入一句示例消息，返回命中条目与
+  拼好的注入文本（调 `POST /characters/{id}/world-info/preview`）。
+- **设置页是占位**：人设、预设与采样、正则替换、导入导出等入口只展示
+  「即将开放」（P2）。
+- **聊天流式依赖每请求线程**：一次生成占一个 API 请求线程 + 一个后台线程
+  （`threading.Thread`），服务端没有任务队列削峰；并发聊天数上去时先看 uvicorn
+  worker 数。
+- **流式帧格式**：服务端 SSE 帧为 `event: {"message"|"delta"|"done"|"error"}` +
+  `data: {...}`，与客户端 `sse.ts` 的命名事件解析一致；逐字流式已验证，且整段
+  回复会在 `done` 后落库并刷新。
+- **位置记忆只记「页面路由」**：切走面板再回来会恢复到上次的 `/chats/<id>` 或
+  `/characters/<id>`；应用内未写进路由的临时状态（滚动位置、未发送草稿）不恢复。
+  恢复地址失效时点「刷新」回角色卡首页。
+- **P2 故事上下文协议保留但无数据源**：`ping/pong/state` 仍可握手上报 `appPath`，
+  `context-request` 没有故事页可答；契约 §3 保留定义用于兼容，P3 再决定去留。
 
 ## 文档
 
 | 文档 | 内容 |
 | --- | --- |
-| [docs/contract.md](docs/contract.md) | 与应用侧的集成契约（Lead 定稿）：分流、可信头、P2 协议、UI 座位 |
-| [docs/architecture.md](docs/architecture.md) | 本插件实现：两层结构、请求链路、面板结构、P2 细节、prompt 规则、卡片/记忆、风险 |
-| [docs/step3-card-space.md](docs/step3-card-space.md) | B1 角色卡空间：表、端点、注入与正则规则、S1–S6 验收 |
-| [docs/step3b-group-chat.md](docs/step3b-group-chat.md) | 历史设计：B2 群聊（UI 与服务端均已删除，仅作历史参考） |
-| [docs/step4-companion-memory.md](docs/step4-companion-memory.md) | C 长期记忆：抽取/注入/自动整理、长期伙伴、C1–C6 验收 |
-| [docs/step5-p0-p1-p2.md](docs/step5-p0-p1-p2.md) | P0/P1/P2 设计与验收：一键开聊/继续上次/流式/重生成编辑、人设/导出/记忆透明/卡库/阅读感、分支/卡↔世界/AI 写卡 |
+| [docs/contract.md](docs/contract.md) | 与应用侧的集成契约：分流、可信头、P2、UI 座位、网关字段、应用 API / SSE / swipe |
+| [docs/architecture.md](docs/architecture.md) | 实现架构：请求链路、模型网关、原生酒馆数据模型与 prompt 组装、面板结构、配置、风险 |
+| [docs/step6-native-tavern.md](docs/step6-native-tavern.md) | 酒馆 2.0 当前设计：原生聊天、SSE、swipe、世界书、验收分组 |
+| [docs/step1-character-card-chat.md](docs/step1-character-card-chat.md) 等 step1–step5 | **历史设计**（故事模式 / 卡片空间 / 群聊 / 长期记忆 / P0–P2），多数 UI 已下线 |
 | [docs/testing.md](docs/testing.md) | 验收方法：静态检查 + 隔离实例真实浏览器 E2E |
