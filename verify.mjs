@@ -2,7 +2,7 @@
  * dsh-tavern 端到端验收脚本（真实浏览器行为，不是静态代码检查）。
  *
  * 用法：
- *   node verify.mjs --url "http://127.0.0.1:3080/?token=..." [--out dir] [--no-bridge] [--open-story] [--cards] [--real] [--space]
+ *   node verify.mjs --url "http://127.0.0.1:3080/?token=..." [--out dir] [--no-bridge] [--open-story] [--cards] [--real] [--space] [--groups] [--memory]
  *
  * 检查分组（与 docs/contract.md v1 对应）：
  *   A. 鉴权与入口：未登录 GET /tavern/ 必须被 DSH 闸门挡住（401）；登录态 200。
@@ -25,6 +25,14 @@
  *   S. --space（B 步，docs/step3-card-space.md §6）：卡详情改名、世界书导入/手工条目、
  *      正则「。」→「！」对回复生效、预设绑定 + context-preview、console clean。隐含 --cards；
  *      角色卡空间 UI/API 未接入时逐项 SKIP 并写明 owner（cards-client / app-auth），不 FAIL。
+ *   T. --groups（B2，docs/step3b-group-chat.md §5）：角色卡库多选 2 张 → 发起群聊 →
+ *      参与者正确 → 发消息（真实回复 + 发言人=API speakerName）→ 再发一条轮转 →
+ *      整页刷新消息仍在 → 删除群聊列表回落 → console clean。隐含 --cards；
+ *      真实生成请配合 --real。证据写入 report.groups。
+ *   U. --memory（C 步，docs/step4-companion-memory.md §7）：卡详情手工记忆增删改 →
+ *      聊天发 2 条含自述的消息 → 「立即整理」抽取出 ≥1 条 → 注入预览含手工记忆标题 →
+ *      停用/删除后注入预览不再含 → 设为长期伙伴后卡库顶部「长期伙伴」分组置顶 → console clean。
+ *      隐含 --cards；真实抽取需要真生成（配合 --real）。证据写入 report.memory。
  *   I. 截图 + 输出目录下 report.json；无控制台 JS 报错。
  *
  * 设计原则：
@@ -33,7 +41,8 @@
  *   - 默认不写应用数据：不打开作品、只开草稿、不点发送。
  *     --open-story 会在应用 explore 页点一部 live 作品进入故事页（会写阅读进度），
  *     仅用于验证「续写提示词模板」全链路；--cards 会导入/删除测试角色卡；--space 会额外
- *     改一张测试卡的卡名/世界书/预设/正则（都在测试卡上操作，会写测试库）。
+ *     改一张测试卡的卡名/世界书/预设/正则；--groups 会建群聊/发消息再删除（都在测试卡上
+ *     操作，会写测试库）。
  */
 import { createRequire } from 'node:module'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
@@ -68,6 +77,8 @@ const report = {
   cards: null,
   real: null,
   space: null,
+  groups: null,
+  memory: null,
   screenshots: [],
 }
 
@@ -910,7 +921,7 @@ try {
   // 选择器原则：能用稳定文本（导航「角色卡库」、按钮「导入角色卡」「开聊」「删除」）就不猜 class。
   const real = args.includes('--real')
   const realNegative = args.includes('--real-negative')
-  const runCards = args.includes('--cards') || real || args.includes('--space')
+  const runCards = args.includes('--cards') || real || args.includes('--space') || args.includes('--groups')
   const cardsEvidence = { fixturesDir: null, imported: [], avatar: null, chat: null, reload: null, deleted: null }
   // H/S 组共用的 iframe 查找/导航助手（--cards/--space 都用到；提前定义，避免 S 组重写一遍）。
   const fnow = () => page.frames().find((candidate) => /\/tavern\//.test(candidate.url())) || null
@@ -1734,6 +1745,795 @@ try {
     }
   }
   report.space = spaceEvidence
+
+  // ── T. 群聊（--groups）──────────────────────────────────────────────────────
+  // 依赖 cards-client 的 /characters 多选 + /characters/groups 列表/详情页 + app-auth 的
+  // /card-group-chats API（docs/step3b-group-chat.md §5）。真实生成请配合 --real 使用。
+  const runGroups = args.includes('--groups')
+  const groupCheckNames = [
+    'T1 多选两张角色卡发起群聊 → 进群聊页且参与者正确',
+    'T2 发送消息 → 出现真实回复且发言人=返回的 speakerName',
+    'T3 再发一条 → 发言人轮转（与上一条不同）',
+    'T4 整页刷新群聊页后消息仍在',
+    'T5 删除群聊 → 列表数量回落',
+    'T6 群聊操作后 console 无报错',
+  ]
+  const groupsEvidence = {
+    enabled: runGroups,
+    selected: [],
+    selectionCount: null,
+    group: null,
+    messages: [],
+    rotation: null,
+    persisted: null,
+    deleted: null,
+    console: null,
+    steps: [],
+  }
+  const groupSteps = groupsEvidence.steps
+  const groupCheck = (name, ok, detail) => {
+    check(name, ok, detail)
+    groupSteps.push({ name, ok: !!ok, skipped: false, detail: detail === undefined ? null : String(detail) })
+  }
+  const groupSkip = (name, detail) => {
+    skip(name, detail)
+    groupSteps.push({ name, ok: true, skipped: true, detail: detail === undefined ? null : String(detail) })
+  }
+  const skipRemainingGroups = (reason) => {
+    const seen = new Set(groupSteps.map((step) => step.name))
+    for (const name of groupCheckNames) if (!seen.has(name)) groupSkip(name, reason)
+  }
+  if (runGroups) {
+    const groupConsoleStart = consoleErrors.length
+    let frame = fnow()
+    let chatId = ''
+    const sendCalls = []
+    const onGroupResponse = (response) => {
+      try {
+        const pathName = new URL(response.url()).pathname
+        if (!/\/card-group-chats\/[^/]+\/messages$/.test(pathName)) return
+        if (response.request().method() !== 'POST') return
+        const call = { status: response.status(), url: pathName, at: Date.now(), body: undefined }
+        sendCalls.push(call)
+        response.json().then((data) => { call.body = data }).catch(() => {})
+      } catch {
+        /* 页面卸载时的异常响应忽略 */
+      }
+    }
+    page.on('response', onGroupResponse)
+    try {
+      if (!frame) {
+        skipRemainingGroups('故事之间应用 iframe 没打开（侧栏/面板未就绪，owner: plugin-core）')
+      } else {
+        // T1. 角色卡库多选 2 张 → 发起群聊 → 进群聊页且参与者正确。
+        frame = (await openCharactersPage()) || frame
+        await frame.locator('.workspace-loading').waitFor({ state: 'detached', timeout: 15000 }).catch(() => {})
+        await page.waitForTimeout(800)
+        const selected = []
+        for (const name of ['顾清和', '沈夜舟', '陆三更改']) {
+          if (selected.length >= 2) break
+          const card = frame.locator('article.character-card').filter({ has: frame.getByText(name, { exact: true }) }).first()
+          if (!(await card.count().catch(() => 0))) continue
+          const box = card.locator('input[type=checkbox]').first()
+          if (!(await box.count().catch(() => 0))) continue
+          await box.check({ force: true }).catch(() => {})
+          if (await box.isChecked().catch(() => false)) selected.push(name)
+        }
+        if (selected.length < 2) {
+          // 兜底：库里若还有别的卡就任选两张（例如 H 组提前失败留下不同卡名）。
+          const cards = frame.locator('article.character-card')
+          const total = await cards.count().catch(() => 0)
+          for (let index = 0; index < total && selected.length < 2; index += 1) {
+            const card = cards.nth(index)
+            const name = ((await card.locator('h2').first().textContent().catch(() => '')) || '').trim()
+            if (!name || selected.includes(name)) continue
+            const box = card.locator('input[type=checkbox]').first()
+            if (!(await box.count().catch(() => 0))) continue
+            await box.check({ force: true }).catch(() => {})
+            if (await box.isChecked().catch(() => false)) selected.push(name)
+          }
+        }
+        groupsEvidence.selected = selected
+        const selectionCount = await frame.locator('.selection-count').first().textContent().catch(() => null)
+        groupsEvidence.selectionCount = selectionCount ? selectionCount.trim() : null
+        await shot(page, '20-groups-select.png')
+        if (selected.length < 2) {
+          skipRemainingGroups(`角色卡库里可勾选的卡不足 2 张（已选 ${selected.length}；H 组之后应保留 ≥2 张测试卡，owner: cards-client）`)
+        } else {
+          const startButton = frame.getByRole('button', { name: /发起群聊/ }).first()
+          await startButton.click({ force: true }).catch(() => {})
+          const groupFrame = await waitFrameUrl(/\/characters\/groups\/[^/]+/, 30000)
+          if (groupFrame) frame = groupFrame
+          const groupUrl = groupFrame ? groupFrame.url() : ''
+          const idMatch = groupUrl.match(/\/characters\/groups\/([^/?#]+)/)
+          chatId = idMatch ? idMatch[1] : ''
+          await frame.locator('.group-participants').waitFor({ state: 'visible', timeout: 20000 }).catch(() => {})
+          const participants = ((await frame.locator('.group-participant small').allTextContents().catch(() => [])) || [])
+            .map((text) => text.trim())
+            .filter(Boolean)
+          const participantsOk = selected.length >= 2 && selected.every((name) => participants.includes(name))
+          groupsEvidence.group = { id: chatId, url: groupUrl, participants }
+          groupCheck(
+            groupCheckNames[0],
+            Boolean(groupFrame && chatId && participants.length >= 2 && participantsOk),
+            `选中=${selected.join('、')}；群聊页=${groupUrl ? new URL(groupUrl).pathname : 'n/a'}；参与者=${participants.join('、') || '无'}${
+              selectionCount ? `；选择栏=${clip(selectionCount.trim(), 40)}` : ''
+            }`,
+          )
+          if (!chatId) {
+            skipRemainingGroups('发起群聊后 URL 里拿不到群聊 id（创建/路由失败，owner: cards-client / app-auth）')
+          } else {
+            const assistantArticles = () => frame.locator('article.group-message.from-assistant')
+            const countSavedAssistant = async () => {
+              const total = await assistantArticles().count().catch(() => 0)
+              let savedTotal = 0
+              for (let index = 0; index < total; index += 1) {
+                const bubble = assistantArticles().nth(index).locator('.group-bubble')
+                const cls = (await bubble.getAttribute('class').catch(() => '')) || ''
+                const text = ((await bubble.textContent().catch(() => '')) || '').trim()
+                if (!cls.includes('pending') && text && text !== '…' && text !== '正在组织语言…') savedTotal += 1
+              }
+              return savedTotal
+            }
+            const lastSavedAssistant = async () => {
+              const total = await assistantArticles().count().catch(() => 0)
+              let result = null
+              for (let index = 0; index < total; index += 1) {
+                const article = assistantArticles().nth(index)
+                const bubble = article.locator('.group-bubble')
+                const cls = (await bubble.getAttribute('class').catch(() => '')) || ''
+                const text = ((await bubble.textContent().catch(() => '')) || '').trim()
+                if (cls.includes('pending') || !text || text === '…' || text === '正在组织语言…') continue
+                const speaker = ((await article.locator('.group-message-speaker strong').first().textContent().catch(() => '')) || '').trim()
+                result = { text, speaker }
+              }
+              return result
+            }
+            const waitSavedReply = async (beforeCount, timeoutMs) => {
+              const deadline = Date.now() + timeoutMs
+              while (Date.now() < deadline) {
+                const savedTotal = await countSavedAssistant()
+                if (savedTotal > beforeCount) return lastSavedAssistant()
+                const alert = await frame.locator('[role="alert"]').first().textContent().catch(() => null)
+                if (alert && /失败|超时|错误/.test(alert)) return { error: alert.trim() }
+                await page.waitForTimeout(700)
+              }
+              return null
+            }
+            const sendMessage = async (messageText) => {
+              const textarea = frame.getByPlaceholder('对大家说点什么…').first()
+              if (!(await textarea.count().catch(() => 0))) return { error: '找不到群聊输入框（owner: cards-client）' }
+              await textarea.fill(messageText)
+              const sendButton = frame.locator('form.group-composer button[type="submit"]').first()
+              const enableDeadline = Date.now() + 15000
+              while (Date.now() < enableDeadline && (await sendButton.isDisabled().catch(() => true))) await page.waitForTimeout(200)
+              const before = await countSavedAssistant()
+              const callsBefore = sendCalls.length
+              const startedAt = Date.now()
+              await sendButton.click({ force: true }).catch(() => {})
+              // DSH 桌宠气泡/悬浮层可能盖住右下角发送按钮，force click 会点在遮罩上而不触发 submit。
+              // 先正常点；几秒内既没有 POST 也没有新回复时，退化为 DOM click（仍走应用 send() 逻辑）。
+              let clickPath = 'click'
+              const firstTick = Date.now() + 6000
+              while (Date.now() < firstTick && sendCalls.length <= callsBefore) await page.waitForTimeout(200)
+              if (sendCalls.length <= callsBefore) {
+                clickPath = 'js-click'
+                await sendButton.evaluate((el) => el.click()).catch(() => {})
+              }
+              const callDeadline = Date.now() + 20000
+              while (Date.now() < callDeadline && sendCalls.length <= callsBefore) await page.waitForTimeout(200)
+              const call = sendCalls.length > callsBefore ? sendCalls[sendCalls.length - 1] : null
+              if (call) {
+                const bodyDeadline = Date.now() + 3000
+                while (call.body === undefined && Date.now() < bodyDeadline) await page.waitForTimeout(100)
+              }
+              const body = call && call.body ? call.body : null
+              const reply = await waitSavedReply(before, 180000)
+              return {
+                text: messageText,
+                elapsedMs: Date.now() - startedAt,
+                clickPath,
+                httpStatus: call ? call.status : null,
+                response: body
+                  ? { taskId: body.taskId || null, chatId: body.chatId || null, speakerCardId: body.speakerCardId || null, speakerName: body.speakerName || null }
+                  : null,
+                reply: reply && reply.text ? reply : null,
+                error: reply && reply.error ? reply.error : null,
+              }
+            }
+            // T2. 第一条消息：真实回复 + 发言人 = API 返回的 speakerName。
+            const first = await sendMessage('你们好')
+            groupsEvidence.messages.push(first)
+            const speaker1 = first.response && first.response.speakerName ? String(first.response.speakerName) : null
+            const shown1 = first.reply && first.reply.speaker ? String(first.reply.speaker) : null
+            const reply1 = first.reply ? first.reply.text : ''
+            const mockPhrase = '我们可以聊聊此刻的想法'
+            const hasMockPhrase = reply1.includes(mockPhrase)
+            groupCheck(
+              groupCheckNames[1],
+              Boolean(reply1) && Boolean(speaker1) && shown1 === speaker1 && !hasMockPhrase,
+              reply1
+                ? `发言人=${shown1 || '无'}（API speakerName=${speaker1 || '无'}，HTTP ${first.httpStatus ?? 'n/a'}）；${real ? '真生成' : 'mock'} 回复：${clip(reply1, 100)}；耗时=${first.elapsedMs}ms${
+                    hasMockPhrase ? '；⚠️ 出现 mock 特征句，应用仍是 AI_MODE=mock（owner: app-auth 环境）' : ''
+                  }`
+                : `180s 内没等到群聊回复${first.error ? `（${clip(first.error, 100)}）` : ''}（owner: app-auth 群聊任务/模型网关）`,
+            )
+            if (reply1) await shot(page, '21-group-reply.png')
+            // T3. 第二条消息：发言人轮转（与第一条不同），且 UI 发言人 = 新 speakerName。
+            const nextSpeakerText = ((await frame.locator('.group-next').first().textContent().catch(() => '')) || '').trim()
+            let second = { error: '第一条没有成功，未执行第二条' }
+            if (reply1) {
+              second = await sendMessage('那你们谁先说说？')
+              groupsEvidence.messages.push(second)
+            }
+            const speaker2 = second.response && second.response.speakerName ? String(second.response.speakerName) : null
+            const shown2 = second.reply && second.reply.speaker ? String(second.reply.speaker) : null
+            const reply2 = second.reply ? second.reply.text : ''
+            groupsEvidence.rotation = { nextSpeakerText, first: speaker1, second: speaker2, shown: shown2 }
+            groupCheck(
+              groupCheckNames[2],
+              Boolean(reply1 && reply2 && speaker1 && speaker2 && speaker2 !== speaker1 && shown2 === speaker2),
+              reply2
+                ? `发言人轮转：${speaker1 || '无'} → ${speaker2 || '无'}（UI=${shown2 || '无'}；下一位提示=${clip(nextSpeakerText, 40) || '无'}）；第二条：${clip(reply2, 80)}`
+                : second.error
+                  ? `第二条没发成/没回复：${clip(second.error, 120)}（owner: app-auth 轮转/pending/模型网关）`
+                  : `发言人没有轮转（${speaker1 || '无'} → ${speaker2 || '无'}；owner: app-auth 轮转逻辑）`,
+            )
+            if (reply2) await shot(page, '22-group-rotate.png')
+            // T4. iframe 内整页刷新 → 两条问答仍在（文本比对，不只看条数）。
+            await frame.evaluate(() => location.reload()).catch(() => {})
+            const escapedId = chatId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+            const reloaded = await waitFrameUrl(new RegExp(`/characters/groups/${escapedId}`), 30000)
+            let persisted = null
+            if (reloaded) {
+              frame = reloaded
+              await frame.locator('.group-messages, .group-empty').first().waitFor({ state: 'visible', timeout: 30000 }).catch(() => {})
+              const deadline = Date.now() + 45000
+              while (Date.now() < deadline) {
+                const userTexts = ((await frame.locator('article.group-message.from-user .group-bubble').allTextContents().catch(() => [])) || []).map((text) => text.trim())
+                const assistantTexts = (((await frame.locator('article.group-message.from-assistant .group-bubble').allTextContents().catch(() => [])) || [])
+                  .map((text) => text.trim())
+                  .filter((text) => text && text !== '…' && text !== '正在组织语言…'))
+                const hasFirstUser = userTexts.some((text) => text.includes('你们好'))
+                const replyMatched = (expected) =>
+                  Boolean(expected) && assistantTexts.some((text) => text === expected || (expected.length >= 20 && text.includes(expected.slice(0, 20))))
+                const hasReply1 = replyMatched(reply1 || '')
+                const hasReply2 = replyMatched(reply2 || '')
+                if (hasFirstUser && hasReply1 && hasReply2) {
+                  persisted = {
+                    userMessages: userTexts.length,
+                    assistantMessages: assistantTexts.length,
+                    reply1Matched: hasReply1,
+                    reply2Matched: hasReply2,
+                    assistantTexts: assistantTexts.slice(-2).map((text) => clip(text, 80)),
+                  }
+                  break
+                }
+                await page.waitForTimeout(600)
+              }
+            }
+            groupsEvidence.persisted = persisted
+            groupCheck(
+              groupCheckNames[3],
+              Boolean(persisted),
+              persisted
+                ? `刷新后 user=${persisted.userMessages} assistant=${persisted.assistantMessages} 条（reply1Matched=${persisted.reply1Matched} reply2Matched=${persisted.reply2Matched}）`
+                : '刷新后群聊消息不完整或为空（owner: app-auth 持久化 / cards-client 读取）',
+            )
+            await shot(page, '23-group-reload.png')
+            // T5. 返回群聊列表 → 删除本群聊 → 列表数量回落。
+            const backLink = frame.getByRole('link', { name: '返回群聊列表' }).first()
+            if (await backLink.count().catch(() => 0)) await backLink.click({ force: true }).catch(() => {})
+            else await frame.locator('a[href="/characters/groups"]').first().click({ force: true }).catch(() => {})
+            const listFrame = await waitFrameUrl(/\/characters\/groups$/, 20000)
+            if (listFrame) frame = listFrame
+            await frame.locator('.group-list, .workspace-empty').first().waitFor({ state: 'visible', timeout: 20000 }).catch(() => {})
+            const beforeCount = await frame.locator('article.group-item').count().catch(() => 0)
+            const target = frame.locator(`article.group-item[data-chat-id="${chatId}"]`).first()
+            let deleted = null
+            if (await target.count().catch(() => 0)) {
+              await target.getByRole('button', { name: '删除' }).first().click({ force: true }).catch(() => {})
+              const confirm = target.getByRole('button', { name: /确认删除/ }).first()
+              if (await confirm.count().catch(() => 0)) await confirm.click({ force: true }).catch(() => {})
+              const deleteDeadline = Date.now() + 20000
+              while (Date.now() < deleteDeadline) {
+                const gone = (await frame.locator(`article.group-item[data-chat-id="${chatId}"]`).count().catch(() => 1)) === 0
+                const afterCount = await frame.locator('article.group-item').count().catch(() => beforeCount)
+                if (gone && afterCount < beforeCount) {
+                  deleted = { before: beforeCount, after: afterCount }
+                  break
+                }
+                await page.waitForTimeout(500)
+              }
+            }
+            groupsEvidence.deleted = deleted
+            groupCheck(
+              groupCheckNames[4],
+              Boolean(deleted),
+              deleted
+                ? `群聊列表 ${deleted.before} → ${deleted.after}`
+                : `删除后列表没有回落（chatId=${chatId}，列表 ${beforeCount} 条；owner: cards-client 删除按钮 / app-auth DELETE）`,
+            )
+            await shot(page, '24-group-deleted.png')
+          }
+        }
+      }
+    } finally {
+      page.off('response', onGroupResponse)
+      const groupConsoleErrors = consoleErrors.slice(groupConsoleStart).filter((text) => !/Failed to load resource/.test(text))
+      groupsEvidence.console = { clean: groupConsoleErrors.length === 0, errors: groupConsoleErrors.slice(0, 3) }
+      const seen = new Set(groupSteps.map((step) => step.name))
+      if (!seen.has(groupCheckNames[5])) {
+        groupCheck(groupCheckNames[5], groupConsoleErrors.length === 0, groupConsoleErrors.slice(0, 3).join(' | ') || 'clean')
+      }
+    }
+  }
+  report.groups = groupsEvidence
+
+  // ── U. 长期伙伴与记忆（--memory / C 组）───────────────────────────────────
+  // 依赖 task-19（app-auth：/memories CRUD、/memories/extract、/companion、context-preview 的
+  // memories/memorySection）与 task-20（cards-client：卡详情「长期记忆」区、注入预览记忆区块、
+  // 角色卡库「长期伙伴」置顶分组）。契约见 docs/step4-companion-memory.md §3/§7。
+  const runMemory = args.includes('--memory')
+  const memoryCheckNames = [
+    'C1 手工新增记忆 → 列表可见、可编辑、可删除',
+    'C2 发 2 条含自述的消息后点「立即整理」→ 新增≥1 条且列表增加',
+    'C3 注入预览包含手工记忆标题',
+    'C4 停用/删除记忆后注入预览不再包含',
+    'C5 设为长期伙伴 → 角色卡库顶部出现该卡的长期伙伴分组',
+    'C6 C 组操作后 console 无报错',
+  ]
+  const memoryRecorded = Array(6).fill(false)
+  const memoryEvidence = {
+    enabled: runMemory,
+    fixture: null,
+    cardName: null,
+    cardId: null,
+    detailUrl: null,
+    chat: null,
+    manual: null,
+    extract: null,
+    preview: null,
+    disabled: null,
+    deleted: null,
+    companion: null,
+    console: null,
+    steps: [],
+  }
+  if (runMemory) {
+    const memCheck = (index, ok, detail) => {
+      memoryRecorded[index] = true
+      check(memoryCheckNames[index], ok, detail)
+      memoryEvidence.steps.push({ name: memoryCheckNames[index], ok: !!ok, skipped: false, detail: detail === undefined ? null : String(detail) })
+    }
+    const memSkip = (index, detail) => {
+      memoryRecorded[index] = true
+      skip(memoryCheckNames[index], detail)
+      memoryEvidence.steps.push({ name: memoryCheckNames[index], ok: true, skipped: true, detail: detail === undefined ? null : String(detail) })
+    }
+    let memUnavailableAt = -1
+    const memUnavailable = (index, reason) => {
+      if (memUnavailableAt !== -1) return
+      memUnavailableAt = index
+      for (let i = index; i < 5; i += 1) memSkip(i, reason)
+    }
+    let onPreviewResponse = null
+    const memoryConsoleStart = consoleErrors.length
+    const memErrors = () => consoleErrors.slice(memoryConsoleStart).filter((text) => !/Failed to load resource/.test(text))
+    const memSleep = (ms) => page.waitForTimeout(ms)
+    async function memWait(fn, timeoutMs, stepMs = 400) {
+      const deadline = Date.now() + timeoutMs
+      while (Date.now() < deadline) {
+        try {
+          if (await fn()) return true
+        } catch {}
+        await memSleep(stepMs)
+      }
+      return false
+    }
+    // 回到「角色卡库」列表页。openCharactersPage() 的 URL 粗匹配会把 /characters/groups
+    // 也当成卡库（C 组在 T 组之后运行，起点常在群聊页），这里强制落到 /characters 本身。
+    async function memoryLibrary() {
+      const here = fnow()
+      if (here && new URL(here.url()).pathname === '/tavern/characters') return here
+      const opened = await openCharactersPage()
+      const frameNow = fnow()
+      if (frameNow && new URL(frameNow.url()).pathname === '/tavern/characters') return frameNow
+      if (frameNow) await frameNow.evaluate(() => location.assign('/tavern/characters')).catch(() => {})
+      return waitFrameUrl(/\/characters\/?$/, 20000)
+    }
+    const memTitle = '读者养猫'
+    const memContent = '读者养了一只叫团子的猫'
+    const fixtureDir = arg('cards-dir', '/tmp/tavern-verify/cards')
+    let memFixture = null
+    try {
+      const manifest = JSON.parse(await readFile(path.join(fixtureDir, 'manifest.json'), 'utf8'))
+      memFixture = (manifest.cards || []).find((card) => card.format === 'png-v2') || (manifest.cards || [])[0] || null
+    } catch {
+      memFixture = null
+    }
+    memoryEvidence.fixture = memFixture ? { file: memFixture.file, name: memFixture.name, format: memFixture.format } : null
+    const detailPattern = /\/characters\/(?!regex|groups)[^/?#]+/
+    // 从卡库点某张卡的「编辑」进详情；带等待，避免 SPA 刚切页时点击落空。
+    async function openMemoryDetail(cardName) {
+      const lib = await memoryLibrary()
+      if (!lib) throw new Error('无法进入角色卡库（owner: cards-client）')
+      await memWait(async () => (await findCardRoot(lib, cardName).count().catch(() => 0)) > 0, 15000)
+      const root = await findCardRoot(lib, cardName)
+      const editButton = root.getByRole('button', { name: '编辑' }).first()
+      const shown = await memWait(async () => (await editButton.count().catch(() => 0)) > 0, 10000)
+      if (!shown) throw new Error(`卡库里找不到「${cardName}」的「编辑」按钮（owner: cards-client）`)
+      await editButton.click().catch(() => {})
+      return waitFrameUrl(detailPattern, 20000)
+    }
+    let detailFrameM = null
+    let chatFrameM = null
+    try {
+      if (!memFixture) {
+        memUnavailable(0, `缺少 fixture：先跑 python3 scripts/fixtures/make-cards.py（找 ${path.join(fixtureDir, 'manifest.json')}）`)
+      } else {
+        let frameM = await memoryLibrary()
+        if (!frameM) memUnavailable(0, '无法进入角色卡库 /characters（owner: plugin-core 面板/导航；cards-client 路由）')
+        if (frameM && memUnavailableAt === -1) {
+          const cardName = memFixture.name
+          memoryEvidence.cardName = cardName
+          let count = await frameM.getByText(cardName, { exact: true }).count().catch(() => 0)
+          if (count === 0) {
+            const fileInput = frameM.locator('input[type="file"]').first()
+            if (!(await fileInput.count().catch(() => 0))) {
+              memUnavailable(0, '角色卡库缺少导入入口 input[type=file]（owner: cards-client）')
+            } else {
+              await fileInput.setInputFiles(path.join(fixtureDir, memFixture.file)).catch(() => {})
+              const appeared = await memWait(async () => (await frameM.getByText(cardName, { exact: true }).count().catch(() => 0)) > 0, 30000)
+              if (appeared) count = 1
+            }
+          }
+          if (count === 0) {
+            memUnavailable(0, `角色卡「${cardName}」不在库中且导入失败（owner: cards-client 导入 / app-auth）`)
+          } else {
+            // ── 打开卡详情（编辑）──
+            const cardRoot = await findCardRoot(frameM, cardName)
+            const editButton = cardRoot.getByRole('button', { name: '编辑' }).first()
+            if (!(await editButton.count().catch(() => 0))) {
+              memUnavailable(0, '卡片上没有「编辑」按钮，无法打开卡详情（owner: cards-client）')
+            } else {
+              await editButton.click().catch(() => {})
+              detailFrameM = await waitFrameUrl(detailPattern, 20000)
+              if (!detailFrameM) {
+                memUnavailable(0, '点击「编辑」后未进入 /characters/<id> 卡详情（owner: cards-client 路由/详情页）')
+              } else {
+                const detailPath = new URL(detailFrameM.url()).pathname
+                memoryEvidence.detailUrl = detailPath
+                memoryEvidence.cardId = (detailPath.match(/\/characters\/([^/?#]+)/) || [])[1] || null
+              }
+            }
+          }
+        }
+      }
+
+      // ── C1 手工记忆增删改 ──
+      if (detailFrameM && memUnavailableAt === -1) {
+        const memoryItem = (title) => detailFrameM.locator('li.memory-item').filter({ hasText: title }).first()
+        const editor = () => detailFrameM.locator('form.memory-editor').first()
+        const openNew = async () => {
+          const addButton = detailFrameM.getByRole('button', { name: '新增记忆' }).first()
+          if (!(await addButton.count().catch(() => 0))) return false
+          await addButton.click().catch(() => {})
+          return memWait(async () => (await editor().count().catch(() => 0)) > 0, 8000)
+        }
+        const fillEditor = async (title, content, salience) => {
+          const form = editor()
+          await form.getByLabel(/标题/).first().fill(title).catch(() => {})
+          await form.getByLabel(/内容/).first().fill(content).catch(() => {})
+          if (salience) await form.getByLabel(/权重/).first().fill(String(salience)).catch(() => {})
+          return form
+        }
+        const saveEditor = async () => {
+          const form = editor()
+          await form.getByRole('button', { name: '保存记忆' }).first().click().catch(() => {})
+          return memWait(async () => (await editor().count().catch(() => 0)) === 0, 15000)
+        }
+        let created = false
+        let edited = false
+        let deleted = false
+        let recreated = false
+        let manualError = null
+        const c1 = { created: false, edited: false, deleted: false, recreated: false, error: null }
+        try {
+          const opened = await openNew()
+          if (!opened) throw new Error('点「新增记忆」后没有出现记忆编辑器（owner: cards-client）')
+          await fillEditor(memTitle, memContent, 70)
+          await saveEditor()
+          created = await memWait(async () => (await memoryItem(memTitle).count().catch(() => 0)) > 0, 15000)
+          if (!created) throw new Error('保存后列表没有出现记忆「读者养猫」（owner: cards-client 列表/保存 或 app-auth POST /memories）')
+          // 编辑：改标题
+          const editMemoryButton = memoryItem(memTitle).getByRole('button', { name: '编辑记忆' }).first()
+          await editMemoryButton.click().catch(() => {})
+          const editOpened = await memWait(async () => (await editor().count().catch(() => 0)) > 0, 8000)
+          if (!editOpened) throw new Error('点「编辑记忆」后没有出现编辑器（owner: cards-client）')
+          const editedTitle = `${memTitle}（改）`
+          await fillEditor(editedTitle, `${memContent}，现在它两岁。`, null)
+          await saveEditor()
+          edited = await memWait(async () => (await memoryItem(editedTitle).count().catch(() => 0)) > 0, 15000)
+          if (!edited) throw new Error('编辑保存后标题没有更新（owner: cards-client/app-auth PATCH）')
+          // 删除
+          await memoryItem(editedTitle).getByRole('button', { name: '删除记忆' }).first().click().catch(() => {})
+          const confirm = memoryItem(editedTitle).getByRole('button', { name: '确认删除' }).first()
+          await memWait(async () => (await confirm.count().catch(() => 0)) > 0, 5000)
+          await confirm.click().catch(() => {})
+          deleted = await memWait(async () => (await memoryItem(editedTitle).count().catch(() => 0)) === 0, 15000)
+          if (!deleted) throw new Error('确认删除后记忆条目仍在（owner: cards-client/app-auth DELETE）')
+          // 重新建回「读者养猫」，供 C3/C4 的注入预览使用
+          if (await openNew()) {
+            await fillEditor(memTitle, memContent, 70)
+            await saveEditor()
+            recreated = await memWait(async () => (await memoryItem(memTitle).count().catch(() => 0)) > 0, 15000)
+          }
+        } catch (error) {
+          manualError = error instanceof Error ? error.message : String(error)
+        }
+        c1.created = created
+        c1.edited = edited
+        c1.deleted = deleted
+        c1.recreated = recreated
+        c1.error = manualError
+        memoryEvidence.manual = c1
+        memCheck(0, created && edited && deleted && recreated, manualError || `新增可见=${created} 编辑生效=${edited} 删除生效=${deleted} 重建=${recreated}`)
+        if (!recreated) memUnavailable(1, `手工记忆没有建立成功（${manualError || '未知'}），后续注入预览断言跳过`)
+        await shot(page, '25-memory-manual.png')
+
+        // ── C2 前置：聊天页发 2 条含自述消息 ──
+        if (memUnavailableAt === -1) {
+          let chatError = null
+          const chatSent = []
+          try {
+            const libFrame = await memoryLibrary()
+            if (!libFrame) throw new Error('无法回到角色卡库（owner: cards-client）')
+            // SPA 路由刚切到 /characters 时卡片可能还没渲染，先等卡片容器出现。
+            await memWait(async () => (await findCardRoot(libFrame, memoryEvidence.cardName).count().catch(() => 0)) > 0, 15000)
+            const root = await findCardRoot(libFrame, memoryEvidence.cardName)
+            const startButton = root.getByRole('button', { name: '开聊' }).first()
+            const startShown = await memWait(async () => (await startButton.count().catch(() => 0)) > 0, 10000)
+            if (!startShown) {
+              const rootCount = await findCardRoot(libFrame, memoryEvidence.cardName).count().catch(() => 0)
+              const cardCount = await libFrame.locator('article.character-card').count().catch(() => 0)
+              throw new Error(`卡片没有「开聊」按钮（卡片容器=${rootCount} 库内卡片=${cardCount}；owner: cards-client）`)
+            }
+            await startButton.click({ force: true }).catch(() => {})
+            chatFrameM = await waitFrameUrl(/\/conversations\/world\/[^/?#]+/, 25000)
+            if (!chatFrameM) throw new Error('点「开聊」后未进入聊天页（owner: cards-client / app-auth）')
+            await waitChatReady(chatFrameM)
+            const composer = chatFrameM.locator('#world-chat-message')
+            const sendButton = chatFrameM.locator('form.world-chat-compose button[type="submit"]').first()
+            const assistantTail = async () => {
+              const last = chatFrameM.locator('.world-chat-message.assistant').last()
+              if (!(await last.count().catch(() => 0))) return { meta: '', text: '' }
+              const meta = (await last.locator('small').first().textContent().catch(() => null)) || ''
+              const text = (await last.locator('p').last().textContent().catch(() => null)) || ''
+              return { meta: meta.trim(), text: text.trim() }
+            }
+            async function sendSelfMessage(text) {
+              const marker = text.slice(0, 10)
+              await composer.fill(text)
+              let enabled = false
+              const enableDeadline = Date.now() + 8000
+              while (Date.now() < enableDeadline) {
+                if (!(await sendButton.isDisabled().catch(() => true))) {
+                  enabled = true
+                  break
+                }
+                await memSleep(200)
+              }
+              const startedAt = Date.now()
+              if (enabled) await sendButton.click().catch(() => {})
+              else await composer.press('Control+Enter').catch(() => {})
+              // 桌宠浮层可能盖住发送按钮：6s 内没出现 user 气泡就退化为 DOM click。
+              const userSeen = await memWait(
+                async () => (await chatFrameM.locator('.world-chat-message.user p').filter({ hasText: marker }).count().catch(() => 0)) > 0,
+                6000,
+                300,
+              )
+              if (!userSeen && enabled) await sendButton.evaluate((el) => el.click()).catch(() => {})
+              const deadline = Date.now() + (real ? 180000 : 120000)
+              while (Date.now() < deadline) {
+                const userOk = (await chatFrameM.locator('.world-chat-message.user p').filter({ hasText: marker }).count().catch(() => 0)) > 0
+                const replies = await chatFrameM.locator('.world-chat-message.assistant p').allTextContents().catch(() => [])
+                const candidate = replies.map((item) => item.trim()).filter(Boolean).pop()
+                const tail = candidate ? await assistantTail() : { meta: '', text: '' }
+                const finished = /已保存|收到的部分回复/.test(tail.meta) && (!tail.text || tail.text === candidate)
+                if (userOk && candidate && finished) return { ok: true, text: candidate, elapsedMs: Date.now() - startedAt }
+                const alertText = await chatFrameM.locator('[role="alert"]').first().textContent().catch(() => null)
+                if (alertText) return { ok: false, error: alertText }
+                await memSleep(600)
+              }
+              return { ok: false, error: '等回复超时' }
+            }
+            const selfMessages = ['我叫林舟，最近养了一只叫团子的猫，它喜欢趴在键盘上。', '我每天早上都要喝一杯手冲咖啡，喜欢安静的地方。']
+            for (const text of selfMessages) {
+              const result = await sendSelfMessage(text)
+              chatSent.push({ text, ok: result.ok, replyFirst60: result.ok ? clip(result.text, 60) : null, elapsedMs: result.elapsedMs || null, error: result.error || null })
+              if (!result.ok) throw new Error(`发送「${clip(text, 20)}」失败：${result.error}`)
+              await memSleep(800)
+            }
+          } catch (error) {
+            chatError = error instanceof Error ? error.message : String(error)
+          }
+          memoryEvidence.chat = { url: chatFrameM ? chatFrameM.url() : null, messages: chatSent, ok: !chatError, error: chatError }
+          if (chatError) memUnavailable(1, `C 组前置聊天失败：${clip(chatError, 160)}（owner: app-auth 真生成 / cards-client 聊天页）`)
+        }
+
+        // ── 回到卡详情：C2 立即整理 ──
+        if (memUnavailableAt === -1) {
+          try {
+            detailFrameM = await openMemoryDetail(memoryEvidence.cardName)
+            if (!detailFrameM) memUnavailable(1, '聊天后无法重新进入卡详情（owner: cards-client 路由/详情页）')
+          } catch (error) {
+            detailFrameM = null
+            memUnavailable(1, `聊天后无法重新进入卡详情：${clip(error instanceof Error ? error.message : String(error), 160)}`)
+          }
+        }
+        if (detailFrameM && memUnavailableAt === -1) {
+          // 聊天后重新进入详情时 Vue 还在挂载，直接 count() 会得到 0；先等「长期记忆」区渲染。
+          const sectionReady = await memWait(async () => (await detailFrameM.getByRole('heading', { name: '长期记忆' }).count().catch(() => 0)) > 0, 20000)
+          if (!sectionReady) memUnavailable(1, '重新进入卡详情后 20s 内没有渲染「长期记忆」区（owner: cards-client）')
+          const items = () => detailFrameM.locator('li.memory-item')
+          const extractButton = detailFrameM.getByRole('button', { name: '立即整理' }).first()
+          await memWait(async () => (await extractButton.count().catch(() => 0)) > 0, 15000)
+          const before = await items().count().catch(() => 0)
+          let extractNotice = ''
+          let extractError = ''
+          if (!(await extractButton.count().catch(() => 0))) {
+            extractError = '卡详情没有「立即整理」按钮（owner: cards-client）'
+          } else {
+            await extractButton.click().catch(() => {})
+            const done = await memWait(async () => {
+              const noticeText = (await detailFrameM.getByRole('status').first().textContent().catch(() => '')) || ''
+              if (/新增 \d+ 条记忆|暂无新记忆/.test(noticeText)) {
+                extractNotice = noticeText.trim()
+                return true
+              }
+              const alertText = (await detailFrameM.getByRole('alert').first().textContent().catch(() => '')) || ''
+              if (/整理|抽取|记忆/.test(alertText)) {
+                extractError = alertText.trim()
+                return true
+              }
+              return false
+            }, real ? 150000 : 60000, 800)
+            if (!done && !extractError) extractError = '点「立即整理」后 150s 内没有成功/失败提示（owner: cards-client 或 app-auth 同步抽取超时）'
+            await memWait(async () => (await items().count().catch(() => 0)) > before, 10000)
+          }
+          const after = await items().count().catch(() => 0)
+          const addedMatch = extractNotice.match(/新增 (\d+) 条记忆/)
+          const added = addedMatch ? Number(addedMatch[1]) : 0
+          const legit = /暂无新记忆/.test(extractNotice) ? 0 : added
+          memoryEvidence.extract = { before, after, notice: extractNotice || null, error: extractError || null, added: legit }
+          memCheck(
+            1,
+            !extractError && legit >= 1 && after > before,
+            extractError || `点「立即整理」前=${before} 条，后=${after} 条；提示=${extractNotice}（新增=${legit}）`,
+          )
+          await shot(page, '26-memory-extract.png')
+
+          // ── C3 注入预览含手工记忆标题 ──
+          // 点击「预览」后 context-preview 是异步的；用页面级 response 事件判断本轮请求已完成，
+          // 避免读到上一轮的 .preview-result 旧文本（C4 停用/删除后两次 preview 的文本可能相同）。
+          const previewResponses = []
+          onPreviewResponse = (response) => {
+            if (!/\/context-preview/.test(response.url())) return
+            response.json().then((data) => previewResponses.push(data)).catch(() => previewResponses.push(null))
+          }
+          page.on('response', onPreviewResponse)
+          const runPreview = async () => {
+            const previewButton = detailFrameM.getByRole('button', { name: '预览' }).first()
+            const previewInput = detailFrameM.getByLabel(/试写一句对话/).first()
+            if (!(await previewButton.count().catch(() => 0))) return { ok: false, error: '卡详情没有「预览」按钮（owner: cards-client）', text: '' }
+            const beforeResponses = previewResponses.length
+            await previewInput.fill('她轻轻摸了摸那只猫').catch(() => {})
+            await previewButton.click().catch(() => {})
+            const gotResponse = await memWait(async () => previewResponses.length > beforeResponses, 30000, 300)
+            await memSleep(400)
+            let text = ''
+            const shown = await memWait(async () => {
+              if ((await detailFrameM.locator('.preview-result').count().catch(() => 0)) === 0) return false
+              text = await detailFrameM.locator('.preview-result').first().innerText().catch(() => '')
+              return Boolean(text)
+            }, 10000, 300)
+            const previewError = (await detailFrameM.getByRole('alert').first().textContent().catch(() => '')) || ''
+            const payload = previewResponses.length > beforeResponses ? previewResponses[previewResponses.length - 1] : null
+            return { ok: gotResponse || shown, error: previewError.trim() || null, text, payload }
+          }
+          const preview1 = await runPreview()
+          const memoryLine = (text) => (text.match(/注入的长期记忆：([^\n]*)/) || [])[1] || ''
+          const containsTitle = preview1.ok && preview1.text.includes(memTitle)
+          memoryEvidence.preview = { ok: preview1.ok, error: preview1.error, containsTitle, memoryLine: memoryLine(preview1.text), first200: clip(preview1.text, 200) }
+          memCheck(2, preview1.ok && containsTitle, preview1.ok ? `注入的长期记忆行=${memoryLine(preview1.text)}；包含「${memTitle}」=${containsTitle}` : preview1.error || '预览没有出结果（owner: cards-client 注入预览 / app-auth context-preview）')
+          await shot(page, '27-memory-preview.png')
+
+          // ── C4 停用 → 预览不含；删除 → 预览不含 ──
+          const m1 = detailFrameM.locator('li.memory-item').filter({ hasText: memTitle }).first()
+          let disabledOk = false
+          let deletedOk = false
+          let c4Error = null
+          try {
+            const itemCount = await m1.count().catch(() => 0)
+            if (!itemCount) throw new Error(`C4 找不到记忆「${memTitle}」（owner: cards-client 列表）`)
+            const disableButton = m1.getByRole('button', { name: '停用' }).first()
+            if (!(await disableButton.count().catch(() => 0))) throw new Error('记忆条目没有「停用」按钮（owner: cards-client）')
+            await disableButton.click().catch(() => {})
+            const disabledShown = await memWait(async () => (await m1.locator('.badge').filter({ hasText: '已停用' }).count().catch(() => 0)) > 0, 15000)
+            const previewDisabled = await runPreview()
+            disabledOk = disabledShown && previewDisabled.ok && !previewDisabled.text.includes(memTitle)
+            memoryEvidence.disabled = { disabledShown, previewOk: previewDisabled.ok, containsTitle: previewDisabled.ok ? previewDisabled.text.includes(memTitle) : null }
+            // 删除后再预览
+            await m1.getByRole('button', { name: '删除记忆' }).first().click().catch(() => {})
+            const confirm = m1.getByRole('button', { name: '确认删除' }).first()
+            await memWait(async () => (await confirm.count().catch(() => 0)) > 0, 5000)
+            await confirm.click().catch(() => {})
+            const removed = await memWait(async () => (await detailFrameM.locator('li.memory-item').filter({ hasText: memTitle }).count().catch(() => 0)) === 0, 15000)
+            const previewDeleted = await runPreview()
+            deletedOk = removed && previewDeleted.ok && !previewDeleted.text.includes(memTitle)
+            memoryEvidence.deleted = { removed, previewOk: previewDeleted.ok, containsTitle: previewDeleted.ok ? previewDeleted.text.includes(memTitle) : null }
+          } catch (error) {
+            c4Error = error instanceof Error ? error.message : String(error)
+          }
+          memCheck(3, disabledOk && deletedOk, c4Error || `停用后 preview 不含=${disabledOk}；删除后 preview 不含=${deletedOk}`)
+          await shot(page, '28-memory-disabled.png')
+
+          // ── C5 长期伙伴：详情切换 → 卡库顶部置顶分组 ──
+          let companionOk = false
+          let companionError = null
+          const companionDetail = { checked: null, notice: null, heading: null, badge: null }
+          try {
+            const checkbox = detailFrameM.locator('.companion-line input[type="checkbox"]').first()
+            if (!(await checkbox.count().catch(() => 0))) throw new Error('卡详情没有「设为长期伙伴」勾选框（owner: cards-client）')
+            await checkbox.click().catch(() => {})
+            const checked = await memWait(async () => (await checkbox.isChecked().catch(() => false)) === true, 15000)
+            companionDetail.checked = checked
+            companionDetail.notice = (await detailFrameM.getByRole('status').first().textContent().catch(() => '')) || null
+            const libFrame = await memoryLibrary()
+            if (!libFrame) throw new Error('设置伙伴后无法回到角色卡库（owner: cards-client）')
+            const libFrame2 = libFrame
+            const heading = libFrame2.getByRole('heading', { name: '长期伙伴' }).first()
+            const headingVisible = await memWait(async () => (await heading.count().catch(() => 0)) > 0 && (await heading.isVisible().catch(() => false)), 15000)
+            companionDetail.heading = headingVisible
+            const badge = libFrame2.locator('.companion-badge').first()
+            companionDetail.badge = await badge.count().catch(() => 0)
+            let inTopGroup = false
+            if (headingVisible && memoryEvidence.cardId) {
+              inTopGroup = await libFrame2.evaluate((cardId) => {
+                const articles = [...document.querySelectorAll('article.character-card[data-card-id]')]
+                const headingEl = [...document.querySelectorAll('h2, h3')].find((node) => node.textContent && node.textContent.trim() === '长期伙伴')
+                if (!headingEl) return false
+                const first = articles[0]
+                if (!first) return false
+                return first.getAttribute('data-card-id') === cardId && Boolean(headingEl.compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING)
+              }, memoryEvidence.cardId).catch(() => false)
+            }
+            companionDetail.inTopGroup = inTopGroup
+            companionOk = Boolean(checked && headingVisible && inTopGroup)
+            memoryEvidence.companion = { ...companionDetail, inTopGroup }
+            await shot(page, '29-companion-library.png')
+          } catch (error) {
+            companionError = error instanceof Error ? error.message : String(error)
+            memoryEvidence.companion = { ...companionDetail, error: companionError }
+          }
+          memCheck(4, companionOk, companionError || `勾选长期伙伴=${companionDetail.checked}；卡库「长期伙伴」标题=${companionDetail.heading}；置顶=${companionDetail.inTopGroup}`)
+        }
+      }
+    } catch (error) {
+      memoryEvidence.error = error instanceof Error ? error.message : String(error)
+    } finally {
+      // C6：控制台。其它未跑到项按 SKIP 记录（前置失败已在上面逐项给出 owner）。
+      if (onPreviewResponse) page.off('response', onPreviewResponse)
+      const memErrorsList = memErrors()
+      memoryEvidence.console = { clean: memErrorsList.length === 0, errors: memErrorsList.slice(0, 3) }
+      memCheck(5, memErrorsList.length === 0, memErrorsList.slice(0, 3).join(' | ') || 'clean')
+      for (let index = 0; index < 5; index += 1) {
+        if (!memoryRecorded[index]) memSkip(index, 'C 组前置失败，未执行（见 report.memory.error 与上面步骤）')
+      }
+    }
+  }
+  report.memory = memoryEvidence
 
   // ── G. 控制台报错 ──────────────────────────────────────────────────────────
   const fatalErrors = consoleErrors.filter((text) => !/Failed to load resource/.test(text))

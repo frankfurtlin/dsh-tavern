@@ -1,19 +1,21 @@
 """Character card HTTP API (import, list, edit, avatar, delete, card chats),
 plus the card-space endpoints for lorebooks, presets and regex scripts."""
-from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import Field
 
 from ..db import get_db
+from ..models import now
 from ..errors import Problem
 from ..schemas import Strict
 from ..security import current_user
 from ..world.api import available
-from . import parse, service, space
+from . import groups, memory, parse, service, space
 
 router = APIRouter(prefix="/character-cards", dependencies=[Depends(available)])
 presets = APIRouter(prefix="/presets", dependencies=[Depends(available)])
 regex_scripts = APIRouter(prefix="/regex-scripts", dependencies=[Depends(available)])
+group_chats = APIRouter(prefix="/card-group-chats", dependencies=[Depends(available)])
 
 
 class CardUpdate(Strict):
@@ -26,6 +28,7 @@ class CardUpdate(Strict):
     postHistoryInstructions: str | None = Field(default=None, max_length=20000)
     tags: list[str] | None = Field(default=None, max_length=200)
     presetId: str | None = Field(default=None, max_length=32)
+    companion: bool | None = None
 
 
 class LoreInput(Strict):
@@ -105,6 +108,8 @@ def patch_card(card_id: str, payload: CardUpdate, user=Depends(current_user), db
         "systemPrompt", "postHistoryInstructions", "tags")}
     if "presetId" in payload.model_fields_set:
         values["presetId"] = payload.presetId
+    if "companion" in payload.model_fields_set:
+        values["companion"] = payload.companion
     card = service.update_card(db, user.id, card, values)
     return {"card": service.card_out(card)}
 
@@ -209,3 +214,106 @@ def patch_regex(script_id: str, payload: RegexUpdate, user=Depends(current_user)
 def delete_regex(script_id: str, user=Depends(current_user), db=Depends(get_db)):
     space.delete_regex(db, user.id, script_id)
     return Response(status_code=204)
+
+
+class GroupChatInput(Strict):
+    cardIds: list[str] = Field(min_length=1, max_length=10)
+    title: str | None = Field(default=None, max_length=80)
+
+
+class GroupSendInput(Strict):
+    message: str = Field(min_length=1, max_length=4000)
+    turnId: str = Field(min_length=1, max_length=100)
+
+
+@group_chats.get("")
+def list_group_chats(user=Depends(current_user), db=Depends(get_db)):
+    return {"items": groups.list_chats(db, user.id)}
+
+
+@group_chats.post("", status_code=201)
+def create_group_chat(payload: GroupChatInput, user=Depends(current_user), db=Depends(get_db)):
+    return {"chat": groups.create_chat(db, user.id, payload.cardIds, payload.title)}
+
+
+@group_chats.get("/{chat_id}")
+def read_group_chat(chat_id: str, user=Depends(current_user), db=Depends(get_db)):
+    return groups.chat_detail(db, user.id, chat_id)
+
+
+@group_chats.delete("/{chat_id}", status_code=204)
+def remove_group_chat(chat_id: str, user=Depends(current_user), db=Depends(get_db)):
+    groups.delete_chat(db, user.id, chat_id)
+    return Response(status_code=204)
+
+
+@group_chats.post("/{chat_id}/messages", status_code=202)
+def send_group_message(chat_id: str, payload: GroupSendInput, request: Request,
+                       user=Depends(current_user), db=Depends(get_db)):
+    return groups.send_message(db, user.id, request, chat_id, payload.message, payload.turnId)
+
+
+class MemoryInput(Strict):
+    kind: str = Field(default="fact", pattern="^(fact|preference|relationship|event)$")
+    title: str = Field(min_length=1, max_length=120)
+    content: str = Field(min_length=1, max_length=2000)
+    salience: int = Field(default=50, ge=1, le=100)
+    enabled: bool = True
+
+
+class MemoryUpdate(Strict):
+    kind: str | None = Field(default=None, pattern="^(fact|preference|relationship|event)$")
+    title: str | None = Field(default=None, min_length=1, max_length=120)
+    content: str | None = Field(default=None, min_length=1, max_length=2000)
+    salience: int | None = Field(default=None, ge=1, le=100)
+    enabled: bool | None = None
+
+
+class CompanionInput(Strict):
+    companion: bool
+
+
+@router.get("/{card_id}/memories")
+def list_card_memories(card_id: str, user=Depends(current_user), db=Depends(get_db)):
+    card = service.get_card(db, user.id, card_id)
+    return {"items": [memory.memory_out(row) for row in memory.list_memories(db, user.id, card.id)]}
+
+
+@router.post("/{card_id}/memories", status_code=201)
+def create_card_memory(card_id: str, payload: MemoryInput, user=Depends(current_user), db=Depends(get_db)):
+    card = service.get_card(db, user.id, card_id)
+    row = memory.create_memory(db, user.id, card.id, payload.model_dump())
+    return {"memory": memory.memory_out(row)}
+
+
+@router.patch("/{card_id}/memories/{memory_id}")
+def patch_card_memory(card_id: str, memory_id: str, payload: MemoryUpdate,
+                      user=Depends(current_user), db=Depends(get_db)):
+    card = service.get_card(db, user.id, card_id)
+    row = memory.update_memory(db, user.id, card.id, memory_id, payload.model_dump(exclude_unset=True))
+    return {"memory": memory.memory_out(row)}
+
+
+@router.delete("/{card_id}/memories/{memory_id}", status_code=204)
+def delete_card_memory(card_id: str, memory_id: str, user=Depends(current_user), db=Depends(get_db)):
+    card = service.get_card(db, user.id, card_id)
+    memory.delete_memory(db, user.id, card.id, memory_id)
+    return Response(status_code=204)
+
+
+@router.post("/{card_id}/memories/extract")
+def extract_card_memories(card_id: str, user=Depends(current_user), db=Depends(get_db)):
+    from ..story_flow import default_profile
+    card = service.get_card(db, user.id, card_id)
+    profile = default_profile(db, user.id)
+    rows, skipped = memory.extract(db, user.id, card, profile)
+    return {"added": [memory.memory_out(row) for row in rows], "skipped": skipped}
+
+
+@router.post("/{card_id}/companion")
+def set_card_companion(card_id: str, payload: CompanionInput, user=Depends(current_user), db=Depends(get_db)):
+    card = service.get_card(db, user.id, card_id)
+    card.companion = bool(payload.companion)
+    card.updated_at = now()
+    db.commit()
+    return {"card": service.card_out(card)}

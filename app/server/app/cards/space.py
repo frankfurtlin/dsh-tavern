@@ -306,6 +306,10 @@ def injection(db, owner, card, message, recent=()):
     preset_text, _preset = _preset_section(db, owner, card)
     if preset_text:
         sections.append(preset_text)
+    from . import memory
+    memory_text = memory.injection(db, owner, card)
+    if memory_text:
+        sections.append(memory_text)
     body = "\n\n".join(section for section in sections if section)
     return INJECTION_HEADER + "\n\n" + body if body else ""
 
@@ -345,6 +349,8 @@ def chat_injection(db, task):
 def preview(db, owner, card, message):
     matched = _match_text(db, owner, card.id, message)
     preset_text, preset = _preset_section(db, owner, card)
+    from . import memory
     return {"loreMatched": [{"id": row.id, "name": row.name, "keys": list(row.keys or [])} for row in matched],
             "preset": {"id": preset.id, "name": preset.name} if preset else None,
-            "systemSuffix": _text(preset.system_suffix, PRESET_SECTION_LIMIT) if preset else ""}
+            "systemSuffix": _text(preset.system_suffix, PRESET_SECTION_LIMIT) if preset else "",
+            **memory.preview_payload(db, owner, card)}

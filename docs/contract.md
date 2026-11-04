@@ -117,7 +117,7 @@ iframe → 父（主动，节流）：
 | `package.json`、`cordis.patch.yml`、`lib/**`、`client.js`、`README.md`、`docs/architecture.md`、`docs/contract.md` | plugin-core |
 | `scripts/**`、`verify.mjs`、`docs/testing.md` | verifier |
 | `/etc/systemd/system`、Caddy、`/root/.dsh/profiles/web`（host 级，不在本仓库） | Lead |
-| `docs/step2-dsh-generation.md`、`docs/step3-card-space.md`、`docs/step4-companion-memory.md`、`app/.env`（含 `DSH_AGENT_*`、`AI_MODE`）、host 重启与上线 | Lead |
+| `docs/step2-dsh-generation.md`、`docs/step3-card-space.md`、`docs/step3b-group-chat.md`、`docs/step4-companion-memory.md`、`app/.env`（含 `DSH_AGENT_*`、`AI_MODE`）、host 重启与上线 | Lead |
 
 任何人不改别人范围的文件；发现 bug 用 send_message 报给 owner 或 Lead。
 

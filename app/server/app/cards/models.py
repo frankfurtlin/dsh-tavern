@@ -2,7 +2,7 @@
 reader alembic revision does not change (``world.migrate`` creates the table)."""
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -37,6 +37,8 @@ class CharacterCard(WorldOwned, WorldBase):
     character_id: Mapped[str | None] = mapped_column(String(80))
 
     preset_id: Mapped[str | None] = mapped_column(String(32), index=True)
+    companion: Mapped[bool] = mapped_column(Boolean, default=False)
+    memory_task_id: Mapped[str | None] = mapped_column(String(32))
 
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
@@ -81,4 +83,51 @@ class RegexScript(WorldOwned, WorldBase):
     replacement: Mapped[str] = mapped_column(Text, default="")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     order: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class CardGroupChat(WorldOwned, WorldBase):
+    """A multi-character chat room made from two to five cards."""
+
+    __tablename__ = "card_group_chats"
+    __table_args__ = {"schema": "world"}
+
+    title: Mapped[str] = mapped_column(String(80), default="")
+    card_ids: Mapped[list] = mapped_column(JSONB, default=list)
+    preset_id: Mapped[str | None] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class CardGroupMessage(WorldOwned, WorldBase):
+    """One turn in a group chat. Assistant rows are created pending at send
+    time so the client can poll until the turn is saved or failed."""
+
+    __tablename__ = "card_group_messages"
+    __table_args__ = (Index("ix_world_card_group_messages_chat_sequence", "chat_id", "sequence"), {"schema": "world"})
+
+    chat_id: Mapped[str] = mapped_column(String(32), index=True)
+    sequence: Mapped[int] = mapped_column(Integer, default=0)
+    role: Mapped[str] = mapped_column(String(20))
+    speaker_card_id: Mapped[str | None] = mapped_column(String(32))
+    speaker_name: Mapped[str] = mapped_column(String(80), default="")
+    text: Mapped[str] = mapped_column(Text, default="")
+    task_id: Mapped[str | None] = mapped_column(String(32), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="saved")
+
+
+class CardMemory(WorldOwned, WorldBase):
+    """One long-term memory item attached to a character card."""
+
+    __tablename__ = "card_memories"
+    __table_args__ = (Index("ix_world_card_memories_card_enabled", "card_id", "enabled"), {"schema": "world"})
+
+    card_id: Mapped[str] = mapped_column(String(32), index=True)
+    kind: Mapped[str] = mapped_column(String(20), default="fact")
+    title: Mapped[str] = mapped_column(String(120), default="")
+    content: Mapped[str] = mapped_column(Text, default="")
+    salience: Mapped[int] = mapped_column(Integer, default=50)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    source: Mapped[str] = mapped_column(String(8), default="manual")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
