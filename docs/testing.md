@@ -23,6 +23,7 @@ scripts/check.sh --no-bridge      # 跳过「交给 Agent」的端到端点击
 scripts/check.sh --open-story     # 先在应用内打开一部作品再点续写（会写阅读进度，验证提示词模板全链路）
 scripts/check.sh --open-story --cards   # 全链路：打开作品 + 角色卡导入 + 单卡聊天（会写测试库）
 scripts/check.sh --open-story --cards --real  # 真生成验收（--real 隐含 --cards）：回复必须是真模型生成、刷新后仍在（需应用 AI_MODE=dsh）
+scripts/check.sh --instance --open-story --cards --space --real  # B 步角色卡空间 + 真实生成（--space/--real 都隐含 --cards）：S1–S6
 scripts/check.sh --keep-home      # 保留 /tmp/dsh-tavern-check 供排查
 scripts/check.sh --port 3199      # 3099 被占用时换端口
 ```
@@ -41,7 +42,9 @@ scripts/check.sh --port 3199      # 3099 被占用时换端口
 
 产物默认写在 `/tmp/dsh-tavern-verify/check/`（`report.json`、截图、`logs/`），可用
 `DSH_TAVERN_VERIFY_OUT` 覆盖。`--cards` 会先跑 `scripts/fixtures/make-cards.py` 生成
-`/tmp/tavern-verify/cards/`（v2 PNG / v2 JSON / v1 JSON + `manifest.json`）。
+`/tmp/tavern-verify/cards/`（v2 PNG / v2 JSON / v1 JSON + `manifest.json`）；另生成
+`v2-lore.json`（陆三更，带 `character_book.entries`，manifest 的 `space.lorebook` 标注
+keys「茶」「雨」与可辨认 marker），仅供 `--space` 使用，不进 H 组基线。
 `/tavern/` 还没挂载（404）时脚本不会崩：E2E 会输出
 「未就绪」报告并 exit 1。
 
@@ -94,6 +97,12 @@ console 是否干净；不记录 prompt / 回复全文。
 | R3 | `--real`：完整刷新 iframe 后同一条回复仍在 | `report.cards.reload.replyMatched === true`（按文本前 20 字比对，不只看条数） | app-auth 持久化 + cards-client |
 | R4 | `--real`：console 无 JS 报错 | 0 条 | plugin-core |
 | R5 | `--real-negative`：网关不可用时 UI 显示失败而不是假回复 | 默认 SKIP（需手动把网关弄坏）；显式演练时要求 `[role=alert]/[role=status]` 有失败文案、且没有 assistant 假回复 | app-auth / plugin-core |
+| S1 | `--space`：卡详情把卡名改成「<名>改」并保存 | 刷新详情页后显示新名（输入框回显旧名才算可编辑） | cards-client（详情页/PATCH） |
+| S2 | 导入 `v2-lore.json`（陆三更）→ 世界书列表 | 详情页「世界书」区块出现 2 条 `li.lore-item`，`【E2E-LORE-茶】`/`【E2E-LORE-雨】` 两条 marker 均命中，且带「导入」badge | app-auth（解析/落库）+ cards-client（展示） |
+| S3 | 手动新增世界书条目（key「雨」，marker `【E2E-MANUAL-雨】`）→ 删除 | 新增后可见，删除后消失 | cards-client + app-auth（lore API） |
+| S4 | 新增正则 `。`→`！` → 开聊发「你好，来一盏茶。今天茶馆生意好吗？」 | 落库回复刷新后 `!includes('。') && includes('！')`（流式气泡是替换前文本，以刷新后为准） | app-auth（regex 应用）+ cards-client（规则页） |
+| S5 | 详情页「新建预设」→「创建并绑定」→ 注入预览填「试写一句对话」点「预览」 | 绑定后 select 选中「E2E 预设」，`.preview-result` 含「预设：E2E 预设」（即 context-preview 命中） | app-auth（presets/context-preview）+ cards-client |
+| S6 | S 组操作后页面 console | 0 条 JS 报错（资源加载失败不算） | plugin-core / cards-client |
 
 ### 自动化锚点（契约约定）
 
@@ -211,6 +220,78 @@ scripts/check.sh --instance --cards --real-negative
 
 期望：R5 PASS（`[role=alert]/[role=status]` 有失败文案、没有 assistant 假回复），
 H9 记为「网关不可用场景：UI 已显示失败」。演练结束后务必恢复环境。
+
+## `--space` 角色卡空间验收（task-15 / step3）
+
+验收 step3（`docs/step3-card-space.md` §6）的卡空间能力，全部在测试卡上操作：
+
+```bash
+# 完整验收（S1–S6 + 真实生成；--space/--real 都隐含 --cards）
+scripts/check.sh --instance --open-story --cards --space --real
+```
+
+前置：task-13（app-auth：`/character-cards/{id}/lore|presets|regex-scripts|context-preview`）
+和 task-14（cards-client：卡详情 `/characters/:id`、世界书/预设/正则页面）已就绪并重启，
+且 `app/.env` 是 `AI_MODE=dsh` + 可用 `DSH_AGENT_URL`（生产网关 3080）。
+**未就绪时** S1–S5 逐项 SKIP 并写明 owner（cards-client / app-auth），脚本不会 FAIL，
+也不会影响既有 59 项；`--space` 隐含 `--cards`（需要 H 组的导入/开聊/聊天基础）。
+
+通过标准：
+
+- 原有 59 项（含 R1–R4 真实生成）仍全绿；
+- S1–S6 共 6 项全 PASS，不允许 SKIP（唯一允许的 SKIP 是 R5 负向演练）；
+- `report.space` 记录：fixture、cardName/cardId/detailUrl、renamed、lore（导入条目/marker 命中/
+  手工条目增删）、regex（规则与回复首句/替换结果）、preset（绑定 + 注入预览命中）、console；
+  聊天只写回复前 60 字与字数，不写 prompt 全文。
+
+**2026-11-04 实测（B1 后端 + cards-client 就绪后）**：
+
+```
+bash scripts/check.sh --instance --open-story --cards --space --real
+→ 浏览器 65 PASS / 0 FAIL / 1 SKIP；静态 7 PASS / 0 FAIL / 0 SKIP
+report: /tmp/dsh-tavern-verify/check/report.json（ok=true）
+截图：15-space-detail.png、16-space-lore.png、17-space-lore-manual.png、
+      18a-space-regex.png、18-space-regex-chat.png、19-space-preset.png（+ 既有 01–14）
+```
+
+- S1 旧名陆三更 → 陆三更改，刷新后回显新名（notice「角色设定已保存」）；
+- S2 世界书 2 条、`【E2E-LORE-茶】`/`【E2E-LORE-雨】` 均命中、导入 badge=2；
+- S3 key「雨」手工条目新增可见、删除后消失（aria-label「删除世界书条目」→「确认删除」）；
+- S4 规则「E2E 句号替换」（`。`→`！`）落库；真实回复 124 字，刷新后无「。」且含「！」
+  （流式气泡显示替换前文本，刷新后为落库文本——与服务端 `apply_regex` 行为一致）；
+- S5 绑定「E2E 预设」后注入预览显示「预设：E2E 预设」；
+- S6 console clean；唯一 SKIP 是 R5（`--real-negative` 手动演练）。
+
+S4 依赖模型回复里真的出现「。」，所以保留了 `report.space.chat.replyFirst60` 与
+`afterRefreshFirst60` 供归因；若真实模型恰好不用句号，换一条用户消息重跑即可，不是产品 bug。
+
+**跑完必须清理测试数据**（生产库是真实用户库）。UI 删除只覆盖 H 组删掉的那张卡，
+S 组导入/改名/世界书/会话/预设/正则都要清，基线应回到
+`cards=0 / instances=6(character-card 世界=0) / messages=0 / sessions=0 / lore=0 /
+presets=0 / regex_scripts=0`：
+
+```bash
+export PGPASSWORD=storybetween2026
+psql -h 127.0.0.1 -U reader -d story_between -v ON_ERROR_STOP=1 <<'SQL'
+BEGIN;
+CREATE TEMP TABLE tw AS SELECT id FROM world.instances WHERE source->>'kind'='character-card';
+CREATE TEMP TABLE tc AS SELECT id FROM world.character_cards;
+DELETE FROM public.world_chat_messages WHERE session_id IN
+  (SELECT id FROM public.world_chat_sessions WHERE world_id IN (SELECT id FROM tw));
+DELETE FROM public.world_chat_sessions WHERE world_id IN (SELECT id FROM tw);
+DELETE FROM world.card_lore WHERE card_id IN (SELECT id FROM tc);
+DELETE FROM world.character_cards WHERE id IN (SELECT id FROM tc);
+DELETE FROM world.checkpoints WHERE world_id IN (SELECT id FROM tw);
+DELETE FROM world.lines WHERE world_id IN (SELECT id FROM tw);
+DELETE FROM world.instances WHERE id IN (SELECT id FROM tw);
+DELETE FROM world.chat_presets WHERE name = 'E2E 预设';
+DELETE FROM world.regex_scripts WHERE name = 'E2E 句号替换';
+COMMIT;
+SQL
+rm -f app/data/private/*/card-avatar-*.png
+```
+
+清理后再核对一遍计数，并确认隔离实例已退出（`curl 127.0.0.1:3099` 连接失败、`/tmp/dsh-tavern-check` 不存在）。
 
 ## 手工探针（不启浏览器）
 

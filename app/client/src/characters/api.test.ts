@@ -2,7 +2,7 @@ import {beforeEach,it,expect,vi} from 'vitest'
 vi.mock('../api',()=>({api:vi.fn(),authorizationHeaders:vi.fn(()=>({Authorization:'Bearer token'}))}))
 vi.mock('../platform/bridge',()=>({backendBase:()=>''}))
 import {api} from '../api'
-import {cardAvatarBlob,deleteCard,importCard,listCards,startCardChat} from './api'
+import {cardAvatarBlob,contextPreview,createLore,createPreset,createRegexScript,deleteCard,deleteLore,deletePreset,deleteRegexScript,getCard,importCard,listCards,listLore,listPresets,listRegexScripts,startCardChat,updateCard,updateLore,updatePreset,updateRegexScript} from './api'
 const mocked=vi.mocked(api)
 const card={id:'c1',name:'林渡',description:'',personality:'',scenario:'',tags:[],creator:null,source:'png' as const,hasAvatar:true}
 beforeEach(()=>{mocked.mockReset();vi.unstubAllGlobals()})
@@ -51,4 +51,69 @@ it('fetches avatar bytes with the bearer token and treats 404 as no avatar',asyn
  expect(fetchMock).toHaveBeenCalledWith('/api/reader/v1/character-cards/c1/avatar',{credentials:'include',headers:{Authorization:'Bearer token'}})
  vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce({ok:false,status:404,blob:()=>Promise.resolve(new Blob())}))
  await expect(cardAvatarBlob('missing')).resolves.toBeNull()
+})
+
+it('reads card detail and saves the editable settings with a PATCH',async()=>{
+ mocked.mockResolvedValueOnce({card:{...card,presetId:'p1',systemPrompt:'你是一个说书人'}})
+ await expect(getCard('c1')).resolves.toMatchObject({id:'c1',presetId:'p1',systemPrompt:'你是一个说书人'})
+ expect(mocked).toHaveBeenLastCalledWith('/character-cards/c1')
+ // Older builds returned the bare card object; both shapes stay readable.
+ mocked.mockResolvedValueOnce({...card,name:'林渡·改'})
+ await expect(updateCard('c1',{name:'林渡·改',tags:['相声'],presetId:null})).resolves.toMatchObject({name:'林渡·改'})
+ expect(mocked).toHaveBeenLastCalledWith('/character-cards/c1',{method:'PATCH',body:{name:'林渡·改',tags:['相声'],presetId:null}})
+})
+
+it('reads, creates, edits and deletes world-book lore',async()=>{
+ const lore={id:'l1',name:'雨夜',keys:['雨','屋檐'],content:'屋檐下躲雨时……',enabled:true,order:100,source:'manual' as const}
+ mocked.mockResolvedValueOnce({items:[lore]})
+ await expect(listLore('c1')).resolves.toEqual([lore])
+ expect(mocked).toHaveBeenLastCalledWith('/character-cards/c1/lore')
+ mocked.mockResolvedValueOnce({lore})
+ await expect(createLore('c1',{name:'雨夜',keys:['雨'],content:'屋檐下躲雨时……'})).resolves.toEqual(lore)
+ expect(mocked).toHaveBeenLastCalledWith('/character-cards/c1/lore',{method:'POST',body:{name:'雨夜',keys:['雨'],content:'屋檐下躲雨时……'}})
+ mocked.mockResolvedValueOnce({...lore,enabled:false})
+ await expect(updateLore('c1','l1',{enabled:false})).resolves.toMatchObject({enabled:false})
+ expect(mocked).toHaveBeenLastCalledWith('/character-cards/c1/lore/l1',{method:'PATCH',body:{enabled:false}})
+ mocked.mockResolvedValueOnce({})
+ await deleteLore('c1','l1')
+ expect(mocked).toHaveBeenLastCalledWith('/character-cards/c1/lore/l1',{method:'DELETE'})
+})
+
+it('manages presets and tolerates both envelope and bare returns',async()=>{
+ const preset={id:'p1',name:'细腻描写',systemSuffix:'多写环境与心理。',enabled:true}
+ mocked.mockResolvedValueOnce({items:[preset]})
+ await expect(listPresets()).resolves.toEqual([preset])
+ expect(mocked).toHaveBeenLastCalledWith('/presets')
+ mocked.mockResolvedValueOnce({preset})
+ await expect(createPreset({name:'细腻描写',systemSuffix:'多写环境与心理。'})).resolves.toEqual(preset)
+ expect(mocked).toHaveBeenLastCalledWith('/presets',{method:'POST',body:{name:'细腻描写',systemSuffix:'多写环境与心理。'}})
+ mocked.mockResolvedValueOnce(preset)
+ await expect(updatePreset('p1',{enabled:false})).resolves.toMatchObject({id:'p1'})
+ expect(mocked).toHaveBeenLastCalledWith('/presets/p1',{method:'PATCH',body:{enabled:false}})
+ mocked.mockResolvedValueOnce({})
+ await deletePreset('p1')
+ expect(mocked).toHaveBeenLastCalledWith('/presets/p1',{method:'DELETE'})
+})
+
+it('manages output replacement rules through /regex-scripts',async()=>{
+ const rule={id:'r1',name:'句号改感叹号',pattern:'。$',replacement:'！',enabled:true,order:10}
+ mocked.mockResolvedValueOnce({items:[rule]})
+ await expect(listRegexScripts()).resolves.toEqual([rule])
+ expect(mocked).toHaveBeenLastCalledWith('/regex-scripts')
+ mocked.mockResolvedValueOnce({regex:rule})
+ await expect(createRegexScript({name:'句号改感叹号',pattern:'。$',replacement:'！'})).resolves.toEqual(rule)
+ expect(mocked).toHaveBeenLastCalledWith('/regex-scripts',{method:'POST',body:{name:'句号改感叹号',pattern:'。$',replacement:'！'}})
+ mocked.mockResolvedValueOnce(rule)
+ await expect(updateRegexScript('r1',{order:20})).resolves.toMatchObject({id:'r1'})
+ expect(mocked).toHaveBeenLastCalledWith('/regex-scripts/r1',{method:'PATCH',body:{order:20}})
+ mocked.mockResolvedValueOnce({})
+ await deleteRegexScript('r1')
+ expect(mocked).toHaveBeenLastCalledWith('/regex-scripts/r1',{method:'DELETE'})
+})
+
+it('previews the injected context for a draft message',async()=>{
+ const preview={loreMatched:[{id:'l1',name:'雨夜',keys:['雨']}],preset:{id:'p1',name:'细腻描写'},systemSuffix:'多写环境与心理。'}
+ mocked.mockResolvedValueOnce(preview)
+ await expect(contextPreview('c1','外面下雨了')).resolves.toEqual(preview)
+ expect(mocked).toHaveBeenLastCalledWith('/character-cards/c1/context-preview',{method:'POST',body:{message:'外面下雨了'}})
 })

@@ -2,7 +2,7 @@
 reader alembic revision does not change (``world.migrate`` creates the table)."""
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Text
+from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -36,5 +36,49 @@ class CharacterCard(WorldOwned, WorldBase):
     checkpoint_id: Mapped[str | None] = mapped_column(String(32))
     character_id: Mapped[str | None] = mapped_column(String(80))
 
+    preset_id: Mapped[str | None] = mapped_column(String(32), index=True)
+
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class CardLore(WorldOwned, WorldBase):
+    """A lorebook entry attached to one character card."""
+
+    __tablename__ = "card_lore"
+    __table_args__ = {"schema": "world"}
+
+    card_id: Mapped[str] = mapped_column(String(32), index=True)
+    name: Mapped[str] = mapped_column(String(160), default="")
+    keys: Mapped[list] = mapped_column(JSONB, default=list)
+    content: Mapped[str] = mapped_column(Text, default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    order: Mapped[int] = mapped_column(Integer, default=100)
+    source: Mapped[str] = mapped_column(String(8), default="manual")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class ChatPreset(WorldOwned, WorldBase):
+    """A user-level snippet appended to the chat system prompt."""
+
+    __tablename__ = "chat_presets"
+    __table_args__ = {"schema": "world"}
+
+    name: Mapped[str] = mapped_column(String(80))
+    system_suffix: Mapped[str] = mapped_column(Text, default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class RegexScript(WorldOwned, WorldBase):
+    """A user-level output substitution applied to saved chat replies."""
+
+    __tablename__ = "regex_scripts"
+    __table_args__ = {"schema": "world"}
+
+    name: Mapped[str] = mapped_column(String(80))
+    pattern: Mapped[str] = mapped_column(String(500))
+    replacement: Mapped[str] = mapped_column(Text, default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    order: Mapped[int] = mapped_column(Integer, default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

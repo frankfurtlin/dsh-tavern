@@ -125,7 +125,10 @@ def process(task_id):
     final_text=verified_reply(prompt_source,data['message']) if corrected or ledger_reply else output['text']
     complete=corrected or ledger_reply or output.get('finishReason') in (None,'stop')
     with SessionLocal() as db:
-        task=db.get(Task,task_id);safe=public_stream(final_text,task.checkpoint.get('worldDeniedPhrases',[]),True)
+        task=db.get(Task,task_id)
+        from ..cards.space import apply_regex
+        final_text=apply_regex(db,task.owner_id,final_text)
+        safe=public_stream(final_text,task.checkpoint.get('worldDeniedPhrases',[]),True)
     persist_stream(task_id,'generation',safe,True)
     with SessionLocal() as db:
         lock_task_world(db,task_id)

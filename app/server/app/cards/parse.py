@@ -26,6 +26,8 @@ LIMITS = {
     "post_history_instructions": 20000,
 }
 LIST_LIMIT = 200
+LORE_LIMIT = 200
+LORE_KEYS_LIMIT = 20
 
 
 def _bad(message="角色卡无法识别"):
@@ -114,6 +116,41 @@ def _string_list(value):
     return items
 
 
+def _lore_entries(payload, data):
+    """Normalize SillyTavern v2/v3 ``character_book.entries`` into flat rows."""
+    book = data.get("character_book") if isinstance(data, dict) else None
+    if not isinstance(book, dict):
+        book = payload.get("character_book") if isinstance(payload, dict) else None
+    entries = book.get("entries") if isinstance(book, dict) else None
+    if not isinstance(entries, list):
+        return []
+    rows = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        keys = []
+        for key in entry.get("keys") if isinstance(entry.get("keys"), list) else []:
+            text = _text(key, 200)
+            if text and text not in keys:
+                keys.append(text)
+            if len(keys) >= LORE_KEYS_LIMIT:
+                break
+        content = _text(entry.get("content"), 8000)
+        if not keys or not content:
+            continue
+        name = _text(entry.get("name") or entry.get("comment"), 160) or keys[0][:160]
+        order = entry.get("insertion_order", entry.get("order", 100))
+        try:
+            order = int(order)
+        except (TypeError, ValueError):
+            order = 100
+        rows.append({"name": name, "keys": keys, "content": content,
+                     "enabled": bool(entry.get("enabled", True)), "order": order})
+        if len(rows) >= LORE_LIMIT:
+            break
+    return rows
+
+
 def _examples(value):
     text = _text(value, 20000)
     if not text:
@@ -146,6 +183,7 @@ def _card_body(payload, filename):
         "character_version": _text(data.get("character_version"), LIMITS["character_version"]),
         "system_prompt": _text(data.get("system_prompt"), LIMITS["system_prompt"]),
         "post_history_instructions": _text(data.get("post_history_instructions"), LIMITS["post_history_instructions"]),
+        "lore": _lore_entries(payload, data),
         "raw": payload,
         "source": "png" if filename.lower().endswith(".png") else "json",
     }

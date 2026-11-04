@@ -2,7 +2,7 @@
  * dsh-tavern 端到端验收脚本（真实浏览器行为，不是静态代码检查）。
  *
  * 用法：
- *   node verify.mjs --url "http://127.0.0.1:3080/?token=..." [--out dir] [--no-bridge] [--open-story] [--cards] [--real]
+ *   node verify.mjs --url "http://127.0.0.1:3080/?token=..." [--out dir] [--no-bridge] [--open-story] [--cards] [--real] [--space]
  *
  * 检查分组（与 docs/contract.md v1 对应）：
  *   A. 鉴权与入口：未登录 GET /tavern/ 必须被 DSH 闸门挡住（401）；登录态 200。
@@ -22,6 +22,9 @@
  *      「我们可以聊聊此刻的想法」、长度 ≥20 字且不是用户消息本身、完整刷新后仍在、
  *      console 无报错；证据（首句前 60 字/字数/耗时/模型名）写入 report.real。
  *      隐含 --cards；需要应用 AI_MODE=dsh 且 DSH 模型网关可用。
+ *   S. --space（B 步，docs/step3-card-space.md §6）：卡详情改名、世界书导入/手工条目、
+ *      正则「。」→「！」对回复生效、预设绑定 + context-preview、console clean。隐含 --cards；
+ *      角色卡空间 UI/API 未接入时逐项 SKIP 并写明 owner（cards-client / app-auth），不 FAIL。
  *   I. 截图 + 输出目录下 report.json；无控制台 JS 报错。
  *
  * 设计原则：
@@ -29,7 +32,8 @@
  *     不崩：能跑出「未就绪」报告，依赖项记为 SKIP 并写明 owner，退出码仍为非 0。
  *   - 默认不写应用数据：不打开作品、只开草稿、不点发送。
  *     --open-story 会在应用 explore 页点一部 live 作品进入故事页（会写阅读进度），
- *     仅用于验证「续写提示词模板」全链路；--cards 会导入/删除测试角色卡。
+ *     仅用于验证「续写提示词模板」全链路；--cards 会导入/删除测试角色卡；--space 会额外
+ *     改一张测试卡的卡名/世界书/预设/正则（都在测试卡上操作，会写测试库）。
  */
 import { createRequire } from 'node:module'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
@@ -63,6 +67,7 @@ const report = {
   bridge: { protocol: null, continue: null, roleplay: null },
   cards: null,
   real: null,
+  space: null,
   screenshots: [],
 }
 
@@ -905,8 +910,52 @@ try {
   // 选择器原则：能用稳定文本（导航「角色卡库」、按钮「导入角色卡」「开聊」「删除」）就不猜 class。
   const real = args.includes('--real')
   const realNegative = args.includes('--real-negative')
-  const runCards = args.includes('--cards') || real
+  const runCards = args.includes('--cards') || real || args.includes('--space')
   const cardsEvidence = { fixturesDir: null, imported: [], avatar: null, chat: null, reload: null, deleted: null }
+  // H/S 组共用的 iframe 查找/导航助手（--cards/--space 都用到；提前定义，避免 S 组重写一遍）。
+  const fnow = () => page.frames().find((candidate) => /\/tavern\//.test(candidate.url())) || null
+  async function waitFrameUrl(pattern, timeoutMs = 20000) {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      const frame = fnow()
+      if (frame && pattern.test(frame.url())) return frame
+      await page.waitForTimeout(300)
+    }
+    return null
+  }
+  async function openCharactersPage() {
+    const frame = fnow()
+    if (!frame) return null
+    const candidates = [
+      frame.locator('a[href="/characters"]').first(),
+      frame.getByRole('link', { name: '角色卡库', exact: true }).first(),
+      frame.getByRole('button', { name: '角色卡库', exact: true }).first(),
+      frame.getByText('角色卡库', { exact: true }).first(),
+    ]
+    for (const candidate of candidates) {
+      if (!(await candidate.count().catch(() => 0))) continue
+      await candidate.click({ force: true }).catch(() => {})
+      const reached = await waitFrameUrl(/\/characters(\/|$|\?)/, 20000)
+      if (reached) return reached
+    }
+    return null
+  }
+  async function waitChatReady(frame, timeoutMs = 30000) {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      if (await frame.locator('#world-chat-message').count().catch(() => 0)) return true
+      await page.waitForTimeout(300)
+    }
+    return false
+  }
+  async function findCardRoot(frame, name) {
+    // 首选应用自己的卡片容器（article.character-card[data-card-id]），失败再退 xpath。
+    const article = frame.locator('article.character-card').filter({ has: frame.getByText(name, { exact: true }) }).first()
+    if (await article.count().catch(() => 0)) return article
+    const nameLocator = frame.getByText(name, { exact: true }).first()
+    return nameLocator.locator("xpath=ancestor::*[.//button[normalize-space(.)='开聊'] or .//button[normalize-space(.)='删除']][1]")
+  }
+
   if (runCards) {
     const fixtureDir = arg('cards-dir', '/tmp/tavern-verify/cards')
     cardsEvidence.fixturesDir = fixtureDir
@@ -933,49 +982,6 @@ try {
     } catch {
       manifest = null
     }
-    const fnow = () => page.frames().find((candidate) => /\/tavern\//.test(candidate.url())) || null
-    async function waitFrameUrl(pattern, timeoutMs = 20000) {
-      const deadline = Date.now() + timeoutMs
-      while (Date.now() < deadline) {
-        const frame = fnow()
-        if (frame && pattern.test(frame.url())) return frame
-        await page.waitForTimeout(300)
-      }
-      return null
-    }
-    async function openCharactersPage() {
-      const frame = fnow()
-      if (!frame) return null
-      const candidates = [
-        frame.locator('a[href="/characters"]').first(),
-        frame.getByRole('link', { name: '角色卡库', exact: true }).first(),
-        frame.getByRole('button', { name: '角色卡库', exact: true }).first(),
-        frame.getByText('角色卡库', { exact: true }).first(),
-      ]
-      for (const candidate of candidates) {
-        if (!(await candidate.count().catch(() => 0))) continue
-        await candidate.click({ force: true }).catch(() => {})
-        const reached = await waitFrameUrl(/\/characters(\/|$|\?)/, 20000)
-        if (reached) return reached
-      }
-      return null
-    }
-    async function waitChatReady(frame, timeoutMs = 30000) {
-      const deadline = Date.now() + timeoutMs
-      while (Date.now() < deadline) {
-        if (await frame.locator('#world-chat-message').count().catch(() => 0)) return true
-        await page.waitForTimeout(300)
-      }
-      return false
-    }
-    async function findCardRoot(frame, name) {
-      // 首选应用自己的卡片容器（article.character-card[data-card-id]），失败再退 xpath。
-      const article = frame.locator('article.character-card').filter({ has: frame.getByText(name, { exact: true }) }).first()
-      if (await article.count().catch(() => 0)) return article
-      const nameLocator = frame.getByText(name, { exact: true }).first()
-      return nameLocator.locator("xpath=ancestor::*[.//button[normalize-space(.)='开聊'] or .//button[normalize-space(.)='删除']][1]")
-    }
-
     if (!manifest || !Array.isArray(manifest.cards) || !manifest.cards.length) {
       skipAllCards(`缺少 fixture：先跑 python3 scripts/fixtures/make-cards.py（找 ${path.join(fixtureDir, 'manifest.json')}）`)
     } else {
@@ -1332,6 +1338,402 @@ try {
     }
   }
   report.cards = cardsEvidence
+
+  // ── S. 角色卡空间（--space）──────────────────────────────────────────────────
+  // 依赖 cards-client 的卡详情/世界书/预设/正则页面 + app-auth 的 lore/presets/regex/
+  // context-preview API（docs/step3-card-space.md §6）。断言以可见 UI/落库文本为准。
+  const runSpace = args.includes('--space')
+  const spaceCheckNames = [
+    'S1 卡详情改名保存 → 刷新后生效',
+    'S2 导入带 character_book 的 v2 卡 → 世界书列表出现导入条目',
+    'S3 手工新增世界书条目（key 雨）→ 列表可见、可删除',
+    'S4 新增正则「。」→「！」→ 聊天回复无「。」且含「！」',
+    'S5 新增预设并绑定卡 → context-preview 返回该预设',
+    'S6 S 组操作后 console 无报错',
+  ]
+  const spaceRecorded = Array(6).fill(false)
+  const spaceEvidence = {
+    enabled: runSpace,
+    fixture: null,
+    cardName: null,
+    cardId: null,
+    detailUrl: null,
+    renamed: null,
+    lore: null,
+    regex: null,
+    preset: null,
+    chat: null,
+    console: null,
+    steps: [],
+  }
+  if (runSpace) {
+    const spaceCheck = (index, ok, detail) => {
+      spaceRecorded[index] = true
+      check(spaceCheckNames[index], ok, detail)
+      spaceEvidence.steps.push({ name: spaceCheckNames[index], ok: !!ok, skipped: false, detail: detail === undefined ? null : String(detail) })
+    }
+    const spaceSkip = (index, detail) => {
+      spaceRecorded[index] = true
+      skip(spaceCheckNames[index], detail)
+      spaceEvidence.steps.push({ name: spaceCheckNames[index], ok: true, skipped: true, detail: detail === undefined ? null : String(detail) })
+    }
+    const fixtureDir = arg('cards-dir', '/tmp/tavern-verify/cards')
+    let loreFixture = null
+    try {
+      const manifest = JSON.parse(await readFile(path.join(fixtureDir, 'manifest.json'), 'utf8'))
+      loreFixture = (manifest.space && manifest.space.lorebook) || null
+    } catch {
+      loreFixture = null
+    }
+    spaceEvidence.fixture = loreFixture
+    const sleep = (ms) => page.waitForTimeout(ms)
+    async function spaceWait(fn, timeoutMs, stepMs = 400) {
+      const deadline = Date.now() + timeoutMs
+      while (Date.now() < deadline) {
+        try {
+          if (await fn()) return true
+        } catch {}
+        await sleep(stepMs)
+      }
+      return false
+    }
+    async function spaceVisible(locator, timeoutMs = 10000) {
+      try {
+        await locator.first().waitFor({ state: 'visible', timeout: timeoutMs })
+        return locator.first()
+      } catch {
+        return null
+      }
+    }
+    async function spaceGoto(pathname) {
+      const frame = fnow()
+      if (!frame) return null
+      await frame.evaluate((u) => location.assign(u), pathname).catch(() => {})
+      return waitFrameUrl(new RegExp(pathname.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), 20000)
+    }
+    const regexPageUrl = /\/characters\/regex/
+    const detailPageUrl = /\/characters\/(?!regex)[^/?#]+/
+
+    let spaceCardName = loreFixture ? loreFixture.name : null
+    let detailFrame = null
+    let regexFrame = null
+    let chatFrame = null
+    // 第一次「不可用」后把剩余 S1–S5 记 SKIP（S6 console 单独判定）。
+    let unavailableAt = -1
+    const unavailable = (index, reason) => {
+      if (unavailableAt !== -1) return
+      unavailableAt = index
+      for (let i = index; i < 5; i += 1) spaceSkip(i, reason)
+    }
+    const spaceErrors = () => consoleErrors.filter((text) => !/Failed to load resource/.test(text))
+
+    try {
+      if (!loreFixture) {
+        unavailable(0, `缺少 lorebook fixture（先跑 python3 scripts/fixtures/make-cards.py；找 ${path.join(fixtureDir, 'manifest.json')} 的 space.lorebook）`)
+      } else {
+        // ── 打开角色卡库并导入 lorebook 卡 ──
+        let frameS = fnow()
+        if (!frameS) {
+          unavailable(0, '找不到 /tavern/ iframe（面板未打开）')
+        } else if (!/\/characters(\/|$|\?)/.test(frameS.url())) {
+          frameS = await openCharactersPage()
+          if (!frameS) unavailable(0, '无法进入角色卡库（owner: plugin-core 面板/导航；cards-client /characters 路由）')
+        }
+        if (frameS) {
+          const baselineCount = await frameS.getByText(loreFixture.name, { exact: true }).count().catch(() => 0)
+          const fileInput = frameS.locator('input[type="file"][accept*=".png"]').first()
+          if (!(await fileInput.count().catch(() => 0))) {
+            unavailable(0, '角色卡库缺少导入入口 input[type=file]（owner: cards-client）')
+          } else {
+            await fileInput.setInputFiles(path.join(fixtureDir, loreFixture.file)).catch(() => {})
+            const imported = await spaceWait(async () => {
+              const count = await frameS.getByText(loreFixture.name, { exact: true }).count().catch(() => 0)
+              return count > baselineCount
+            }, 30000)
+            if (!imported) {
+              unavailable(0, `导入 ${loreFixture.file} 后列表未出现卡名「${loreFixture.name}」（owner: cards-client 导入/列表 或 app-auth character_book 解析）`)
+            } else {
+              // ── 打开卡详情（编辑按钮）──
+              const cardRoot = await findCardRoot(frameS, loreFixture.name)
+              const editButton = cardRoot.getByRole('button', { name: '编辑' }).first()
+              if (!(await editButton.count().catch(() => 0))) {
+                unavailable(0, '卡片上没有「编辑」按钮，无法打开卡详情（owner: cards-client）')
+              } else {
+                await editButton.click().catch(() => {})
+                detailFrame = await waitFrameUrl(detailPageUrl, 20000)
+                if (!detailFrame) {
+                  unavailable(0, '点击「编辑」后未进入 /characters/<id> 卡详情（owner: cards-client 路由/详情页）')
+                } else {
+                  const detailPath = new URL(detailFrame.url()).pathname
+                  spaceEvidence.detailUrl = detailPath
+                  spaceEvidence.cardId = (detailPath.match(/\/characters\/([^/?#]+)/) || [])[1] || null
+                  spaceEvidence.cardName = spaceCardName
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // ── S1 改名保存 → 刷新后生效 ──
+      if (detailFrame && unavailableAt === -1) {
+        const nameInput = detailFrame.getByLabel(/角色名称/).first()
+        if (await spaceVisible(nameInput, 8000)) {
+          const oldName = await nameInput.inputValue().catch(() => '')
+          const newName = `${spaceCardName}改`
+          await nameInput.fill(newName).catch(() => {})
+          await detailFrame.getByRole('button', { name: '保存设定' }).first().click().catch(() => {})
+          const noticeText = await spaceWait(async () => {
+            const status = detailFrame.getByRole('status').first()
+            return (await status.count().catch(() => 0)) > 0
+          }, 12000)
+          const saveAlert = (await detailFrame.getByRole('alert').first().innerText().catch(() => '')).trim()
+          await detailFrame.evaluate(() => location.reload()).catch(() => {})
+          const refreshed = (await waitFrameUrl(detailPageUrl, 25000)) || detailFrame
+          detailFrame = refreshed
+          const afterName = await spaceWait(async () => {
+            const input = detailFrame.getByLabel(/角色名称/).first()
+            return (await input.inputValue().catch(() => '')) === newName
+          }, 20000)
+          const persistedName = await detailFrame.getByLabel(/角色名称/).first().inputValue().catch(() => '')
+          spaceEvidence.renamed = { before: oldName, after: persistedName, notice: !!noticeText, error: saveAlert || null }
+          spaceCheck(0, afterName && !saveAlert, `旧名=${oldName} 新名=${persistedName} 刷新生效=${afterName}${saveAlert ? ` 错误=${saveAlert}` : ''}`)
+          if (afterName) spaceCardName = newName
+          await shot(page, '15-space-detail.png')
+        } else {
+          unavailable(0, '卡详情页没有「角色名称」表单（owner: cards-client CardDetailPage）')
+        }
+      }
+
+      // ── S2 导入条目出现在世界书列表 ──
+      if (detailFrame && unavailableAt === -1) {
+        const loreHeading = detailFrame.getByRole('heading', { name: '世界书' }).first()
+        if (await spaceVisible(loreHeading, 8000)) {
+          await sleep(600)
+          const loreTexts = await detailFrame.locator('li.lore-item').allTextContents().catch(() => [])
+          const markers = (loreFixture && loreFixture.markers) || []
+          const markerHits = markers.filter((marker) => loreTexts.some((text) => text.includes(marker)))
+          const importBadges = await detailFrame.locator('li.lore-item').filter({ hasText: '导入' }).count().catch(() => 0)
+          const ok = loreTexts.length >= 2 && markerHits.length === markers.length
+          spaceEvidence.lore = { imported: true, entries: loreTexts.length, markerHits, importBadges, ok }
+          spaceCheck(1, ok, `世界书条目=${loreTexts.length} 标记命中=${markerHits.length}/${markers.length} 导入条目=${importBadges}`)
+          await shot(page, '16-space-lore.png')
+        } else {
+          unavailable(1, '卡详情页缺少「世界书」区块（owner: cards-client）')
+        }
+      }
+
+      // ── S3 手工新增条目（key 雨）→ 可见、可删除 ──
+      if (detailFrame && unavailableAt === -1) {
+        const manualMarker = '【E2E-MANUAL-雨】雨停之前别收起伞。'
+        const addButton = detailFrame.getByRole('button', { name: '新增条目' }).first()
+        if (await spaceVisible(addButton, 8000)) {
+          await addButton.click().catch(() => {})
+          const editor = detailFrame.locator('.lore-editor').first()
+          const editorVisible = await spaceVisible(editor, 6000)
+          let added = false
+          let removed = false
+          if (editorVisible) {
+            await editor.getByLabel(/条目名称/).first().fill('手工雨').catch(() => {})
+            await editor.getByLabel(/关键词/).first().fill('雨').catch(() => {})
+            await editor.getByLabel(/正文/).first().fill(manualMarker).catch(() => {})
+            await detailFrame.getByRole('button', { name: '保存条目' }).first().click().catch(() => {})
+            added = await spaceWait(async () => {
+              const rows = detailFrame.locator('li.lore-item').filter({ hasText: manualMarker })
+              return (await rows.count().catch(() => 0)) > 0
+            }, 15000)
+            if (added) {
+              const row = detailFrame.locator('li.lore-item').filter({ hasText: manualMarker }).first()
+              await row.locator('button[aria-label="删除世界书条目"]').first().click().catch(() => {})
+              const confirm = detailFrame.getByRole('button', { name: '确认删除' }).first()
+              if (await spaceVisible(confirm, 6000)) await confirm.click().catch(() => {})
+              removed = await spaceWait(async () => {
+                const rows = detailFrame.locator('li.lore-item').filter({ hasText: manualMarker })
+                return (await rows.count().catch(() => 0)) === 0
+              }, 15000)
+            }
+          }
+          spaceEvidence.lore = { ...(spaceEvidence.lore || {}), manual: { added, removed, editorVisible: !!editorVisible } }
+          spaceCheck(2, added && removed, `新增可见=${added} 删除后消失=${removed}${editorVisible ? '' : '（未出现 .lore-editor，owner: cards-client）'}`)
+          await shot(page, '17-space-lore-manual.png')
+        } else {
+          unavailable(2, '世界书区块缺少「新增条目」按钮（owner: cards-client）')
+        }
+      }
+
+      // ── S4 新增正则 。→！ → 聊天落库回复已替换 ──
+      if (detailFrame && unavailableAt === -1) {
+        regexFrame = await spaceGoto('/tavern/characters/regex')
+        if (!regexFrame) {
+          unavailable(3, '无法进入「输出替换规则」页面 /characters/regex（owner: cards-client）')
+        } else {
+          const newRule = regexFrame.getByRole('button', { name: '新增规则' }).first()
+          if (!(await spaceVisible(newRule, 8000))) {
+            unavailable(3, '正则页缺少「新增规则」按钮（owner: cards-client）')
+          } else {
+            await newRule.click().catch(() => {})
+            const ruleName = 'E2E 句号替换'
+            const ruleForm = regexFrame.locator('form').filter({ has: regexFrame.getByLabel(/匹配正则/) }).first()
+            const targetForm = (await ruleForm.count().catch(() => 0)) ? ruleForm : regexFrame
+            await targetForm.getByLabel(/规则名称/).first().fill(ruleName).catch(() => {})
+            await targetForm.getByLabel(/匹配正则/).first().fill('。').catch(() => {})
+            await targetForm.getByLabel(/替换为/).first().fill('！').catch(() => {})
+            await regexFrame.getByRole('button', { name: '保存规则' }).first().click().catch(() => {})
+            const ruleListed = await spaceWait(async () => {
+              const text = await regexFrame.locator('li.rule-item').filter({ hasText: ruleName }).count().catch(() => 0)
+              return text > 0
+            }, 15000)
+            spaceEvidence.regex = { name: ruleName, pattern: '。', replacement: '！', listed: ruleListed }
+            await shot(page, '18a-space-regex.png')
+            // 去角色卡库，开聊，发消息
+            const backToList = await openCharactersPage()
+            let chatOk = false
+            if (!backToList) {
+              spaceCheck(3, false, '新增规则后无法回到角色卡库（owner: cards-client 导航）')
+            } else {
+              const cardRoot = await findCardRoot(backToList, spaceCardName)
+              await cardRoot.getByRole('button', { name: '开聊' }).first().click().catch(() => {})
+              chatFrame = await waitFrameUrl(/\/conversations\/world\/[^/?#]+/, 30000)
+              if (!chatFrame) {
+                spaceCheck(3, false, '「开聊」未进入聊天页（owner: cards-client 或 app-auth chats API）')
+              } else {
+                await waitChatReady(chatFrame, 30000)
+                const userMsg = '你好，来一盏茶。今天茶馆生意好吗？'
+                const composer = chatFrame.locator('#world-chat-message').first()
+                await composer.fill(userMsg).catch(() => {})
+                const sendButton = chatFrame.locator('form.world-chat-compose button[type="submit"]').first()
+                const enabled = await spaceWait(async () => !(await sendButton.isDisabled().catch(() => true)), 10000)
+                if (enabled) await sendButton.click().catch(() => {})
+                else await composer.press('Control+Enter').catch(() => {})
+                let reply = null
+                let replyMeta = ''
+                const replyDeadline = Date.now() + (real ? 180000 : 120000)
+                while (Date.now() < replyDeadline) {
+                  const items = chatFrame.locator('.world-chat-message.assistant')
+                  const count = await items.count().catch(() => 0)
+                  if (count) {
+                    const last = items.nth(count - 1)
+                    const meta = (await last.locator('small').last().innerText().catch(() => '')).trim()
+                    const text = (await last.locator('p').last().innerText().catch(() => '')).trim()
+                    if (text && (!real || /已保存|收到的部分回复/.test(meta))) {
+                      reply = text
+                      replyMeta = meta
+                      break
+                    }
+                  }
+                  await sleep(1000)
+                }
+                const alertText = (await chatFrame.getByRole('alert').first().innerText().catch(() => '')).trim()
+                let afterRefresh = reply
+                if (reply) {
+                  await chatFrame.evaluate(() => location.reload()).catch(() => {})
+                  const refreshedChat = (await waitFrameUrl(/\/conversations\/world\/[^/?#]+/, 25000)) || chatFrame
+                  chatFrame = refreshedChat
+                  await waitChatReady(chatFrame, 30000)
+                  const persisted = await spaceWait(async () => {
+                    const items = chatFrame.locator('.world-chat-message.assistant')
+                    const count = await items.count().catch(() => 0)
+                    if (!count) return false
+                    const text = (await items.nth(count - 1).locator('p').last().innerText().catch(() => '')).trim()
+                    return Boolean(text)
+                  }, 20000)
+                  if (persisted) {
+                    const items = chatFrame.locator('.world-chat-message.assistant')
+                    const count = await items.count()
+                    afterRefresh = (await items.nth(count - 1).locator('p').last().innerText()).trim()
+                  }
+                }
+                const noPeriod = Boolean(afterRefresh) && !afterRefresh.includes('。')
+                const hasBang = Boolean(afterRefresh) && afterRefresh.includes('！')
+                chatOk = noPeriod && hasBang
+                spaceEvidence.chat = {
+                  url: new URL(chatFrame.url()).pathname,
+                  userMessage: userMsg.slice(0, 40),
+                  replyFirst60: reply ? reply.slice(0, 60) : null,
+                  replyLength: reply ? reply.length : 0,
+                  meta: replyMeta || null,
+                  afterRefreshFirst60: afterRefresh ? afterRefresh.slice(0, 60) : null,
+                  noPeriod,
+                  hasBang,
+                  error: alertText || null,
+                }
+                spaceEvidence.regex = { ...(spaceEvidence.regex || {}), replyFirst60: reply ? reply.slice(0, 60) : null }
+                spaceCheck(3, chatOk, `规则落库=${ruleListed} 回复=${reply ? `${reply.length}字` : '无'} 无「。」=${noPeriod} 含「！」=${hasBang}${alertText ? ` 错误=${alertText}` : ''}`)
+                await shot(page, '18-space-regex-chat.png')
+              }
+            }
+          }
+        }
+      }
+
+      // ── S5 新建预设并绑定 → context-preview（UI 注入预览）返回该预设 ──
+      if (unavailableAt === -1 && spaceEvidence.cardId) {
+        const detailFrame2 = await spaceGoto(`/tavern/characters/${spaceEvidence.cardId}`)
+        if (!detailFrame2) {
+          unavailable(4, '无法返回卡详情页做预设绑定（owner: cards-client）')
+        } else {
+          detailFrame = detailFrame2
+          const presetName = 'E2E 预设'
+          const newPresetButton = detailFrame.getByRole('button', { name: '新建预设' }).first()
+          if (!(await spaceVisible(newPresetButton, 8000))) {
+            unavailable(4, '卡详情页缺少「新建预设」按钮（owner: cards-client）')
+          } else {
+            await newPresetButton.click().catch(() => {})
+            const presetNameInput = detailFrame.getByLabel(/预设名称/).first()
+            const inputVisible = await spaceVisible(presetNameInput, 6000)
+            if (inputVisible) {
+              await presetNameInput.fill(presetName).catch(() => {})
+              const suffix = detailFrame.getByLabel(/系统提示后缀/).first()
+              if (await suffix.count().catch(() => 0)) await suffix.fill('请保持茶博士的语气，句子短一些。').catch(() => {})
+              await detailFrame.getByRole('button', { name: '创建并绑定' }).first().click().catch(() => {})
+            }
+            const bound = await spaceWait(async () => {
+              const select = detailFrame.getByLabel(/当前卡绑定的预设/).first()
+              if (!(await select.count().catch(() => 0))) return false
+              const selected = await select.evaluate((el) => (el.selectedOptions && el.selectedOptions[0] ? el.selectedOptions[0].textContent : '')).catch(() => '')
+              return Boolean(selected && selected.includes(presetName))
+            }, 15000)
+            let previewOk = false
+            let previewText = ''
+            const previewInput = detailFrame.getByLabel(/试写一句对话/).first()
+            if (await spaceVisible(previewInput, 6000)) {
+              await previewInput.fill('茶博士，来一盏茶。').catch(() => {})
+              await detailFrame.getByRole('button', { name: '预览' }).first().click().catch(() => {})
+              const result = await spaceVisible(detailFrame.locator('.preview-result'), 15000)
+              if (result) {
+                previewText = (await result.innerText().catch(() => '')).trim()
+                previewOk = previewText.includes(`预设：${presetName}`)
+              }
+            }
+            spaceEvidence.preset = {
+              name: presetName,
+              bound,
+              previewOk,
+              previewFirst120: previewText ? previewText.slice(0, 120) : null,
+              contextPreviewError: (await detailFrame.getByRole('alert').first().innerText().catch(() => '')).trim() || null,
+            }
+            spaceCheck(4, bound && previewOk, `绑定=${bound} 注入预览命中=${previewOk}${inputVisible ? '' : '（新建表单未出现，owner: cards-client）'}`)
+            await shot(page, '19-space-preset.png')
+          }
+        }
+      }
+    } catch (error) {
+      if (unavailableAt === -1) unavailable(0, `S 组执行异常：${error && error.message ? error.message : error}`)
+    }
+
+    // 保证 --space 恒有 6 项（S1–S5 至少为 SKIP，不是漏项）。
+    for (let spaceIndex = 0; spaceIndex < 5; spaceIndex += 1) {
+      if (!spaceRecorded[spaceIndex]) {
+        spaceSkip(spaceIndex, 'S 组前置未满足（fixture/面板/角色卡库/卡详情不可用，见相邻 SKIP）')
+      }
+    }
+    if (!spaceRecorded[5]) {
+      const errors = spaceErrors()
+      spaceEvidence.console = { clean: errors.length === 0, errors: errors.slice(0, 3) }
+      spaceCheck(5, errors.length === 0, errors.slice(0, 3).join(' | ') || 'clean')
+    }
+  }
+  report.space = spaceEvidence
 
   // ── G. 控制台报错 ──────────────────────────────────────────────────────────
   const fatalErrors = consoleErrors.filter((text) => !/Failed to load resource/.test(text))

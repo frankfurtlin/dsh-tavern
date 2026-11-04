@@ -9,7 +9,7 @@ vi.mock('./api',()=>({listCards:vi.fn(),importCard:vi.fn(),startCardChat:vi.fn()
 vi.mock('vue-router',()=>({useRouter:()=>({push:harness.push})}))
 vi.mock('../stores/app',()=>({useApp:()=>({message:harness.message})}))
 vi.mock('../platform/request-scope',()=>({useRequestScope:()=>{let disposed=false;onUnmounted(()=>{disposed=true});return()=>({valid:()=>!disposed})}}))
-vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{Upload:stub,Users:stub,MessageCircle:stub,Trash2:stub}})
+vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{Upload:stub,Users:stub,MessageCircle:stub,Pencil:stub,Replace:stub,Trash2:stub}})
 vi.mock('../workspace/PageHeader.vue',()=>({default:defineComponent({props:{title:String},setup:(p,{slots})=>()=>h('header',[p.title,slots.default?.()])})}))
 compileRender(CharactersPage,new URL('./CharactersPage.vue',import.meta.url))
 
@@ -93,4 +93,16 @@ it('deletes a card and reloads the remaining library',async()=>{
   await flush()
   expect(cardApi.deleteCard).toHaveBeenCalledWith('c1')
   expect(text(root)).toContain('还没有角色卡')
+})
+
+it('opens the card detail editor and the replacement-rule page',async()=>{
+  vi.mocked(cardApi.listCards).mockResolvedValueOnce([card])
+  mount();await flush()
+  button('编辑').props.onClick()
+  await flush()
+  expect(harness.push).toHaveBeenCalledWith('/characters/c1')
+  const rules=descendants(root,item=>item.tag==='button'&&text(item).includes('输出替换规则'))[0]
+  rules.props.onClick()
+  await flush()
+  expect(harness.push).toHaveBeenCalledWith('/characters/regex')
 })
