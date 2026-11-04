@@ -1,11 +1,13 @@
 # dsh-tavern · 酒馆（DSH 插件）
 
-把一个本地写作应用「酒馆」装进 DSH：侧栏「插件」组里多一行 **酒馆**，
+把一个本地写作应用「酒馆」装进 DSH：DSH 侧栏「插件」组里多一行 **酒馆**，
 点开不用等跳转，就是写作页本身；看中的正文可以一键交给 DSH 的 Agent
 **续写下一段**，或者让 Agent 以某个角色做**第一人称角色扮演**。
-应用按**单用户精简**：导航只有**「探索作品」**和**「角色卡库」**两项，创作工作台
-从「创作作品」按钮进入；应用内带**角色卡空间**（角色卡编辑 / 世界书 / 预设 / 输出正则）
-和**长期记忆 / 长期伙伴**，单卡聊天已接 DSH 真生成。
+应用按**单用户精简**：顶部固定导航栏只有品牌「酒馆」+ 两个 tab
+**「探索作品」`/explore`** 和 **「角色卡库」`/characters`**（没有左侧栏与面包屑），
+创作工作台从「创作作品」按钮进入；应用内带**角色卡空间**（角色卡编辑 / 世界书 /
+预设 / 输出正则）和**长期记忆 / 长期伙伴**，单卡聊天已接 DSH 真生成。
+界面**固定浅色**（`documentElement.dataset.theme='light'`），没有明暗切换按钮。
 
 - 侧栏顺序：紫微斗数(20) → **酒馆(24)** → Skill Center(30)
 - 插件目录：`/root/workspace/plugins/dsh-tavern`，已在
@@ -23,15 +25,17 @@
 | 能力 | 说明 |
 | --- | --- |
 | 单卡聊天 | 导入角色卡（PNG / JSON）后选一张开聊。`AI_MODE=dsh` 时由插件 `/tavern-agent/v1` 网关走 DSH 当前模型真生成；`AI_MODE=mock` 用内置确定性回复，只用于离线自测/回滚 |
-| 单用户界面 | 导航只有「探索作品」「角色卡库」两项；`/works`、`/recent`、`/my-prompts`、`/characters/groups`、`/published/*`、`/creators`、`/community` 等旧多用户路由一律 redirect `/explore`；创作工作台从「创作作品」按钮进入 |
+| 单用户界面 | 顶部 sticky header：「酒馆」品牌 + 「探索作品」「角色卡库」两个 tab，右侧全局操作区；无左侧栏、无面包屑，移动端底部保留两项导航。`/works`、`/recent`、`/my-prompts`、`/characters/groups`、`/published/*`、`/authors/*`、`/creators`、`/community` 等旧多用户路由一律 redirect `/explore`；创作工作台从「创作作品」按钮进入 |
+| 固定浅色主题 | 没有明暗切换按钮，启动即 `dataset.theme='light'`；`settings.theme` 字段保留兼容但不再参与界面；`LocalApplication` 旧壳仍在仓库但已无路由/引用（内部外观逻辑不影响主界面） |
 | 角色卡空间（B1） | 卡详情可改设定（`PATCH /character-cards/{id}`）、维护世界书（含 SillyTavern v2/v3 `character_book` 导入）、绑定/新建预设、维护输出正则。聊天时把【角色卡设定】【世界书】【预设】追加进 system prompt，回复落库前按正则改写 |
 | 长期记忆 / 长期伙伴（C） | 卡详情「长期记忆」可手工增删改或「立即整理」同步抽取；每 8 条助手回复自动整理一次；勾「长期伙伴」后卡库「长期伙伴」分组置顶 |
 
 ## 使用路径
 
-1. 侧栏点 **酒馆**（等价于打开 `/tavern/`），落到「探索作品」（`/explore`）。
+1. DSH 侧栏点 **酒馆**（等价于打开 `/tavern/`），应用落到「探索作品」（`/explore`），
+   顶部 header 显示品牌「酒馆」与「探索作品 / 角色卡库」两个 tab。
 2. 「探索作品」：精选卡就是入口；有游玩记录（`lineId`）的卡显示「最近游玩」徽标，
-   按钮变「继续游玩」直接回到上次的世界线；右上「创作作品」进入创作工作台
+   按钮变「继续游玩」直接回到上次的世界线；顶部右侧「创作作品」进入创作工作台
    （`/worlds/scripts` 起）。
 3. 进「角色卡库」（`/characters`）：
    - 「导入」上传 SillyTavern 角色卡（PNG / JSON；v2/v3 的 `character_book` 会自动带进世界书）；
@@ -48,11 +52,11 @@
 | `cordis.patch.yml` | `- insert: [{id: dsh-tavern, name: dsh-tavern}]`，`id` 必须等于包名 |
 | `lib/index.js` | host 半：注册 `prefix /tavern` 反向代理（旧 `/story` 为 302 兼容别名）；先过 DSH 登录闸门；`/api/**`、`/health/**` → 8001 并附加可信头，其余 → 8810 静态站。另外注册 `prefix /tavern-agent` 模型网关，给应用 worker 调 DSH 真生成 |
 | `client.js` | client 半：注册侧栏行（`sidebar.panellist` 座位）+ 主面板（`main` 座位，`key=tavern`）；工具条 + 同源 iframe + P2 `postMessage` 桥 |
-| `app/` | 写作应用本体（Vue 前端 + FastAPI 后端）：单用户界面（探索作品 + 角色卡库）、卡空间/记忆 UI 与服务端任务。应用侧为插件做的改动（可信登录、P2 桥、DSH 生成 adapter）也在这个目录里，随本仓库 git 管理 |
+| `app/` | 写作应用本体（Vue 前端 + FastAPI 后端）：顶部导航（探索作品 + 角色卡库）、固定浅色主题、卡空间/记忆 UI 与服务端任务。应用侧为插件做的改动（可信登录、P2 桥、DSH 生成 adapter）也在这个目录里，随本仓库 git 管理。单用户精简时删除了群聊全链路、无 UI 的 experience/公开目录接口，以及 24 个零引用页面组件 |
 | `docs/contract.md` | 与应用侧的集成契约（路由分流、可信头、P2 协议、UI 座位）——**先读它再改代码** |
 | `docs/architecture.md` | 本插件的实现架构：请求链路、鉴权、面板结构、P2 协议、prompt 规则、卡片/记忆、风险 |
 | `docs/step3-card-space.md`、`docs/step4-companion-memory.md` | B1/C 的设计与验收清单（表结构、端点、提示词、验收点） |
-| `docs/step3b-group-chat.md` | 历史设计：B2 群聊（**群聊 UI 已随单用户精简移除，服务端接口保留但无入口**） |
+| `docs/step3b-group-chat.md` | 历史设计：B2 群聊（**UI 与服务端均已删除**，仅作历史参考） |
 | `docs/testing.md` | 验收方法：静态检查 + 隔离实例真实浏览器 E2E |
 | `scripts/check.sh`、`verify.mjs` | 验收工具：静态检查 + 隔离实例端到端 |
 
@@ -176,7 +180,7 @@ scripts/check.sh --instance --open-story --cards --space --real --memory
 - 产物在 `/tmp/dsh-tavern-verify/check`：`report.json` + 截图 + 日志。
 
 `--space` / `--memory` 都隐含 `--cards`；对应前后端未就绪时相关项记 SKIP
-并写明 owner，不会让整轮验收崩掉。`--groups` 已随群聊 UI 移除而废弃，
+并写明 owner，不会让整轮验收崩掉。`--groups` 已随群聊功能（UI + 服务端）删除而废弃，
 传了只提示忽略（不再产生检查项）。
 
 ## 已知限制 / 待验证
@@ -201,9 +205,26 @@ scripts/check.sh --instance --open-story --cards --space --real --memory
 - **真生成依赖 DSH 侧条件**：需要 DSH 已登录、`agentDefaultModel` 有默认模型
   （本机是 `opencode-go / deepseek-v4.1-flash`）。网关不可用时应用如实报错
   （`AGENT_UPSTREAM_FAILED` 等），不会伪造回复。
-- **群聊已从界面移除**：单用户精简后群聊 UI、群聊页与入口都已删除，
-  `/characters/groups` 重定向 `/explore`；服务端 `/card-group-chats` 接口与表保留
-  但无入口（历史设计见 `docs/step3b-group-chat.md`），也不再注入世界书与长期记忆。
+- **群聊已彻底删除**：群聊 UI、群聊页与入口删除后，服务端 `cards/groups.py`、
+  5 条 `/card-group-chats` 路由、`CardGroupChat/CardGroupMessage` 模型、
+  worker 的 `card_group_chat` 分支与提示词也一并删除；`/characters/groups` 仍
+  redirect `/explore`。DB 里的 `world.card_group_chats`、`world.card_group_messages`
+  已无代码引用，并已由 host 侧 DROP（2026-11-04；历史设计见 `docs/step3b-group-chat.md`）。
+- **主题固定浅色**：明暗切换按钮与主题设置入口已删除，应用启动即
+  `dataset.theme='light'`；`settings.theme` 仅为兼容旧数据保留、不影响 UI。
+  宿主仍会推 `dsh-tavern:theme`（契约外可选消息），应用不跟随。
+- **部分无 UI 的服务端能力已删**：experience 的 feedback / notices / tasks / usage
+  （`usage.py` 整个文件）、authoring 的公开目录（`GET /authoring/catalog`、
+  `GET /authoring/authors/{id}`）随页面一起删除；`product_feedback` 不再有 API。
+  保留的只有运维集成（curated publish/beta、支付/邀请/analytics）与
+  `product_notices`（moderation notify 仍写）。`/product/knowledge`、`/my-prompts`
+  等已 redirect `/explore`；`AuthorPage`/`WalletPage`/`AdminPage`/`PublicPage` 与
+  `Local*` 旧壳仍保留（部分未挂路由）。
+- **删除的零引用页面**：单用户精简时删了 24 个客户端文件（PublicCatalog/
+  PublicCover/AgentPage/McpPage/DiscoverPage/OriginalStoryPage/companion 页面/
+  CharacterPreferences/RecoverySettings/media 四页/PlayCreatePage/PluginsPage/
+  SkillsPage/tavern 的 ChatImport/Lorebooks/Personas/Presets/QuickReplies/
+  StagePage/SceneModelSettings），源码与路由均无引用。
 - **注入有预算**：世界书最多命中 6 条、合计 ≤6000 字；长期记忆 ≤6 条、合计 ≤3000 字；
   角色卡设定 ≤6000 字。超出部分不会进 prompt（`context-preview` 能看到实际注入结果）。
 - **记忆整理依赖模型**：手工「立即整理」失败返回 502 `MEMORY_EXTRACT_FAILED`，
@@ -216,6 +237,6 @@ scripts/check.sh --instance --open-story --cards --space --real --memory
 | [docs/contract.md](docs/contract.md) | 与应用侧的集成契约（Lead 定稿）：分流、可信头、P2 协议、UI 座位 |
 | [docs/architecture.md](docs/architecture.md) | 本插件实现：两层结构、请求链路、面板结构、P2 细节、prompt 规则、卡片/记忆、风险 |
 | [docs/step3-card-space.md](docs/step3-card-space.md) | B1 角色卡空间：表、端点、注入与正则规则、S1–S6 验收 |
-| [docs/step3b-group-chat.md](docs/step3b-group-chat.md) | 历史设计：B2 群聊（群聊 UI 已移除，服务端接口保留但无入口） |
+| [docs/step3b-group-chat.md](docs/step3b-group-chat.md) | 历史设计：B2 群聊（UI 与服务端均已删除，仅作历史参考） |
 | [docs/step4-companion-memory.md](docs/step4-companion-memory.md) | C 长期记忆：抽取/注入/自动整理、长期伙伴、C1–C6 验收 |
 | [docs/testing.md](docs/testing.md) | 验收方法：静态检查 + 隔离实例真实浏览器 E2E |

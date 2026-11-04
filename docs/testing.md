@@ -111,10 +111,15 @@ console 是否干净；不记录 prompt / 回复全文。
 | C4 | 记忆「读者养猫」→「停用」→ 再预览；再「删除记忆」→「确认删除」→ 再预览 | 停用后 preview 的注入记忆不含该标题；删除后再预览仍不含（`report.memory.disabled/deleted`） | app-auth（enabled 过滤）+ cards-client |
 | C5 | 卡详情勾选「设为长期伙伴」→ 回角色卡库 | 卡库顶部出现「长期伙伴」分组，该卡是分组第一张（`data-card-id` 一致）且带「长期伙伴」badge（`report.memory.companion`） | cards-client（分组/置顶）+ app-auth（companion 字段） |
 | C6 | C 组操作后 console | 0 条 JS 报错（资源加载失败不算） | plugin-core / cards-client |
-| M1 | 进入应用后读 `.shell-sidebar`（随 `--cards` 运行） | 分组**恰好**「故事与阅读」「创作」；入口**恰好**「探索作品」「角色卡库」；侧栏文本不含「我的作品/最近体验/创作工作台/群聊/我的提示词/参考资料」及旧 7 个入口（`report.nav.sidebar`） | cards-client（导航配置） |
-| M2–M15 | iframe 直接打开 14 个已删路由：`/settings`、`/settings/models`、`/notebook`、`/help`、`/tasks/activity`、`/conversations`、`/works`、`/recent`、`/my-prompts`、`/product/knowledge`、`/characters/groups`、`/published/abc`、`/creators`、`/community` | 全部落到 `/tavern/explore`，探索页 `.discovery-page` 渲染，无 alert、无 console 报错（`report.nav.redirects[]`） | cards-client（router redirect） |
-| M16 | 复用 C 组创建的会话打开 `/tavern/conversations/world/:id` | 聊天页 `#world-chat-message` 可见；无 alert / console 报错；没有会话时记 SKIP | cards-client / app-auth |
-| M17 | M 组期间的 console | 0 条 JS 报错（资源加载失败不算） | plugin-core / cards-client |
+| M1 | 顶部导航结构（随 `--cards` 运行；task-28 起无左侧栏） | 无 `.shell-sidebar`（count=0）；header 品牌含「酒馆」；`.shell-tabs a` 文本**恰好** `['探索作品','角色卡库']`；无明暗主题控件（Sun/Moon 图标）；无「打开全部功能」；已删入口文本不存在（`report.nav.topNav`） | cards-client（AppShell/导航配置） |
+| M2 | 点顶部 tab「角色卡库」「探索作品」 | 分别落到 `/tavern/characters`、`/tavern/explore`，对应 tab 高亮（`router-link-active`）正确（`report.nav.tabSwitch`） | cards-client |
+| M3 | 点首张卡「编辑」进 `/characters/:id`；用 `GET /api/reader/v1/stories` 取 storyId 进 `/stories/:id` | 卡详情时「角色卡库」高亮；故事页时「探索作品」高亮（`report.nav.highlight`） | cards-client（page-location 高亮归属） |
+| M4 | 移动端 390×844 打开 `/tavern/explore` | `.shell-tabs` 隐藏；品牌「酒馆」可见；header-actions 容器存在（`.workspace-global-actions` count>0；文案按 `workspace.css` 移动端设计隐藏，detail 记原因）；`.shell-mobile-nav` 可见且链接**恰好** `['探索','角色卡库']`；无「打开全部功能」、无主题图标（`report.nav.mobile`） | cards-client（AppShell 媒体查询） |
+| M5 | 打开 `/stories/:id`（work-entry 变体） | header 高度 60–72（实测 66）；main 与 `.work-entry-scroll` 顶部不被 header 遮挡；滚动容器在视口内且可滚动（`report.nav.workEntry`） | cards-client（work-entry 布局） |
+| M6–M15 | iframe 直接打开 10 条已删路由（各一条）：`/works`、`/recent`、`/my-prompts`、`/product/knowledge`、`/characters/groups`、`/characters/groups/abc`、`/published/abc`、`/authors/abc`、`/creators`、`/community` | 全部落到 `/tavern/explore`，探索页 `.discovery-page` 渲染，无 alert、无 console 报错（`report.nav.redirects[]`） | cards-client（router redirect） |
+| M16 | 群聊接口已随 task-29 删除：iframe 内 `fetch('/tavern/api/reader/v1/card-group-chats', {headers:{'x-dsh-trusted': DSH_TRUSTED_SECRET}})` | HTTP **404**（`report.nav.groupApi.status`） | app-auth（服务端路由删除） |
+| M17 | 复用 C 组创建的会话打开 `/tavern/conversations/world/:id` | 聊天页 `#world-chat-message` 可见；无 alert / console 报错；没有会话时记 SKIP | cards-client / app-auth |
+| M18 | M 组期间的 console | 0 条 JS 报错（资源加载失败不算） | plugin-core / cards-client |
 | N1 | 探索页标题行（随 `--cards` 运行） | 不再有指向 `/recent` 的「最近游玩」链接（`a` 文本与 `href*=/recent` 均为 0） | cards-client（DiscoveryPage） |
 | N2 | 探索页「公开互动作品」整节 | 标题与区块均不存在 | cards-client |
 | N3 | 精选卡「作品详情」链接 | `.story-detail-link` 与「作品详情」文本均为 0 | cards-client |
@@ -327,8 +332,8 @@ context-preview 的 `memories/memorySection`）与 task-20（cards-client：卡�
 通过标准：
 
 - 既有 71 项（含 S/T 组、R1–R4）不回归；
-- C1–C6 全 PASS，不允许 SKIP（唯一允许的 SKIP 是 R5 负向演练），即 **94 PASS / 0 FAIL / 1 SKIP**
-  （F 组剪贴板兜底时 92 PASS / 3 SKIP）；
+- C1–C6 全 PASS，不允许 SKIP（唯一允许的 SKIP 是 R5 负向演练），即 **95 PASS / 0 FAIL / 1 SKIP**
+  （F 组剪贴板兜底时 93 PASS / 3 SKIP）；
 - `report.memory` 记录：fixture/cardName/cardId/detailUrl、chat.messages（自述消息 + 回复前 60 字/耗时）、
   manual{created,edited,deleted,recreated,error}、extract{before,after,notice,added}、
   preview{containsTitle,memoryLine}、disabled/deleted（preview 是否仍含标题）、
@@ -351,7 +356,7 @@ DELETE FROM world.card_memories;
 
 ```
 bash scripts/check.sh --instance --open-story --cards --space --real --memory
-→ 浏览器 94 PASS / 0 FAIL / 1 SKIP（唯一 SKIP = R5 负向演练；F 组剪贴板兜底时 92/3）；静态 7 PASS / 0 FAIL / 0 SKIP
+→ 浏览器 95 PASS / 0 FAIL / 1 SKIP（唯一 SKIP = R5 负向演练；F 组剪贴板兜底时 93/3）；静态 7 PASS / 0 FAIL / 0 SKIP
 report: /tmp/dsh-tavern-verify/check/report.json（ok=true，report.memory 完整证据）
 截图：25-memory-manual.png、26-memory-extract.png、27-memory-preview.png、
       28-memory-disabled.png、29-companion-library.png（+ 既有 01–24）
@@ -377,14 +382,20 @@ report: /tmp/dsh-tavern-verify/check/report.json（ok=true，report.memory 完�
 - 注入预览是异步请求，停用/删除前后两次结果文本可能相同，不能只靠「文本变化」判断完成 →
   监听 `context-preview` 响应后再读 `.preview-result`。
 
-## 导航与探索页回归（M/N / task-24/25：单用户精简）
+## 导航与探索页回归（M/N / task-24/25/28/30：单用户 + 顶部导航 + 去主题）
 
-task-23 去掉「我的」tab 与 7 个入口并删除 6 个路由；task-25 进一步按单用户精简：
-顶栏只剩「探索」「角色卡库」两组，`/works`、`/recent`、`/my-prompts`、`/product/knowledge`、
-`/characters/groups`、`/published/*`、`/authors/*`、`/creators`、`/community`、`/rankings`、
-`/multiplayer`、`/tasks`、`/earnings`、`/affiliate` 全部重定向 `/explore`；群聊页面与入口删除；
-探索页去掉「最近游玩 → /recent」链接和「公开互动作品」整节，改为有 `lineId` 的精选卡显示
-文本精确为「最近游玩」的 `.recent-flag` 徽标。M/N 组随 `--cards` 自动运行（全量命令里必然包含）：
+task-23 去掉「我的」tab 与 7 个入口并删除 6 个路由；task-25 进一步按单用户精简；
+task-28 改为顶部导航替代左侧栏、移除明暗主题切换、删除 24 个零引用文件；task-29 删除群聊/
+experience/authoring 等路由。现在：
+
+- 顶部 header（`.shell-top`，sticky，66px）左侧品牌「酒馆」+ 两个 tab「探索作品」「角色卡库」，
+  无 `.shell-sidebar`、无 Sun/Moon 主题按钮；`documentElement.dataset.theme === 'light'`；
+- 移动端（≤767px）隐藏 tabs 与 header-extra，底部 `.shell-mobile-nav` 仍是「探索」「角色卡库」；
+- `/stories/:id` 为 work-entry 变体（内容区 `height: calc(100dvh - 66px)`），编辑区不被 header 遮挡；
+- `/works`、`/recent`、`/my-prompts`、`/product/knowledge`、`/characters/groups`、`/published/*`、
+  `/authors/*`、`/creators`、`/community` 等全部重定向 `/explore`；群聊页面/入口删除、接口 404；
+- 探索页无「最近游玩 → /recent」链接、无「公开互动作品」整节，有 `lineId` 的精选卡显示文本精确为
+  「最近游玩」的 `.recent-flag` 徽标。M/N 组随 `--cards` 自动运行（全量命令里必然包含）：
 
 ```bash
 scripts/check.sh --instance --open-story --cards --space --real --memory   # 全量含 M/N 组
@@ -393,31 +404,38 @@ scripts/check.sh --instance --cards --memory                                # �
 
 通过标准：
 
-- M1：侧栏分组**恰好** `["故事与阅读","创作"]`，入口**恰好** `["探索作品","角色卡库"]`，
-  不含「我的作品/最近体验/创作工作台/群聊/我的提示词/参考资料」等已删入口，也没有「我的」分组 tab；
-- M2–M15：14 个已删路由在 iframe 内直接打开都落到 `/tavern/explore`（`.discovery-page` 渲染、无 alert）；
-- M16：`/conversations/world/:id` 仍能打开（聊天输入框可见）；M17：M 组 console clean；
+- M1：无 `.shell-sidebar`；品牌「酒馆」；`.shell-tabs a` 文本**恰好** `["探索作品","角色卡库"]`；
+  无主题控件、无「打开全部功能」、无已删入口文本；
+- M2/M3：点 tab 切换正确且高亮正确（`/characters` 与 `/characters/:id` → 角色卡库；`/stories/:id` → 探索作品）；
+- M4：移动端 390×844 tabs 隐藏、品牌可见、header-actions 容器存在（文案按设计隐藏）、底部导航恰好两项；
+- M5：work-entry header=66px、内容不被遮挡、滚动容器在视口内且可滚动；
+- M6–M15：10 条已删路由在 iframe 内直接打开都落到 `/tavern/explore`（`.discovery-page` 渲染、无 alert）；
+- M16：群聊接口带 `x-dsh-trusted` 请求返回 404；M17：`/conversations/world/:id` 仍能打开；M18 console clean；
 - N1–N3：探索页无 `/recent` 的「最近游玩」链接、无「公开互动作品」整节、卡片无「作品详情」链接；
 - N4：打开一张精选故事后回到探索页，对应卡片出现 `.recent-flag` 且文本精确为「最近游玩」；
-- 预期 **94 PASS / 0 FAIL / 1 SKIP**（唯一 SKIP = R5 负向演练；若 F 组续写/扮演走剪贴板兜底，
-  这两项按设计记 SKIP，则为 **92 PASS / 0 FAIL / 3 SKIP**）；FAIL 必须为 0。
-- `report.nav`：`sidebar{text,groups,links,expectedGroups,expectedLinks,removedHits,groupTabHits,groupsExact,linksExact}`、
+- 预期 **95 PASS / 0 FAIL / 1 SKIP**（唯一 SKIP = R5 负向演练；若 F 组续写/扮演走剪贴板兜底，
+  这两项按设计记 SKIP，则为 **93 PASS / 0 FAIL / 3 SKIP**）；FAIL 必须为 0。
+- `report.nav`：`topNav{sidebarCount,brand,tabs,expectedTabs,tabsExact,themeControls,openAllCount,removedHits,headerText}`、
+  `tabSwitch{toCharacters,toExplore,charactersActive,exploreActive,consoleErrors}`、
+  `highlight{detailOpened,detailActive,storyId,storiesStatus,storyActive}`、
+  `mobile{viewport,tabsVisible,brand,actionsPresent,actionsText,actionsTextHiddenReason,navVisible,links,openAll,themeIcons}`、
+  `workEntry{headerHeight,mainTop,scrollTop,scrollBottom,innerHeight,notCovered,scrollInside,scrollable,scrolled,error}`、
   `redirects[]`（path/currentPath/landedExplore/exploreShown/headingShown/alerts/consoleErrors）、
-  `chat{url,currentPath,ok,error}`、`console[]`、`steps[]`；
+  `groupApi{path,trustedHeader,status,text}`、`chat{url,currentPath,ok,error}`、`console[]`、`steps[]`；
   `report.explore`：`recentLink{recentLinks,recentHrefs,headerRecent}`、`publicSection`、`detailLinks`、
   `recentFlag{title,hadFlag,openedWorldId,openedLineId,flagShown,flagText}`、`console[]`、`steps[]`。
-- 截图：`40-nav-sidebar.png`、`41-nav-redirect-explore.png`、`42-nav-chat-still-works.png`、
-  `43-explore-simplified.png`、`44-explore-recent-flag.png`。
+- 截图：`50-nav-top.png`、`51-nav-tab-switch.png`、`52-nav-mobile.png`、`53-nav-work-entry.png`、
+  `54-nav-redirect-explore.png`、`55-nav-chat-still-works.png`、`43-explore-simplified.png`、
+  `44-explore-recent-flag.png`。
 
-**实测（2026-11-04，task-26，隔离实例）**：`bash scripts/check.sh --instance --open-story --cards
---space --real --memory` → 浏览器 **94 PASS / 0 FAIL / 1 SKIP**（SKIP = R5 负向演练），静态
-7 PASS / 0 FAIL / 0 SKIP，`report.ok=true`。M1 分组=故事与阅读/创作、入口=探索作品、角色卡库、
-`removedHits=[]`；M2–M15 共 14 条已删路由全部落到 `/tavern/explore`；M16 聊天页可打开；M17 clean。
-N1 页面无 `/recent` 链接且标题行无「最近游玩」；N2 无「公开互动作品」；N3 无「作品详情」；
-N4 卡「蓝宝石案」`played=true`（openedWorldId=36f0802a…、openedLineId=10190083…），返回后
-`.recent-flag` 文本精确「最近游玩」；N5 clean。真生成 78 字 / DSH 模型 / 30.8s。截图：
-`40-nav-sidebar.png`、`41-nav-redirect-explore.png`、`42-nav-chat-still-works.png`、
-`43-explore-simplified.png`、`44-explore-recent-flag.png`。
+**实测（2026-11-04 17:2x，task-30，隔离实例）**：`bash scripts/check.sh --instance --open-story --cards
+--space --real --memory` → 浏览器 **95 PASS / 0 FAIL / 1 SKIP**（总 96 项；SKIP = R5 负向演练），静态
+7 PASS / 0 FAIL / 0 SKIP，`report.ok=true`。M1 tabs=`["探索作品","角色卡库"]`、sidebarCount=0、
+themeControls=[]、removedHits=[]；M2 切换/高亮正确；M3 卡详情 active=角色卡库、`/stories/:id` active=
+探索作品；M4 390×844 tabs 隐藏、header-actions 容器存在（文案按 `workspace.css` 移动端设计隐藏）、
+底部导航=[探索,角色卡库]；M5 headerHeight=66、notCovered=true、scrollable=true；M6–M15 十条重定向全
+PASS；M16 groupApi status=404（body `RESOURCE_NOT_FOUND`）；M17 聊天页 PASS；M18 clean。C 组 6 项全
+PASS（cardName=林小满）；真生成 118 字 / DSH 模型 / 30.7s。N1–N5 全 PASS。截图：`50`–`55`、`43`、`44`。
 
 失败归因：导航配置/路由 redirect/探索页渲染/徽标 DOM → cards-client；`/experience/curated` 打不开、
 精选故事不可用 → app-auth；只有 harness 自身（等待/选择器）算 verifier。
@@ -496,9 +514,9 @@ curl -s -o /dev/null -w 'trusted refresh=%{http_code}\n' \
   Lead 清理测试卡（多轮调试会累积同名卡；脚本已用「基线计数」而非绝对数量断言）。
 - [ ] 默认 `check.sh` 会 SKIP「应用前端 typecheck/单测」（`--with-app-tests` 才跑）；本轮静态
   阶段 SKIP 1 项即此项，浏览器 E2E 0 SKIP；`--cards` 时新增 1 项 fixture 生成 + 12 项 H 组；
-  `--cards` 同时跑 H 组 13 项、M 组 17 项（单用户导航）、N 组 5 项（探索页单用户化）；
+  `--cards` 同时跑 H 组 13 项、M 组 18 项（顶部导航回归）、N 组 5 项（探索页单用户化）；
   `--space` 时再加 6 项 S 组，`--memory` 时再加 6 项 C 组。全量预期
-  **94 PASS / 0 FAIL / 1 SKIP**（F 组剪贴板兜底时 92 PASS / 3 SKIP），唯一固定 SKIP 是 R5。
+  **95 PASS / 0 FAIL / 1 SKIP**（F 组剪贴板兜底时 93 PASS / 3 SKIP），唯一固定 SKIP 是 R5。
 - [ ] **生产冒烟**：等生产 3080 重启加载新插件后，用带 token 的 URL 跑
   `node verify.mjs --url ... --open-story`（生产默认不加 `--cards`，避免往生产库写卡）。
 - [x] **真生成（step2 / task-12，隔离环境）**：2026-11-04 实测 `scripts/check.sh --instance
@@ -513,7 +531,7 @@ curl -s -o /dev/null -w 'trusted refresh=%{http_code}\n' \
   已随客户端群聊页面/入口一起从 harness 删除（`/characters/groups` 等路由现在 redirect 到
   `/explore`，由 M 组覆盖）；历史实测 71 PASS / 1 SKIP 仅作归档，不再在当前全量命令中出现。
 - [x] **长期伙伴与记忆（C / step4）验收（task-21，隔离环境）**：2026-11-04 全量
-  `--instance --open-story --cards --space --real --memory` → 全量 **94 PASS / 0 FAIL / 1 SKIP**
+  `--instance --open-story --cards --space --real --memory` → 全量 **95 PASS / 0 FAIL / 1 SKIP**
   （F 组剪贴板兜底时 92/3；唯一固定 SKIP 为 R5）；C1–C6 全 PASS（手工记忆增删改、extract 新增 3 条、
   preview 含记忆标题、停用/删除后不含、长期伙伴置顶、console clean）。
   跑完已清 `world.card_memories` 及测试卡/会话/世界/群聊/avatar，基线
@@ -521,12 +539,13 @@ curl -s -o /dev/null -w 'trusted refresh=%{http_code}\n' \
   遗留风险：C2 的「立即整理」是同步模型调用（依赖 `app/.env` 的 `DSH_AGENT_URL=…:3080/tavern-agent/v1`
   与生产网关），若网关不可用 C2 会 FAIL 并归因 app-auth/网关；C5 的 companion 状态残留在
   fixture 卡上，随清理 SQL 一并删除。
-- [x] **单用户精简（task-25 客户端 + task-26 验收，隔离环境）**：2026-11-04 全量
-  `--instance --open-story --cards --space --real --memory` → **94 PASS / 0 FAIL / 1 SKIP**
-  （R5 手动演练），既有 H/S/R/C 项不回归；M 组 17 项（侧栏只剩两组两入口 + 14 条已删路由
-  重定向 `/explore` + 聊天页可用 + console clean）、N 组 5 项（探索页去 `/recent` 链接/去「公开互动作品」/
-  去「作品详情」+ 玩过精选故事后 `.recent-flag` 文本精确「最近游玩」）全 PASS。群聊 T 组断言已随
-  客户端群聊页面删除一并移除。跑完已清回基线 `cards=0 / groups=0 / chats=0 / memories=0 / lore=0 /
-  presets=0 / regex=0 / instances=6 / checkpoints=7 / lines=3`，删 `card-avatar-*.png`，3099 已释放。
+- [x] **单用户精简 + 顶部导航/去主题（task-25/28/29 客户端与服务端 + task-26/30 验收，隔离环境）**：
+  2026-11-04 全量 `--instance --open-story --cards --space --real --memory` → **95 PASS / 0 FAIL /
+  1 SKIP**（R5 手动演练），既有 H/S/R/C 项不回归；M 组 18 项（顶部导航结构 + tab 切换/高亮 +
+  移动端 390×844 + work-entry 66px 不遮挡 + 10 条已删路由重定向 `/explore` + 群聊接口 404 +
+  聊天页可用 + console clean）、N 组 5 项（探索页去 `/recent` 链接/去「公开互动作品」/去「作品详情」+
+  玩过精选故事后 `.recent-flag` 文本精确「最近游玩」）全 PASS。群聊 T 组断言已随客户端群聊页面
+  删除一并移除。跑完已清回基线 `cards=0 / groups=0 / chats=0 / memories=0 / lore=0 / presets=0 /
+  regex=0 / instances=6 / checkpoints=7 / lines=3`，删 `card-avatar-*.png`，3099 已释放。
 - [ ] **`--with-app-tests`**：应用侧 typecheck/单测归 app-auth/cards-client 自己跑，验收脚本
   默认不跑；需要时可 `scripts/check.sh --static --with-app-tests`。

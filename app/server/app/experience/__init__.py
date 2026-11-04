@@ -1,1 +1,1 @@
-"""First play, private feedback and transactional service notices."""
+"""Transactional service notices (private feedback UI was removed in the single-user build)."""

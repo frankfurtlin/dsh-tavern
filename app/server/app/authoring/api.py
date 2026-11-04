@@ -122,27 +122,6 @@ def withdraw(publication_id:str,data:VersionInput,request:Request,user=Depends(c
     return mutate(db,user,request,'withdraw:'+row.id,data.model_dump(),action)
 
 
-@router.get('/catalog')
-def catalog(q:str=Query(default='',max_length=100),genre:str=Query(default='',max_length=40),authorId:str|None=None,
-            favorites:bool=False,offset:int=Query(default=0,ge=0,le=100000),limit:int=Query(default=24,ge=1,le=50),user=Depends(current_user),db=Depends(get_db)):
-    query=live_query()
-    if q:query=query.where((Publication.approved['value']['title'].astext+Publication.approved['value']['summary'].astext+Publication.approved['value']['tags'].astext).ilike('%'+q.replace('%','\\%').replace('_','\\_')+'%'))
-    if genre:query=query.where(Publication.approved['value']['genre'].astext==genre)
-    if authorId:query=query.where(Publication.owner_id==authorId)
-    if favorites:query=query.where(Publication.id.in_(select(PublicFavorite.publication_id).where(PublicFavorite.owner_id==user.id)))
-    total=db.scalar(select(func.count()).select_from(query.subquery()))
-    rows=db.scalars(query.order_by(Publication.updated_at.desc(),Publication.id).offset(offset).limit(limit))
-    return {'items':[card(db,row,user) for row in rows],'total':total,'offset':offset,'limit':limit}
-
-
-@router.get('/authors/{author_id}')
-def author(author_id:str,user=Depends(current_user),db=Depends(get_db)):
-    author=db.get(User,author_id)
-    if not author or author.status!='active' or not db.scalar(live_query().where(Publication.owner_id==author_id).limit(1)):raise Problem('AUTHOR_UNAVAILABLE','作者主页暂不可访问',404)
-    profile=account(db,author)
-    return {'id':author.id,'displayName':profile.display_name or author.username}
-
-
 @router.get('/publications/{publication_id}')
 def detail(publication_id:str,user=Depends(current_user),db=Depends(get_db)):
     return card(db,live_publication(db,publication_id),user,detail=True)
@@ -239,7 +218,7 @@ def review(publication_id:str,data:ReviewPublication,request:Request,user=Depend
         from ..experience.models import notify
         notify(db,row.owner_id,'作品审核状态已更新',row.note,'/worlds/'+row.world_id+'/author?tab=publish')
         for report in db.scalars(select(PublicReport).where(PublicReport.publication_id==row.id,PublicReport.state=='open')):
-            notify(db,report.owner_id,'作品举报已处理',data.note.strip(),'/help/feedback')
+            notify(db,report.owner_id,'作品举报已处理',data.note.strip(),'/explore')
         for item in db.scalars(select(PublicReport).where(PublicReport.publication_id==row.id,PublicReport.state=='open')):item.state='resolved'
         from ..foundation.core import audit
         audit(db,user.id,'publication.'+data.decision,row.id,'publication-review:'+user.id+':'+request.headers.get('idempotency-key',''),{'version':row.version,'note':row.note})

@@ -72,13 +72,17 @@
       recentText,   // 最近正文纯文本，截断到 ~4000 字
    }}`
   失败时 `{type:'dsh-tavern:context', id, ok:false, error:'...'}`
+  > 应用刚打开/恢复故事页时世界数据仍在加载：若当前路由是故事页，iframe 会
+  > 每 250ms 重读一次、最多等 6s 再回 `ok:false`（对应 `CONTEXT_READY_TIMEOUT_MS`），
+  > 避免面板在恢复瞬间收到空上下文而误报“没有可用的故事上下文”。
 
 iframe → 父（主动，节流）：
 - `{type:'dsh-tavern:state', appPath, hasContext:boolean}`
 
 附加消息（契约之外、可选）：
-- `{type:'dsh-tavern:theme', theme:'light'|'dark'}`：宿主切主题时推给 iframe，
-  应用愿意听就跟着切主题，不听也无害。
+- `{type:'dsh-tavern:theme', theme:'light'|'dark'}`：宿主切主题时推给 iframe。
+  应用已固定浅色（`dataset.theme='light'`，无明暗切换按钮），当前忽略该消息；
+  宿主保留发送逻辑，删掉也不影响功能。
 
 > 命名空间已从 `dsh-story:*` 彻底改为 `dsh-tavern:*`，不再保留旧消息名：
 > 应用侧 `dsh-bridge.ts` 同步改名，没有第三方消费者。
@@ -117,7 +121,9 @@ iframe → 父（主动，节流）：
 | `package.json`、`cordis.patch.yml`、`lib/**`、`client.js`、`README.md`、`docs/architecture.md`、`docs/contract.md` | plugin-core |
 | `scripts/**`、`verify.mjs`、`docs/testing.md` | verifier |
 | `/etc/systemd/system`、Caddy、`/root/.dsh/profiles/web`（host 级，不在本仓库） | Lead |
-| `docs/step2-dsh-generation.md`、`docs/step3-card-space.md`、`docs/step3b-group-chat.md`（群聊已从 UI 移除，仅保留服务端接口；文档为历史设计）、`docs/step4-companion-memory.md`、`app/.env`（含 `DSH_AGENT_*`、`AI_MODE`）、host 重启与上线 | Lead |
+| `docs/step2-dsh-generation.md`、`docs/step3-card-space.md`、`docs/step4-companion-memory.md`、`app/.env`（含 `DSH_AGENT_*`、`AI_MODE`）、host 重启与上线 | Lead |
+| `docs/step3b-group-chat.md`（历史设计；群聊 UI 与服务端均已删除，仅作参考） | Lead |
+| DB schema 清理：`world.card_group_chats` / `world.card_group_messages` 与 `public.product_feedback` 已 DROP（2026-11-04，schema 备份 /tmp/product_feedback_schema.sql） | Lead |
 
 任何人不改别人范围的文件；发现 bug 用 send_message 报给 owner 或 Lead。
 

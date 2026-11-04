@@ -86,37 +86,6 @@ class RegexScript(WorldOwned, WorldBase):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
-class CardGroupChat(WorldOwned, WorldBase):
-    """A multi-character chat room made from two to five cards."""
-
-    __tablename__ = "card_group_chats"
-    __table_args__ = {"schema": "world"}
-
-    title: Mapped[str] = mapped_column(String(80), default="")
-    card_ids: Mapped[list] = mapped_column(JSONB, default=list)
-    preset_id: Mapped[str | None] = mapped_column(String(32))
-    status: Mapped[str] = mapped_column(String(20), default="active")
-    version: Mapped[int] = mapped_column(Integer, default=1)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
-
-
-class CardGroupMessage(WorldOwned, WorldBase):
-    """One turn in a group chat. Assistant rows are created pending at send
-    time so the client can poll until the turn is saved or failed."""
-
-    __tablename__ = "card_group_messages"
-    __table_args__ = (Index("ix_world_card_group_messages_chat_sequence", "chat_id", "sequence"), {"schema": "world"})
-
-    chat_id: Mapped[str] = mapped_column(String(32), index=True)
-    sequence: Mapped[int] = mapped_column(Integer, default=0)
-    role: Mapped[str] = mapped_column(String(20))
-    speaker_card_id: Mapped[str | None] = mapped_column(String(32))
-    speaker_name: Mapped[str] = mapped_column(String(80), default="")
-    text: Mapped[str] = mapped_column(Text, default="")
-    task_id: Mapped[str | None] = mapped_column(String(32), index=True)
-    status: Mapped[str] = mapped_column(String(20), default="saved")
-
-
 class CardMemory(WorldOwned, WorldBase):
     """One long-term memory item attached to a character card."""
 

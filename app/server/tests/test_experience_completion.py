@@ -38,32 +38,6 @@ def test_curated_library_publishes_idempotently_and_readers_get_own_copy(client,
         assert clone.definition['script']['endings']
 
 
-def test_feedback_is_private_and_reply_notifies_without_duplicate(client, reader):
-    submitted = post(client, API+'/feedback', {'subject':'无法继续游玩','description':'刷新后希望继续原来的任务。'}, 'feedback')
-    assert submitted['state'] == 'open' and submitted['context']['taskId'] is None
-    assert post(client, API+'/feedback', {'subject':'无法继续游玩','description':'刷新后希望继续原来的任务。'}, 'feedback')['id'] == submitted['id']
-    other(client, 'support_admin')
-    assert client.get(API+'/feedback').json()['items'] == []
-    assert client.get(API+'/feedback?admin=true').status_code == 403
-    with SessionLocal() as db:
-        owner = db.scalar(select(User).where(User.username == 'support_admin')); account(db, owner).role = 'ADMIN'; db.commit()
-    reply = {'expectedVersion':1,'state':'resolved','reply':'已经处理，请返回原任务查看结果。'}
-    post(client, API+'/feedback/'+submitted['id']+'/reply', reply, 'reply')
-    post(client, API+'/feedback/'+submitted['id']+'/reply', reply, 'reply')
-    login(client, 'reader_one')
-    notices = client.get(API+'/notices').json(); assert notices['unread'] == 1
-    assert client.get(API+'/feedback').json()['items'][0]['reply'] == reply['reply']
-    post(client, API+'/notices/'+notices['items'][0]['id']+'/read', {}, 'mark')
-    assert client.get(API+'/notices').json()['unread'] == 0
-
-
-def test_feedback_diagnostics_reject_external_tasks_and_unvalidated_image(client, reader):
-    assert client.post(API+'/feedback', json={'subject':'任务问题','description':'这个任务无法访问。','context':{'taskId':'a'*32}}, headers={'Idempotency-Key':'foreign'}).status_code == 404
-    assert client.post(API+'/feedback', json={'subject':'截图问题','description':'附加一份无效图片。','attachment':'data:image/svg+xml;base64,xxxx'}, headers={'Idempotency-Key':'image'}).status_code == 422
-    assert client.post(API+'/feedback', json={'subject':'诊断问题','description':'不应允许附加密钥字段。','context':{'password':'secret'}}, headers={'Idempotency-Key':'secret'}).status_code == 422
-    with SessionLocal() as db: assert db.scalar(select(func.count()).select_from(Feedback)) == 0
-
-
 def test_chat_archive_search_delete_only_removes_selected_conversation(client, reader, profile):
     from .test_play_controls_world_chat import world, create_chat, fingerprint, settings
     from app.world.worker import process
@@ -179,17 +153,6 @@ def test_new_start_status_default_overrides_old_template_value_without_mutating_
     initialize_fields(definition,state)
     assert state['entities']['person']['fields']['author_decision']=='未选择'
     assert definition==original
-
-
-def test_action_usage_groups_all_calls_and_preserves_unknown_cost(client, reader, profile):
-    from .test_play_controls_world_chat import world, create_chat
-    from app.world.worker import process
-    w,line=world(client);session=create_chat(client,w,line)
-    sent=post(client,'/api/reader/v1/play-controls/world-chats/'+session['id']+'/send',{'message':'你好','turnId':'usage'},'usage');process(sent['taskId'])
-    response=client.get(API+'/usage-actions');assert response.status_code==200,response.text
-    row=next(r for r in response.json()['items'] if r['id']==sent['taskId'])
-    assert row['summary']['calls']==2 and len(row['calls'])==2
-    assert row['timings']['firstTextMs'] is not None and row['timings']['totalMs'] is not None
 
 
 def test_beta_cohort_is_admin_only_excludes_qa_and_does_not_change_permissions(client, reader):

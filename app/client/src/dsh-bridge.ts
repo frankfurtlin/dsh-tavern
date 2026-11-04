@@ -25,6 +25,8 @@ export interface DshBridgeEnv{
   origin:string
   appPath():string
   hasContext():boolean
+  /** Whether the current page is a story page that will be able to answer once loaded. */
+  expectContext?():boolean
   readContext(kind:StoryContextKind,target?:string):Promise<StoryContext|null>
   subscribe(listener:()=>void):()=>void
   /** Test seam; defaults to window.addEventListener('message', ...). */
@@ -38,6 +40,13 @@ export interface DshBridge{
 }
 
 export const BRIDGE_STATE_DELAY_MS=400
+/**
+ * When a story page has just been opened (or restored) its world/reader data is
+ * still loading, while the panel may ask for the context immediately. Keep
+ * retrying for this long instead of answering "no context" too early.
+ */
+export const CONTEXT_READY_TIMEOUT_MS=6000
+const CONTEXT_READY_POLL_MS=250
 
 function listenToWindow(handler:(event:MessageEvent)=>void):()=>void{
   window.addEventListener('message',handler)
@@ -61,6 +70,17 @@ export function createDshBridge(env:DshBridgeEnv):DshBridge{
     stateTimer=setTimeout(()=>{stateTimer=undefined;if(installed)sendState()},env.stateDelayMs??BRIDGE_STATE_DELAY_MS)
   }
 
+  /** Reads the context now, retrying briefly while a freshly opened story page is still loading. */
+  async function readContextWithRetry(kind:StoryContextKind,target?:string):Promise<StoryContext|null>{
+    const deadline=Date.now()+(env.expectContext?.()?CONTEXT_READY_TIMEOUT_MS:0)
+    for(;;){
+      const context=await env.readContext(kind,target)
+      if(context)return context
+      if(!installed||Date.now()>=deadline||!env.expectContext?.())return null
+      await new Promise<void>(resolve=>setTimeout(resolve,CONTEXT_READY_POLL_MS))
+    }
+  }
+
   function answerContext(id:string|number,data:Record<string,unknown>){
     const kind=data.kind
     if(kind!=='continue'&&kind!=='roleplay'){
@@ -68,7 +88,7 @@ export function createDshBridge(env:DshBridgeEnv):DshBridge{
       return
     }
     const target=typeof data.target==='string'&&data.target.trim()?data.target.trim():undefined
-    void env.readContext(kind,target).then(context=>{
+    void readContextWithRetry(kind,target).then(context=>{
       if(!installed)return
       if(!context){
         send({type:'dsh-tavern:context',id,ok:false,error:'当前页面没有可用的故事上下文'})
@@ -149,6 +169,8 @@ export function installDshBridge(options:InstallDshBridgeOptions):(()=>void)|und
     origin,
     appPath:()=>router.currentRoute.value.path,
     hasContext:()=>contextModule?contextModule.hasStoryContext(router):false,
+    expectContext:()=>/^\/worlds\/[^/]+\/(play|explore|read)$/.test(router.currentRoute.value.path)
+      ||/^\/books\/[^/]+\/read$/.test(router.currentRoute.value.path),
     readContext:(kind,target)=>loadContextModule().then(module=>module.readStoryContext(router,kind,target)),
     subscribe:(listener)=>{
       notifyState=listener

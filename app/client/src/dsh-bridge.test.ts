@@ -144,3 +144,28 @@ describe('dsh bridge state notifications',()=>{
     expect(posted).toHaveLength(0)
   })
 })
+
+describe('dsh bridge context readiness',()=>{
+  it('waits for a freshly opened story page instead of answering "no context"',async()=>{
+    let calls=0
+    const {posted,bridge,event}=setup({
+      expectContext:()=>true,
+      readContext:vi.fn(async()=>{
+        calls+=1
+        return calls<3?null:CONTEXT
+      }),
+    })
+    bridge.handle(event({type:'dsh-tavern:context-request',id:'r-ready',kind:'continue'}))
+    await new Promise(resolve=>setTimeout(resolve,900))
+    expect(calls).toBeGreaterThanOrEqual(3)
+    expect(posted.at(-1)!.data).toMatchObject({type:'dsh-tavern:context',id:'r-ready',ok:true})
+  })
+
+  it('answers "no context" immediately when the page cannot provide one',async()=>{
+    const {posted,bridge,event}=setup({expectContext:()=>false,readContext:vi.fn(async()=>null)})
+    bridge.handle(event({type:'dsh-tavern:context-request',id:'r-none',kind:'continue'}))
+    await flush()
+    expect(posted).toHaveLength(1)
+    expect(posted[0]!.data).toEqual({type:'dsh-tavern:context',id:'r-none',ok:false,error:'当前页面没有可用的故事上下文'})
+  })
+})
