@@ -2,7 +2,7 @@ import {describe,it,expect} from 'vitest'
 import {pageLocation} from './page-location'
 const locate=(path:string,params:Record<string,string>={})=>pageLocation({path,params,meta:{}})
 describe('secondary page navigation',()=>{
- it.each(['/product/account','/product/wallet','/product/admin','/data-use','/features','/settings/import-history'])('%s returns to discovery on direct entry',path=>{
+ it.each(['/product/wallet','/product/admin','/data-use','/features','/settings/import-history'])('%s returns to discovery on direct entry',path=>{
   expect(locate(path).parent?.path).toBe('/explore')
   expect(locate(path).title).not.toBe('酒馆')
  })

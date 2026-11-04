@@ -34,7 +34,7 @@ export const capabilities:Capability[]=[
  c('rankings','社区与多人','作者和小说排行榜','planned','尚未建立可核验热度与榜单规则，暂不显示排行榜。','/rankings','两个排行榜'),
  c('follow','社区与多人','作者主页与关注','partial','公开作者主页及其已审核作品可用；关注关系与动态尚未开放。','/creators','作者主页'),
  c('notifications','社区与多人','服务通知与社区控制','partial','反馈回执、管理员回复、作品审核和举报处理通知已可用；社区消息、封锁和内容偏好暂未开放。','/features?group=社区与多人','通知与内容控制'),
- c('account','账号与权益','登录注册与个人资料','ready','账号登录、头像、资料、密码、设备会话与账号删除。','/product/account','登录与个人档案'),
+ c('account','账号与权益','登录注册与个人资料','partial','由 DSH 登录提供单用户会话；个人资料、头像、密码与设备管理页未开放。','/features?group=账号与权益','登录与个人档案'),
  c('recovery','账号与权益','找回账号','partial','支持一次性恢复码；邮件重设和 Google 登录暂未接入。','/recover','忘记密码与 Google'),
  c('default-models','账号与权益','文本与图像默认模型','ready','账号默认提供 MiMo 和 Agnes 通道，个人密钥与额度分别管理。','/features?group=账号与权益','模型选择'),
  c('pricing','账号与权益','充值、月卡与流水','partial','已接入积分、会员、订单和流水；正式收款通道与收费方案尚未启用。','/product/wallet','充值与月卡'),

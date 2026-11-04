@@ -13,7 +13,6 @@ const pages:Record<string,PageLocation>={
  '/characters/regex':{title:'输出替换规则',area:creative,parent:creative},
  '/characters/groups':{title:'群聊',area:creative,parent:creative},
  '/settings/import-history':{title:'导入旧版内容',area:explore,parent:explore},
- '/product/account':{title:'个人资料',area:explore,parent:explore},
  '/product/wallet':{title:'积分与会员',area:explore,parent:explore},
  '/product/admin':{title:'运营管理',area:explore,parent:explore},
  '/product/knowledge':{title:'参考资料',area:{path:'/product/knowledge',label:'参考资料'}},
