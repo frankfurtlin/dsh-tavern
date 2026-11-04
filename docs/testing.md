@@ -24,8 +24,7 @@ scripts/check.sh --open-story     # 先在应用内打开一部作品再点续�
 scripts/check.sh --open-story --cards   # 全链路：打开作品 + 角色卡导入 + 单卡聊天（会写测试库）
 scripts/check.sh --open-story --cards --real  # 真生成验收（--real 隐含 --cards）：回复必须是真模型生成、刷新后仍在（需应用 AI_MODE=dsh）
 scripts/check.sh --instance --open-story --cards --space --real  # B 步角色卡空间 + 真实生成（--space/--real 都隐含 --cards）：S1–S6
-scripts/check.sh --instance --open-story --cards --space --real --groups  # 上面全部 + B2 群聊（--groups 隐含 --cards）：T1–T6
-scripts/check.sh --instance --open-story --cards --space --real --groups --memory  # 上面全部 + C 步长期伙伴与记忆（--memory 隐含 --cards）：C1–C6
+scripts/check.sh --instance --open-story --cards --space --real --memory  # 全量：H/S/R/M/N 组 + C 步长期伙伴与记忆（C1–C6）
 scripts/check.sh --keep-home      # 保留 /tmp/dsh-tavern-check 供排查
 scripts/check.sh --port 3199      # 3099 被占用时换端口
 ```
@@ -94,6 +93,7 @@ console 是否干净；不记录 prompt / 回复全文。
 | H6 | 回角色卡库点「删除」 | 卡名数量回落到导入前基线（应用无确认弹层，点击即删；断言 `DELETE /character-cards/<id>` 返回 204 且列表刷新） | cards-client |
 | H6 | 删除只删一张 | 其余 fixture 卡仍在列表 | cards-client |
 | H7 | 页面无控制台 JS 报错 | 0 条（资源加载失败不算） | plugin-core |
+| H13 | 角色卡库不再出现群聊入口（task-25 单用户精简） | `button`/`a` 中不含「发起群聊」「群聊」，`report.cards` 无群聊相关项 | cards-client |
 | R1 | `--real`：回复不含 mock 特征句「我们可以聊聊此刻的想法」 | 不出现（出现 = 应用仍在 `AI_MODE=mock`） | app-auth（环境/worker） |
 | R2 | `--real`：回复长度 ≥ 20 字且不是用户消息本身 | 真模型回复（`字数`、`首句` 写进 `report.real.reply`） | app-auth / plugin-core |
 | R3 | `--real`：完整刷新 iframe 后同一条回复仍在 | `report.cards.reload.replyMatched === true`（按文本前 20 字比对，不只看条数） | app-auth 持久化 + cards-client |
@@ -105,27 +105,21 @@ console 是否干净；不记录 prompt / 回复全文。
 | S4 | 新增正则 `。`→`！` → 开聊发「你好，来一盏茶。今天茶馆生意好吗？」 | 落库回复刷新后 `!includes('。') && includes('！')`（流式气泡是替换前文本，以刷新后为准） | app-auth（regex 应用）+ cards-client（规则页） |
 | S5 | 详情页「新建预设」→「创建并绑定」→ 注入预览填「试写一句对话」点「预览」 | 绑定后 select 选中「E2E 预设」，`.preview-result` 含「预设：E2E 预设」（即 context-preview 命中） | app-auth（presets/context-preview）+ cards-client |
 | S6 | S 组操作后页面 console | 0 条 JS 报错（资源加载失败不算） | plugin-core / cards-client |
-| T1 | `--groups`：角色卡库勾选两张卡 →「发起群聊」→ `/characters/groups/<id>` | 进群聊页，`.group-participant small` 含所选两张卡名，`.selection-count` 显示「已选 2 张」 | cards-client（选择/路由）+ app-auth（POST） |
-| T2 | 发「你们好」 | 202 响应带 `speakerName`，UI `.group-message-speaker strong` 与之一致，回复为非 mock 文本（`report.groups.messages[0].reply`） | app-auth（群聊任务/轮转）+ cards-client |
-| T3 | 再发「那你们谁先说说？」 | 新回复发言人 ≠ 第一条（按已保存 assistant 条数轮转），UI 与 API 一致 | app-auth（轮转逻辑） |
-| T4 | iframe 内整页刷新群聊页 | 两条用户消息与两条回复文本仍在（`report.groups.persisted.reply1Matched/reply2Matched`） | app-auth 持久化 + cards-client |
-| T5 | 返回群聊列表 →「删除」→「确认删除」 | 本群聊从列表消失，列表数量回落（`report.groups.deleted.before/after`） | cards-client + app-auth（DELETE） |
-| T6 | T 组操作后 console | 0 条 JS 报错（资源加载失败不算） | plugin-core / cards-client |
 | C1 | `--memory`：卡详情「长期记忆」→「新增记忆」（标题「读者养猫」/内容「读者养了一只叫团子的猫」/权重 70）→「保存记忆」→「编辑记忆」改标题 →「删除记忆」→「确认删除」 | 保存后列表出现「读者养猫」（手记 badge），编辑后标题变「读者养猫（改）」且列表更新，删除后条目消失；随后重新建回「读者养猫」供 C3 | cards-client（记忆表单/列表）+ app-auth（memories CRUD） |
 | C2 | 先开聊发两条含自述的消息（「我叫林舟，最近养了一只叫团子的猫…」「我每天早上都要喝一杯手冲咖啡…」），等回复 saved 后回卡详情点「立即整理」 | `[role=status]` 出现「新增 N 条记忆」（N≥1），`li.memory-item` 数量增加（`report.memory.extract`） | app-auth（同步抽取/去重）+ cards-client |
 | C3 | 注入预览「试写一句对话」→「预览」 | `.preview-result` 的「注入的长期记忆：」行包含「读者养猫」（`report.memory.preview.containsTitle`） | app-auth（context-preview memories/memorySection）+ cards-client |
 | C4 | 记忆「读者养猫」→「停用」→ 再预览；再「删除记忆」→「确认删除」→ 再预览 | 停用后 preview 的注入记忆不含该标题；删除后再预览仍不含（`report.memory.disabled/deleted`） | app-auth（enabled 过滤）+ cards-client |
 | C5 | 卡详情勾选「设为长期伙伴」→ 回角色卡库 | 卡库顶部出现「长期伙伴」分组，该卡是分组第一张（`data-card-id` 一致）且带「长期伙伴」badge（`report.memory.companion`） | cards-client（分组/置顶）+ app-auth（companion 字段） |
 | C6 | C 组操作后 console | 0 条 JS 报错（资源加载失败不算） | plugin-core / cards-client |
-| M1 | 进入应用后读 `.shell-sidebar`（随 `--cards` 运行） | 分组只有「故事与阅读」「创作」，不含名为「我的」的 tab；侧栏文本不含「我的对话/我的笔记/模型与用量/账号设置/任务进度/反馈与通知/使用帮助」（`report.nav.sidebar`） | cards-client（导航配置） |
-| M2 | iframe 直接打开 `/tavern/settings` | URL 变为 `/tavern/explore`，探索页 `.discovery-page` 渲染，无 alert、无 console 报错 | cards-client（router redirect） |
-| M3 | `/tavern/settings/models` | 同上 | cards-client |
-| M4 | `/tavern/notebook` | 同上 | cards-client |
-| M5 | `/tavern/help` | 同上 | cards-client |
-| M6 | `/tavern/tasks/activity` | 同上 | cards-client |
-| M7 | `/tavern/conversations` | 同上 | cards-client |
-| M8 | 复用 C 组创建的会话打开 `/tavern/conversations/world/:id` | 聊天页 `#world-chat-message` 可见；无 alert / console 报错；没有会话时记 SKIP | cards-client / app-auth |
-| M9 | M 组期间的 console | 0 条 JS 报错（资源加载失败不算） | plugin-core / cards-client |
+| M1 | 进入应用后读 `.shell-sidebar`（随 `--cards` 运行） | 分组**恰好**「故事与阅读」「创作」；入口**恰好**「探索作品」「角色卡库」；侧栏文本不含「我的作品/最近体验/创作工作台/群聊/我的提示词/参考资料」及旧 7 个入口（`report.nav.sidebar`） | cards-client（导航配置） |
+| M2–M15 | iframe 直接打开 14 个已删路由：`/settings`、`/settings/models`、`/notebook`、`/help`、`/tasks/activity`、`/conversations`、`/works`、`/recent`、`/my-prompts`、`/product/knowledge`、`/characters/groups`、`/published/abc`、`/creators`、`/community` | 全部落到 `/tavern/explore`，探索页 `.discovery-page` 渲染，无 alert、无 console 报错（`report.nav.redirects[]`） | cards-client（router redirect） |
+| M16 | 复用 C 组创建的会话打开 `/tavern/conversations/world/:id` | 聊天页 `#world-chat-message` 可见；无 alert / console 报错；没有会话时记 SKIP | cards-client / app-auth |
+| M17 | M 组期间的 console | 0 条 JS 报错（资源加载失败不算） | plugin-core / cards-client |
+| N1 | 探索页标题行（随 `--cards` 运行） | 不再有指向 `/recent` 的「最近游玩」链接（`a` 文本与 `href*=/recent` 均为 0） | cards-client（DiscoveryPage） |
+| N2 | 探索页「公开互动作品」整节 | 标题与区块均不存在 | cards-client |
+| N3 | 精选卡「作品详情」链接 | `.story-detail-link` 与「作品详情」文本均为 0 | cards-client |
+| N4 | 打开一张精选故事（有 lineId 的用「继续游玩」）→ 回探索页 | 对应卡片出现 `.recent-flag`，文本**精确**为「最近游玩」（`report.explore.recentFlag`） | cards-client + app-auth（`/experience/curated`） |
+| N5 | N 组期间的 console | 0 条 JS 报错（资源加载失败不算） | plugin-core / cards-client |
 
 ### 自动化锚点（契约约定）
 
@@ -316,72 +310,12 @@ rm -f app/data/private/*/card-avatar-*.png
 
 清理后再核对一遍计数，并确认隔离实例已退出（`curl 127.0.0.1:3099` 连接失败、`/tmp/dsh-tavern-check` 不存在）。
 
-## `--groups` 群聊验收（B2 / step3b）
-
-验收 step3b（`docs/step3b-group-chat.md` §5）的角色卡群聊能力。全部用 fixture 测试卡，
-T5 会通过 UI 删掉本轮创建的群聊；结束后再按上面的清理 SQL 清残留：
-
-```bash
-scripts/check.sh --instance --open-story --cards --space --real --groups
-```
-
-前置：B1（卡空间）与 B2 后端已部署（`/api/reader/v1/card-group-chats` 系列），
-客户端 dist 含 `/characters/groups` 与 `/characters/groups/:id`，`AI_MODE=dsh` 且网关可用。
-`--groups` 隐含 `--cards`（需要 H 组先导入两张以上测试卡）；未就绪时 T1–T5 SKIP 并写 owner，
-S/T 都不会让既有检查项变 FAIL。
-
-通过标准：
-
-- 既有 65 项（含 S1–S6、R1–R4）不回归；
-- T1–T6 全 PASS，不允许 SKIP（唯一允许的 SKIP 是 R5 负向演练），即 **71 PASS / 0 FAIL / 1 SKIP**；
-- `report.groups` 记录：selected/selectionCount、group{id,url,participants}、messages[]（用户消息、
-  202 响应 speakerName、会话 id、回复前 100 字、耗时）、rotation{first,second,shown,nextSpeakerText}、
-  persisted{userMessages,assistantMessages,reply1Matched,reply2Matched}、deleted{before,after}、console。
-- 截图：`20-groups-select.png`、`21-group-reply.png`、`22-group-rotate.png`、
-  `23-group-reload.png`、`24-group-deleted.png`。
-
-失败归因：speaker 不轮转/任务不落库/刷新丢失 → app-auth；多选、发起群聊路由、列表删除、
-发言人/气泡 DOM → cards-client；只有 harness 自身（选择器/等待）才算 verifier。
-
-**2026-11-04 实测（B2 后端 + cards-client 就绪后）**：
-
-```
-bash scripts/check.sh --instance --open-story --cards --space --real --groups
-→ 浏览器 71 PASS / 0 FAIL / 1 SKIP（唯一 SKIP = R5 负向演练）；静态 7 PASS / 0 FAIL / 0 SKIP
-report: /tmp/dsh-tavern-verify/check/report.json（ok=true）
-截图：20-groups-select.png、21-group-reply.png、22-group-rotate.png、
-      23-group-reload.png、24-group-deleted.png（+ 既有 01–19）
-```
-
-- T1 选中=顾清和、沈夜舟（选择栏「已选 2 张」），进 `/tavern/characters/groups/<id>`，
-  参与者 `.group-participant small` 与所选一致；
-- T2 发「你们好」→ HTTP 202 `speakerName=顾清和`，UI 发言人一致，真生成 115 字、约 30.9s；
-- T3 再发「那你们谁先说说？」→ 202 `speakerName=沈夜舟`，UI 发言人一致，
-  `.group-next` 显示「下一位：沈夜舟」，轮转正确（已保存 assistant 条数取模）；
-- T4 iframe 内整页刷新后 `user=2 assistant=2`，两条回复文本均匹配（`reply1Matched/reply2Matched=true`）；
-- T5 返回群聊列表 → 删除 → 列表 1 → 0；
-- T6 console clean。
-- 证据细节在 `report.groups`：messages[].{clickPath,httpStatus,response.speakerName,reply.text,elapsedMs}、
-  rotation、persisted、deleted、console。
-
-**踩坑（已在 harness 处理）**：DSH 桌宠气泡偶尔浮在 iframe 右下角，正好盖住群聊「发送」按钮，
-`click({force:true})` 会点在遮罩上、表单不提交（表现为没有 POST、UI 无反应）。T 组发送逻辑先正常点，
-6s 内没有 POST 就退化为 `button.evaluate(el => el.click())`（仍走应用 send() 逻辑），
-并把实际路径记在 `messages[].clickPath`（`click` / `js-click`）。这是测试环境浮层问题，不是群聊产品 bug。
-
-**跑完必须清理**（见上一节 SQL，另需删群聊表；基线 `group_chats=0 / group_messages=0`）：
-
-```sql
-DELETE FROM world.card_group_messages;
-DELETE FROM world.card_group_chats;
-```
-
 ## `--memory` 长期伙伴与记忆验收（C / step4）
 
 验收 step4（`docs/step4-companion-memory.md` §7）的长期记忆抽取/注入与「长期伙伴」置顶：
 
 ```bash
-scripts/check.sh --instance --open-story --cards --space --real --groups --memory
+scripts/check.sh --instance --open-story --cards --space --real --memory
 ```
 
 前置：task-19（app-auth：`/character-cards/{id}/memories` CRUD、`/memories/extract`、`/companion`、
@@ -393,7 +327,8 @@ context-preview 的 `memories/memorySection`）与 task-20（cards-client：卡�
 通过标准：
 
 - 既有 71 项（含 S/T 组、R1–R4）不回归；
-- C1–C6 全 PASS，不允许 SKIP（唯一允许的 SKIP 是 R5 负向演练），即 **77 PASS / 0 FAIL / 1 SKIP**；
+- C1–C6 全 PASS，不允许 SKIP（唯一允许的 SKIP 是 R5 负向演练），即 **94 PASS / 0 FAIL / 1 SKIP**
+  （F 组剪贴板兜底时 92 PASS / 3 SKIP）；
 - `report.memory` 记录：fixture/cardName/cardId/detailUrl、chat.messages（自述消息 + 回复前 60 字/耗时）、
   manual{created,edited,deleted,recreated,error}、extract{before,after,notice,added}、
   preview{containsTitle,memoryLine}、disabled/deleted（preview 是否仍含标题）、
@@ -415,8 +350,8 @@ DELETE FROM world.card_memories;
 **2026-11-04 实测（C 后端 task-19 + cards-client task-20 就绪后）**：
 
 ```
-bash scripts/check.sh --instance --open-story --cards --space --real --groups --memory
-→ 浏览器 77 PASS / 0 FAIL / 1 SKIP（唯一 SKIP = R5 负向演练）；静态 7 PASS / 0 FAIL / 0 SKIP
+bash scripts/check.sh --instance --open-story --cards --space --real --memory
+→ 浏览器 94 PASS / 0 FAIL / 1 SKIP（唯一 SKIP = R5 负向演练；F 组剪贴板兜底时 92/3）；静态 7 PASS / 0 FAIL / 0 SKIP
 report: /tmp/dsh-tavern-verify/check/report.json（ok=true，report.memory 完整证据）
 截图：25-memory-manual.png、26-memory-extract.png、27-memory-preview.png、
       28-memory-disabled.png、29-companion-library.png（+ 既有 01–24）
@@ -435,62 +370,64 @@ report: /tmp/dsh-tavern-verify/check/report.json（ok=true，report.memory 完�
   manual/extract/preview/disabled/deleted/companion、console。
 
 **踩坑（已在 harness 处理）**：
-- T 组结束后 iframe 停在 `/characters/groups`，`openCharactersPage()` 的粗匹配会把群聊页当成
+- 导航类/群聊类步骤结束后 iframe 可能停在非卡库页面，`openCharactersPage()` 的粗匹配会把别的页面当成
   卡库 → C 组用 `memoryLibrary()` 强制落到 `/tavern/characters` 再等卡片渲染；
 - 聊天后重新进卡详情时 Vue 还在挂载，直接 `count()` 会误判「没有『立即整理』按钮」→
   先等「长期记忆」区渲染（20s）；
 - 注入预览是异步请求，停用/删除前后两次结果文本可能相同，不能只靠「文本变化」判断完成 →
   监听 `context-preview` 响应后再读 `.preview-result`。
 
-## 导航回归（M / task-24：删「我的」后）
+## 导航与探索页回归（M/N / task-24/25：单用户精简）
 
-task-23 去掉了「我的」tab 与 7 个入口（我的对话/我的笔记/模型与用量/账号设置/任务进度/反馈与通知/使用帮助），
-删除 `/settings`、`/settings/models`、`/notebook`、`/conversations`、`/tasks/activity`、`/help`、
-`/help/feedback` 页面与路由并重建 dist。M 组随 `--cards` 自动运行（`--memory` 全量命令里必然包含）：
+task-23 去掉「我的」tab 与 7 个入口并删除 6 个路由；task-25 进一步按单用户精简：
+顶栏只剩「探索」「角色卡库」两组，`/works`、`/recent`、`/my-prompts`、`/product/knowledge`、
+`/characters/groups`、`/published/*`、`/authors/*`、`/creators`、`/community`、`/rankings`、
+`/multiplayer`、`/tasks`、`/earnings`、`/affiliate` 全部重定向 `/explore`；群聊页面与入口删除；
+探索页去掉「最近游玩 → /recent」链接和「公开互动作品」整节，改为有 `lineId` 的精选卡显示
+文本精确为「最近游玩」的 `.recent-flag` 徽标。M/N 组随 `--cards` 自动运行（全量命令里必然包含）：
 
 ```bash
-scripts/check.sh --instance --open-story --cards --space --real --groups --memory   # 全量含 M 组
-scripts/check.sh --instance --cards --memory                                          # 只回归 H+M+C
+scripts/check.sh --instance --open-story --cards --space --real --memory   # 全量含 M/N 组
+scripts/check.sh --instance --cards --memory                                # 只回归 H+M+N+C
 ```
 
 通过标准：
 
-- 侧栏只保留「故事与阅读」「创作」两组，入口为：探索作品、我的作品、最近体验、创作工作台、
-  角色卡库、群聊、我的提示词、参考资料；不得出现「我的」分组 tab 或 7 个已删除入口；
-- 6 个已删路由在 iframe 内直接打开时都重定向到 `/tavern/explore`（`.discovery-page` 渲染）；
-- `/conversations/world/:id` 仍能打开（聊天输入框可见）；
-- 既有 77 项不回归；M1–M9 全 PASS，唯一允许 SKIP 的是 R5（及没有会话时的 M8）。
-  预期 **86 PASS / 0 FAIL / 1 SKIP**；若 F 组「让 DSH 续写/角色扮演」走剪贴板兜底分支，
-  这两项按设计记 SKIP，则为 **84 PASS / 0 FAIL / 3 SKIP**（`report.checks[].skipped` 可核对）。
-- `report.nav` 记录：`sidebar{text,groups,links,removedHits,groupTabHits}`、
+- M1：侧栏分组**恰好** `["故事与阅读","创作"]`，入口**恰好** `["探索作品","角色卡库"]`，
+  不含「我的作品/最近体验/创作工作台/群聊/我的提示词/参考资料」等已删入口，也没有「我的」分组 tab；
+- M2–M15：14 个已删路由在 iframe 内直接打开都落到 `/tavern/explore`（`.discovery-page` 渲染、无 alert）；
+- M16：`/conversations/world/:id` 仍能打开（聊天输入框可见）；M17：M 组 console clean；
+- N1–N3：探索页无 `/recent` 的「最近游玩」链接、无「公开互动作品」整节、卡片无「作品详情」链接；
+- N4：打开一张精选故事后回到探索页，对应卡片出现 `.recent-flag` 且文本精确为「最近游玩」；
+- 预期 **94 PASS / 0 FAIL / 1 SKIP**（唯一 SKIP = R5 负向演练；若 F 组续写/扮演走剪贴板兜底，
+  这两项按设计记 SKIP，则为 **92 PASS / 0 FAIL / 3 SKIP**）；FAIL 必须为 0。
+- `report.nav`：`sidebar{text,groups,links,expectedGroups,expectedLinks,removedHits,groupTabHits,groupsExact,linksExact}`、
   `redirects[]`（path/currentPath/landedExplore/exploreShown/headingShown/alerts/consoleErrors）、
-  `chat{url,currentPath,ok,error}`、`console[]`、`steps[]`。
-- 截图：`30-nav-sidebar.png`、`31-nav-redirect-explore.png`、`32-nav-chat-still-works.png`。
+  `chat{url,currentPath,ok,error}`、`console[]`、`steps[]`；
+  `report.explore`：`recentLink{recentLinks,recentHrefs,headerRecent}`、`publicSection`、`detailLinks`、
+  `recentFlag{title,hadFlag,openedWorldId,openedLineId,flagShown,flagText}`、`console[]`、`steps[]`。
+- 截图：`40-nav-sidebar.png`、`41-nav-redirect-explore.png`、`42-nav-chat-still-works.png`、
+  `43-explore-simplified.png`、`44-explore-recent-flag.png`。
 
-失败归因：导航配置/路由 redirect/聊天页渲染 → cards-client；后端 401/500 导致重定向后报错 → app-auth；
-只有 harness 自身（等待/选择器）算 verifier。
+**实测（2026-11-04，task-26，隔离实例）**：`bash scripts/check.sh --instance --open-story --cards
+--space --real --memory` → 浏览器 **94 PASS / 0 FAIL / 1 SKIP**（SKIP = R5 负向演练），静态
+7 PASS / 0 FAIL / 0 SKIP，`report.ok=true`。M1 分组=故事与阅读/创作、入口=探索作品、角色卡库、
+`removedHits=[]`；M2–M15 共 14 条已删路由全部落到 `/tavern/explore`；M16 聊天页可打开；M17 clean。
+N1 页面无 `/recent` 链接且标题行无「最近游玩」；N2 无「公开互动作品」；N3 无「作品详情」；
+N4 卡「蓝宝石案」`played=true`（openedWorldId=36f0802a…、openedLineId=10190083…），返回后
+`.recent-flag` 文本精确「最近游玩」；N5 clean。真生成 78 字 / DSH 模型 / 30.8s。截图：
+`40-nav-sidebar.png`、`41-nav-redirect-explore.png`、`42-nav-chat-still-works.png`、
+`43-explore-simplified.png`、`44-explore-recent-flag.png`。
 
-**2026-11-04 实测（task-23 dist 12:55 版）**：
-
-```
-bash scripts/check.sh --instance --open-story --cards --space --real --groups --memory
-→ 浏览器 84 PASS / 0 FAIL / 3 SKIP（M1–M9 全 PASS；SKIP = F 组续写/扮演剪贴板兜底 2 项 + R5 负向演练）
-   静态 7 PASS / 0 FAIL / 0 SKIP；report.ok=true
-report: /tmp/dsh-tavern-verify/check/report.json（report.nav 完整证据）
-截图：30-nav-sidebar.png、31-nav-redirect-explore.png、32-nav-chat-still-works.png
-```
-
-- M1 侧栏分组=故事与阅读/创作；入口=探索作品、我的作品、最近体验、创作工作台、角色卡库、群聊、
-  我的提示词、参考资料；`removedHits=[]`、`groupTabHits=[]`；
-- M2–M7 `/settings`、`/settings/models`、`/notebook`、`/help`、`/tasks/activity`、`/conversations`
-  → 全部落到 `/tavern/explore`，探索页渲染、无 alert、console 无报错；
-- M8 `/tavern/conversations/world/d9e85e04…` 可打开，`#world-chat-message` 可见；
-- M9 clean。
+失败归因：导航配置/路由 redirect/探索页渲染/徽标 DOM → cards-client；`/experience/curated` 打不开、
+精选故事不可用 → app-auth；只有 harness 自身（等待/选择器）算 verifier。
 
 **踩坑（已在 harness 处理）**：
 - M 组不要依赖 C 组的 `memoryLibrary()`（`--cards` 无 `--memory` 时不存在），直接用当前 iframe `fnow()`；
 - 路由重定向用 `frame.goto()` 整页加载验证（删除的是路由/页面，SPA 内已无链接可点）；
-- M9 必须在「补齐未执行步」循环之后再记录，否则会被循环提前写成 FAIL。
+- M/N 的 console 检查要在「补齐未执行步」循环之后再记录，否则会被循环提前写成 FAIL；
+- N4 打开精选故事会真实写一条 line/世界（与「不写应用数据」原则冲突），本轮测试后会按基线清理，
+  清理 SQL 需额外删除 `source->>'publicationId' IS NOT NULL` 的世界及其 turns/events/lines。
 
 ## 手工探针（不启浏览器）
 
@@ -559,10 +496,9 @@ curl -s -o /dev/null -w 'trusted refresh=%{http_code}\n' \
   Lead 清理测试卡（多轮调试会累积同名卡；脚本已用「基线计数」而非绝对数量断言）。
 - [ ] 默认 `check.sh` 会 SKIP「应用前端 typecheck/单测」（`--with-app-tests` 才跑）；本轮静态
   阶段 SKIP 1 项即此项，浏览器 E2E 0 SKIP；`--cards` 时新增 1 项 fixture 生成 + 12 项 H 组；
-  `--space` 时再加 6 项 S 组（预期 65 PASS / 1 SKIP），`--groups` 时再加 6 项 T 组
-（预期 71 PASS / 0 FAIL / 1 SKIP），`--memory` 时再加 6 项 C 组（预期 **77 PASS / 0 FAIL / 1 SKIP**，
-现在 M 组随 `--cards` 运行再加 9 项：预期 **86 PASS / 0 FAIL / 1 SKIP**（F 组剪贴板兜底时 84/3），
-唯一 SKIP 是 R5）。
+  `--cards` 同时跑 H 组 13 项、M 组 17 项（单用户导航）、N 组 5 项（探索页单用户化）；
+  `--space` 时再加 6 项 S 组，`--memory` 时再加 6 项 C 组。全量预期
+  **94 PASS / 0 FAIL / 1 SKIP**（F 组剪贴板兜底时 92 PASS / 3 SKIP），唯一固定 SKIP 是 R5。
 - [ ] **生产冒烟**：等生产 3080 重启加载新插件后，用带 token 的 URL 跑
   `node verify.mjs --url ... --open-story`（生产默认不加 `--cards`，避免往生产库写卡）。
 - [x] **真生成（step2 / task-12，隔离环境）**：2026-11-04 实测 `scripts/check.sh --instance
@@ -573,21 +509,24 @@ curl -s -o /dev/null -w 'trusted refresh=%{http_code}\n' \
 - [ ] **真生成（生产 3080）**：等 Lead 重启生产 DSH / 切换生产 `AI_MODE=dsh` 后，用
   `node verify.mjs --url "http://127.0.0.1:3080/?token=…" --open-story --cards --real` 或
   `scripts/check.sh --real`（指向生产实例）再验一次；当前不能引用任何生产真生成结论。
-- [x] **群聊（B2 / step3b）验收（task-18，隔离环境）**：2026-11-04 全量
-  `--instance --open-story --cards --space --real --groups` → **71 PASS / 0 FAIL / 1 SKIP**（R5 手动演练），
-  既有 65 项不回归；T1–T6 全 PASS（T2 顾清和 115 字 / T3 沈夜舟 227 字、轮转与 speakerName 一致、
-  刷新后 2 用户 + 2 回复仍在、删除后列表 1→0、console clean）。测试群聊由 T5 经 UI 删除，
-  跑完仍需按清理 SQL 清测试卡/会话/世界书/预设/正则，基线 `cards=0 / groups=0 / chats=0 / instances=6`。
-  遗留风险：发送按钮可能被 DSH 桌宠气泡遮挡（harness 已有 js-click 兜底）；真实生成依赖
-  `app/.env` 的 `DSH_AGENT_URL` 指向当前隔离实例端口，切生产前要改回 3080。
+- [x] **群聊（B2 / step3b）历史验收（task-18）**：原 T1–T6 断言在 task-25 单用户精简后
+  已随客户端群聊页面/入口一起从 harness 删除（`/characters/groups` 等路由现在 redirect 到
+  `/explore`，由 M 组覆盖）；历史实测 71 PASS / 1 SKIP 仅作归档，不再在当前全量命令中出现。
 - [x] **长期伙伴与记忆（C / step4）验收（task-21，隔离环境）**：2026-11-04 全量
-  `--instance --open-story --cards --space --real --groups --memory` → **77 PASS / 0 FAIL / 1 SKIP**
-  （R5 手动演练），既有 71 项不回归；C1–C6 全 PASS（手工记忆增删改、extract 新增 3 条、
+  `--instance --open-story --cards --space --real --memory` → 全量 **94 PASS / 0 FAIL / 1 SKIP**
+  （F 组剪贴板兜底时 92/3；唯一固定 SKIP 为 R5）；C1–C6 全 PASS（手工记忆增删改、extract 新增 3 条、
   preview 含记忆标题、停用/删除后不含、长期伙伴置顶、console clean）。
   跑完已清 `world.card_memories` 及测试卡/会话/世界/群聊/avatar，基线
   `cards=0 / memories=0 / groups=0 / chats=0 / lore=0 / presets=0 / regex=0 / instances=6 / worlds=6`。
   遗留风险：C2 的「立即整理」是同步模型调用（依赖 `app/.env` 的 `DSH_AGENT_URL=…:3080/tavern-agent/v1`
   与生产网关），若网关不可用 C2 会 FAIL 并归因 app-auth/网关；C5 的 companion 状态残留在
   fixture 卡上，随清理 SQL 一并删除。
+- [x] **单用户精简（task-25 客户端 + task-26 验收，隔离环境）**：2026-11-04 全量
+  `--instance --open-story --cards --space --real --memory` → **94 PASS / 0 FAIL / 1 SKIP**
+  （R5 手动演练），既有 H/S/R/C 项不回归；M 组 17 项（侧栏只剩两组两入口 + 14 条已删路由
+  重定向 `/explore` + 聊天页可用 + console clean）、N 组 5 项（探索页去 `/recent` 链接/去「公开互动作品」/
+  去「作品详情」+ 玩过精选故事后 `.recent-flag` 文本精确「最近游玩」）全 PASS。群聊 T 组断言已随
+  客户端群聊页面删除一并移除。跑完已清回基线 `cards=0 / groups=0 / chats=0 / memories=0 / lore=0 /
+  presets=0 / regex=0 / instances=6 / checkpoints=7 / lines=3`，删 `card-avatar-*.png`，3099 已释放。
 - [ ] **`--with-app-tests`**：应用侧 typecheck/单测归 app-auth/cards-client 自己跑，验收脚本
   默认不跑；需要时可 `scripts/check.sh --static --with-app-tests`。

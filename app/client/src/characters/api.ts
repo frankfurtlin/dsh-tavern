@@ -1,4 +1,4 @@
-import {api,authorizationHeaders,newKey} from '../api'
+import {api,authorizationHeaders} from '../api'
 import {backendBase} from '../platform/bridge'
 
 export interface CardOut {
@@ -214,13 +214,6 @@ export async function contextPreview(cardId:string,message:string):Promise<Conte
   return api<ContextPreview>(PREFIX+'/'+encodeURIComponent(cardId)+'/context-preview',{method:'POST',body:{message}})
 }
 
-export interface GroupCard {id:string;name:string;description?:string;avatarUrl?:string|null}
-export interface GroupChat {id:string;title:string;cardIds:string[];presetId?:string|null;status?:string;createdAt?:string;updatedAt?:string}
-export interface GroupChatSummary {id:string;title:string;cards:{id:string;name:string}[];lastText?:string;updatedAt?:string}
-export interface GroupMessage {id:string;role:'user'|'assistant';speakerCardId?:string|null;speakerName?:string|null;text:string;status?:'saved'|'pending'|'failed';createdAt?:string}
-export interface GroupChatDetail {chat:GroupChat;cards:GroupCard[];messages:GroupMessage[]}
-export interface GroupChatSendResult {taskId:string;chatId:string;speakerCardId:string;speakerName:string}
-export interface GroupChatPage {items:GroupChatSummary[]}
 
 export async function listMemories(cardId:string):Promise<Memory[]>{
   const result=await api<MemoryPage|Memory[]>(PREFIX+'/'+encodeURIComponent(cardId)+'/memories')
@@ -250,44 +243,6 @@ export async function extractMemories(cardId:string):Promise<MemoryExtractResult
 export async function setCompanion(cardId:string,companion:boolean):Promise<CardOut>{
   const result=await api<CardOut|CardEnvelope>(PREFIX+'/'+encodeURIComponent(cardId)+'/companion',{method:'POST',body:{companion}})
   return unwrap<CardOut>(result,'card')
-}
-
-const GROUPS='/card-group-chats'
-
-export async function listGroupChats():Promise<GroupChatSummary[]>{
-  const result=await api<GroupChatPage|GroupChatSummary[]>(GROUPS)
-  return itemsOf<GroupChatSummary>(result)
-}
-
-export async function createGroupChat(cardIds:string[],title?:string):Promise<GroupChat>{
-  const body:Record<string,unknown>={cardIds}
-  if(title?.trim())body.title=title.trim()
-  const result=await api<GroupChat|{chat:GroupChat}>(GROUPS,{method:'POST',body})
-  return unwrap<GroupChat>(result,'chat')
-}
-
-// The contract returns {chat,cards,messages}; tolerate a bare chat merged with
-// the two arrays so a backend that flattens the envelope still renders.
-export async function getGroupChat(id:string):Promise<GroupChatDetail>{
-  const result=await api<GroupChatDetail|(GroupChat&{cards?:GroupCard[];messages?:GroupMessage[]})>(GROUPS+'/'+encodeURIComponent(id))
-  if(result&&typeof result==='object'&&'chat' in result)return result as GroupChatDetail
-  const chat=result as GroupChat
-  return {
-    chat,
-    cards:Array.isArray((chat as GroupChat&{cards?:GroupCard[]}).cards)?(chat as GroupChat&{cards:GroupCard[]}).cards:[],
-    messages:Array.isArray((chat as GroupChat&{messages?:GroupMessage[]}).messages)?(chat as GroupChat&{messages:GroupMessage[]}).messages:[],
-  }
-}
-
-export async function sendGroupMessage(chatId:string,message:string):Promise<GroupChatSendResult>{
-  const turnId=newKey()
-  // The turn id also acts as the idempotency key so a retried request cannot
-  // create two user messages for the same send.
-  return api<GroupChatSendResult>(GROUPS+'/'+encodeURIComponent(chatId)+'/messages',{method:'POST',body:{message,turnId},key:turnId})
-}
-
-export async function deleteGroupChat(id:string):Promise<void>{
-  await api<unknown>(GROUPS+'/'+encodeURIComponent(id),{method:'DELETE'})
 }
 
 // <img src> cannot carry the Bearer token, so avatars are fetched as blobs.

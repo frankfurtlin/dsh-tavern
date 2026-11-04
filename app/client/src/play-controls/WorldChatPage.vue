@@ -24,7 +24,7 @@ const route=useRoute(),id=String(route.params.sessionId),root='/play-controls/wo
 const modelSettings=ref<InstanceType<typeof PlaySettings>>(),modelButton=ref<InstanceType<typeof ModelControlButton>>()
 const backup=ref(false),deleting=ref(false),sourcePreview=ref<{fromTime:string;toTime:string;changed:boolean;addedFacts:{title:string;text:string}[]}>(),messageSearch=ref(''),matches=ref<ChatMessage[]>([]),sourceOpen=ref(false),locatedSequence=ref(0),searching=ref(false),olderBusy=ref(false)
 async function closeSettings(){if(await modelSettings.value?.requestClose())settings.value=false}
-const intent=ref<ChatIntent|null>(null),running=computed(()=>!!chat.value?.pendingTaskId),sourceLink=computed(()=>chat.value?'/worlds/'+chat.value.worldId+'/play?line='+chat.value.lineId:'/works'),slot=computed(()=>chat.value?'world-chat-draft:'+chat.value.worldId+':'+chat.value.lineId+':'+id:'')
+const intent=ref<ChatIntent|null>(null),running=computed(()=>!!chat.value?.pendingTaskId),sourceLink=computed(()=>chat.value?'/worlds/'+chat.value.worldId+'/play?line='+chat.value.lineId:'/explore'),slot=computed(()=>chat.value?'world-chat-draft:'+chat.value.worldId+':'+chat.value.lineId+':'+id:'')
 let timer:ReturnType<typeof setTimeout>|undefined,disposed=false,loadedDraft=false
 async function persist(){if(slot.value)await cacheSet(slot.value,{worldId:chat.value!.worldId,lineId:chat.value!.lineId,draft:draft.value,intent:intent.value})}
 watch(draft,()=>{if(loadedDraft)void persist().catch(()=>{error.value='输入暂时无法保存在此设备，请保持页面打开。'})})

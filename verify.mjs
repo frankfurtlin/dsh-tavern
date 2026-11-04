@@ -2,7 +2,7 @@
  * dsh-tavern 端到端验收脚本（真实浏览器行为，不是静态代码检查）。
  *
  * 用法：
- *   node verify.mjs --url "http://127.0.0.1:3080/?token=..." [--out dir] [--no-bridge] [--open-story] [--cards] [--real] [--space] [--groups] [--memory]
+ *   node verify.mjs --url "http://127.0.0.1:3080/?token=..." [--out dir] [--no-bridge] [--open-story] [--cards] [--real] [--space] [--memory]
  *
  * 检查分组（与 docs/contract.md v1 对应）：
  *   A. 鉴权与入口：未登录 GET /tavern/ 必须被 DSH 闸门挡住（401）；登录态 200。
@@ -25,14 +25,14 @@
  *   S. --space（B 步，docs/step3-card-space.md §6）：卡详情改名、世界书导入/手工条目、
  *      正则「。」→「！」对回复生效、预设绑定 + context-preview、console clean。隐含 --cards；
  *      角色卡空间 UI/API 未接入时逐项 SKIP 并写明 owner（cards-client / app-auth），不 FAIL。
- *   T. --groups（B2，docs/step3b-group-chat.md §5）：角色卡库多选 2 张 → 发起群聊 →
- *      参与者正确 → 发消息（真实回复 + 发言人=API speakerName）→ 再发一条轮转 →
- *      整页刷新消息仍在 → 删除群聊列表回落 → console clean。隐含 --cards；
- *      真实生成请配合 --real。证据写入 report.groups。
- *   M. 导航回归（task-24，随 --cards 运行）：左侧导航不再有「我的」分组 tab 与
- *      我的对话/我的笔记/模型与用量/账号设置/任务进度/反馈与通知/使用帮助 7 个入口；
- *      /settings、/settings/models、/notebook、/help、/tasks/activity、/conversations
- *      均重定向到 /explore 且无 console 报错；/conversations/world/:id 仍能打开。证据写入 report.nav。
+ *   M. 单用户导航回归（task-24/25，随 --cards 运行）：左侧导航只剩「故事与阅读」「创作」两组与
+ *      「探索作品」「角色卡库」两个入口；/settings、/settings/models、/notebook、/help、
+ *      /tasks/activity、/conversations、/works、/recent、/my-prompts、/product/knowledge、
+ *      /characters/groups、/published/abc、/creators、/community 均重定向到 /explore 且无 console
+ *      报错；/conversations/world/:id 仍能打开。证据写入 report.nav。
+ *   N. 探索页单用户化（task-25，随 --cards 运行）：标题行不再有指向 /recent 的「最近游玩」
+ *      链接；「公开互动作品」整节与卡片「作品详情」链接不存在；玩过精选故事后对应卡片出现
+ *      文本精确为「最近游玩」的 .recent-flag 徽标。证据写入 report.explore。
  *   U. --memory（C 步，docs/step4-companion-memory.md §7）：卡详情手工记忆增删改 →
  *      聊天发 2 条含自述的消息 → 「立即整理」抽取出 ≥1 条 → 注入预览含手工记忆标题 →
  *      停用/删除后注入预览不再含 → 设为长期伙伴后卡库顶部「长期伙伴」分组置顶 → console clean。
@@ -45,8 +45,7 @@
  *   - 默认不写应用数据：不打开作品、只开草稿、不点发送。
  *     --open-story 会在应用 explore 页点一部 live 作品进入故事页（会写阅读进度），
  *     仅用于验证「续写提示词模板」全链路；--cards 会导入/删除测试角色卡；--space 会额外
- *     改一张测试卡的卡名/世界书/预设/正则；--groups 会建群聊/发消息再删除（都在测试卡上
- *     操作，会写测试库）。
+ *     改一张测试卡的卡名/世界书/预设/正则（都在测试卡上操作，会写测试库）。
  */
 import { createRequire } from 'node:module'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
@@ -81,9 +80,9 @@ const report = {
   cards: null,
   real: null,
   space: null,
-  groups: null,
   memory: null,
   nav: null,
+  explore: null,
   screenshots: [],
 }
 
@@ -410,7 +409,8 @@ try {
     )
     check(
       '内嵌应用渲染出稳定内容（品牌 + 侧栏导航）',
-      Boolean(appState && appState.brand.includes('酒馆') && appState.nav.length >= 3),
+      // task-25 单用户精简后侧栏只剩「探索作品」「角色卡库」两个入口（原来 >=3 已过时）。
+      Boolean(appState && appState.brand.includes('酒馆') && appState.nav.length >= 2),
       appState ? `brand=${clip(appState.brand, 20)} nav=${clip(appState.nav.join('/'), 80)}` : 'n/a',
     )
     check('内嵌应用正文不是空白', Boolean(appState && appState.bodyLength > 200), appState ? `bodyLength=${appState.bodyLength}` : 'n/a')
@@ -926,7 +926,7 @@ try {
   // 选择器原则：能用稳定文本（导航「角色卡库」、按钮「导入角色卡」「开聊」「删除」）就不猜 class。
   const real = args.includes('--real')
   const realNegative = args.includes('--real-negative')
-  const runCards = args.includes('--cards') || real || args.includes('--space') || args.includes('--groups')
+  const runCards = args.includes('--cards') || real || args.includes('--space')
   const cardsEvidence = { fixturesDir: null, imported: [], avatar: null, chat: null, reload: null, deleted: null }
   // H/S 组共用的 iframe 查找/导航助手（--cards/--space 都用到；提前定义，避免 S 组重写一遍）。
   const fnow = () => page.frames().find((candidate) => /\/tavern\//.test(candidate.url())) || null
@@ -988,6 +988,7 @@ try {
       '刷新聊天页后用户消息与回复仍在',
       '删除卡后列表不再出现该卡名',
       '删除只删一张卡（其余 fixture 卡仍在）',
+      '角色卡库不再出现群聊入口（发起群聊/群聊按钮）',
     ]
     const skipAllCards = (reason) => {
       for (const name of cardsCheckNames) skip(name, reason)
@@ -1023,6 +1024,14 @@ try {
           const fileInput = frame.locator('input[type="file"]').first()
           const hasInput = (await fileInput.count().catch(() => 0)) > 0
           check(cardsCheckNames[1], hasInput, hasInput ? 'input[type=file] 存在' : '找不到导入文件框（期望 accept .png,.json，owner: cards-client）')
+          // task-25：群聊入口已从客户端删除，卡库不应再有「发起群聊」「群聊」按钮/入口。
+          const groupEntryCount = await frame.locator('button').filter({ hasText: /发起群聊|^群聊$/ }).count().catch(() => 0)
+          const groupLinkCount = await frame.locator('a').filter({ hasText: /发起群聊|^群聊$/ }).count().catch(() => 0)
+          check(
+            cardsCheckNames[12],
+            groupEntryCount === 0 && groupLinkCount === 0,
+            groupEntryCount + groupLinkCount === 0 ? '卡库无群聊按钮/入口' : `仍出现群聊入口：button=${groupEntryCount} link=${groupLinkCount}（owner: cards-client）`,
+          )
 
           // 隔离实例与生产库共用：库里可能已有同名卡（Lead 冒烟会先导入一张「林小满」）。
           // 导入/删除断言都基于「基线计数」判断增量，避免把环境里的同名卡算成自己导入的。
@@ -1751,329 +1760,6 @@ try {
   }
   report.space = spaceEvidence
 
-  // ── T. 群聊（--groups）──────────────────────────────────────────────────────
-  // 依赖 cards-client 的 /characters 多选 + /characters/groups 列表/详情页 + app-auth 的
-  // /card-group-chats API（docs/step3b-group-chat.md §5）。真实生成请配合 --real 使用。
-  const runGroups = args.includes('--groups')
-  const groupCheckNames = [
-    'T1 多选两张角色卡发起群聊 → 进群聊页且参与者正确',
-    'T2 发送消息 → 出现真实回复且发言人=返回的 speakerName',
-    'T3 再发一条 → 发言人轮转（与上一条不同）',
-    'T4 整页刷新群聊页后消息仍在',
-    'T5 删除群聊 → 列表数量回落',
-    'T6 群聊操作后 console 无报错',
-  ]
-  const groupsEvidence = {
-    enabled: runGroups,
-    selected: [],
-    selectionCount: null,
-    group: null,
-    messages: [],
-    rotation: null,
-    persisted: null,
-    deleted: null,
-    console: null,
-    steps: [],
-  }
-  const groupSteps = groupsEvidence.steps
-  const groupCheck = (name, ok, detail) => {
-    check(name, ok, detail)
-    groupSteps.push({ name, ok: !!ok, skipped: false, detail: detail === undefined ? null : String(detail) })
-  }
-  const groupSkip = (name, detail) => {
-    skip(name, detail)
-    groupSteps.push({ name, ok: true, skipped: true, detail: detail === undefined ? null : String(detail) })
-  }
-  const skipRemainingGroups = (reason) => {
-    const seen = new Set(groupSteps.map((step) => step.name))
-    for (const name of groupCheckNames) if (!seen.has(name)) groupSkip(name, reason)
-  }
-  if (runGroups) {
-    const groupConsoleStart = consoleErrors.length
-    let frame = fnow()
-    let chatId = ''
-    const sendCalls = []
-    const onGroupResponse = (response) => {
-      try {
-        const pathName = new URL(response.url()).pathname
-        if (!/\/card-group-chats\/[^/]+\/messages$/.test(pathName)) return
-        if (response.request().method() !== 'POST') return
-        const call = { status: response.status(), url: pathName, at: Date.now(), body: undefined }
-        sendCalls.push(call)
-        response.json().then((data) => { call.body = data }).catch(() => {})
-      } catch {
-        /* 页面卸载时的异常响应忽略 */
-      }
-    }
-    page.on('response', onGroupResponse)
-    try {
-      if (!frame) {
-        skipRemainingGroups('故事之间应用 iframe 没打开（侧栏/面板未就绪，owner: plugin-core）')
-      } else {
-        // T1. 角色卡库多选 2 张 → 发起群聊 → 进群聊页且参与者正确。
-        frame = (await openCharactersPage()) || frame
-        await frame.locator('.workspace-loading').waitFor({ state: 'detached', timeout: 15000 }).catch(() => {})
-        await page.waitForTimeout(800)
-        const selected = []
-        for (const name of ['顾清和', '沈夜舟', '陆三更改']) {
-          if (selected.length >= 2) break
-          const card = frame.locator('article.character-card').filter({ has: frame.getByText(name, { exact: true }) }).first()
-          if (!(await card.count().catch(() => 0))) continue
-          const box = card.locator('input[type=checkbox]').first()
-          if (!(await box.count().catch(() => 0))) continue
-          await box.check({ force: true }).catch(() => {})
-          if (await box.isChecked().catch(() => false)) selected.push(name)
-        }
-        if (selected.length < 2) {
-          // 兜底：库里若还有别的卡就任选两张（例如 H 组提前失败留下不同卡名）。
-          const cards = frame.locator('article.character-card')
-          const total = await cards.count().catch(() => 0)
-          for (let index = 0; index < total && selected.length < 2; index += 1) {
-            const card = cards.nth(index)
-            const name = ((await card.locator('h2').first().textContent().catch(() => '')) || '').trim()
-            if (!name || selected.includes(name)) continue
-            const box = card.locator('input[type=checkbox]').first()
-            if (!(await box.count().catch(() => 0))) continue
-            await box.check({ force: true }).catch(() => {})
-            if (await box.isChecked().catch(() => false)) selected.push(name)
-          }
-        }
-        groupsEvidence.selected = selected
-        const selectionCount = await frame.locator('.selection-count').first().textContent().catch(() => null)
-        groupsEvidence.selectionCount = selectionCount ? selectionCount.trim() : null
-        await shot(page, '20-groups-select.png')
-        if (selected.length < 2) {
-          skipRemainingGroups(`角色卡库里可勾选的卡不足 2 张（已选 ${selected.length}；H 组之后应保留 ≥2 张测试卡，owner: cards-client）`)
-        } else {
-          const startButton = frame.getByRole('button', { name: /发起群聊/ }).first()
-          await startButton.click({ force: true }).catch(() => {})
-          const groupFrame = await waitFrameUrl(/\/characters\/groups\/[^/]+/, 30000)
-          if (groupFrame) frame = groupFrame
-          const groupUrl = groupFrame ? groupFrame.url() : ''
-          const idMatch = groupUrl.match(/\/characters\/groups\/([^/?#]+)/)
-          chatId = idMatch ? idMatch[1] : ''
-          await frame.locator('.group-participants').waitFor({ state: 'visible', timeout: 20000 }).catch(() => {})
-          const participants = ((await frame.locator('.group-participant small').allTextContents().catch(() => [])) || [])
-            .map((text) => text.trim())
-            .filter(Boolean)
-          const participantsOk = selected.length >= 2 && selected.every((name) => participants.includes(name))
-          groupsEvidence.group = { id: chatId, url: groupUrl, participants }
-          groupCheck(
-            groupCheckNames[0],
-            Boolean(groupFrame && chatId && participants.length >= 2 && participantsOk),
-            `选中=${selected.join('、')}；群聊页=${groupUrl ? new URL(groupUrl).pathname : 'n/a'}；参与者=${participants.join('、') || '无'}${
-              selectionCount ? `；选择栏=${clip(selectionCount.trim(), 40)}` : ''
-            }`,
-          )
-          if (!chatId) {
-            skipRemainingGroups('发起群聊后 URL 里拿不到群聊 id（创建/路由失败，owner: cards-client / app-auth）')
-          } else {
-            const assistantArticles = () => frame.locator('article.group-message.from-assistant')
-            const countSavedAssistant = async () => {
-              const total = await assistantArticles().count().catch(() => 0)
-              let savedTotal = 0
-              for (let index = 0; index < total; index += 1) {
-                const bubble = assistantArticles().nth(index).locator('.group-bubble')
-                const cls = (await bubble.getAttribute('class').catch(() => '')) || ''
-                const text = ((await bubble.textContent().catch(() => '')) || '').trim()
-                if (!cls.includes('pending') && text && text !== '…' && text !== '正在组织语言…') savedTotal += 1
-              }
-              return savedTotal
-            }
-            const lastSavedAssistant = async () => {
-              const total = await assistantArticles().count().catch(() => 0)
-              let result = null
-              for (let index = 0; index < total; index += 1) {
-                const article = assistantArticles().nth(index)
-                const bubble = article.locator('.group-bubble')
-                const cls = (await bubble.getAttribute('class').catch(() => '')) || ''
-                const text = ((await bubble.textContent().catch(() => '')) || '').trim()
-                if (cls.includes('pending') || !text || text === '…' || text === '正在组织语言…') continue
-                const speaker = ((await article.locator('.group-message-speaker strong').first().textContent().catch(() => '')) || '').trim()
-                result = { text, speaker }
-              }
-              return result
-            }
-            const waitSavedReply = async (beforeCount, timeoutMs) => {
-              const deadline = Date.now() + timeoutMs
-              while (Date.now() < deadline) {
-                const savedTotal = await countSavedAssistant()
-                if (savedTotal > beforeCount) return lastSavedAssistant()
-                const alert = await frame.locator('[role="alert"]').first().textContent().catch(() => null)
-                if (alert && /失败|超时|错误/.test(alert)) return { error: alert.trim() }
-                await page.waitForTimeout(700)
-              }
-              return null
-            }
-            const sendMessage = async (messageText) => {
-              const textarea = frame.getByPlaceholder('对大家说点什么…').first()
-              if (!(await textarea.count().catch(() => 0))) return { error: '找不到群聊输入框（owner: cards-client）' }
-              await textarea.fill(messageText)
-              const sendButton = frame.locator('form.group-composer button[type="submit"]').first()
-              const enableDeadline = Date.now() + 15000
-              while (Date.now() < enableDeadline && (await sendButton.isDisabled().catch(() => true))) await page.waitForTimeout(200)
-              const before = await countSavedAssistant()
-              const callsBefore = sendCalls.length
-              const startedAt = Date.now()
-              await sendButton.click({ force: true }).catch(() => {})
-              // DSH 桌宠气泡/悬浮层可能盖住右下角发送按钮，force click 会点在遮罩上而不触发 submit。
-              // 先正常点；几秒内既没有 POST 也没有新回复时，退化为 DOM click（仍走应用 send() 逻辑）。
-              let clickPath = 'click'
-              const firstTick = Date.now() + 6000
-              while (Date.now() < firstTick && sendCalls.length <= callsBefore) await page.waitForTimeout(200)
-              if (sendCalls.length <= callsBefore) {
-                clickPath = 'js-click'
-                await sendButton.evaluate((el) => el.click()).catch(() => {})
-              }
-              const callDeadline = Date.now() + 20000
-              while (Date.now() < callDeadline && sendCalls.length <= callsBefore) await page.waitForTimeout(200)
-              const call = sendCalls.length > callsBefore ? sendCalls[sendCalls.length - 1] : null
-              if (call) {
-                const bodyDeadline = Date.now() + 3000
-                while (call.body === undefined && Date.now() < bodyDeadline) await page.waitForTimeout(100)
-              }
-              const body = call && call.body ? call.body : null
-              const reply = await waitSavedReply(before, 180000)
-              return {
-                text: messageText,
-                elapsedMs: Date.now() - startedAt,
-                clickPath,
-                httpStatus: call ? call.status : null,
-                response: body
-                  ? { taskId: body.taskId || null, chatId: body.chatId || null, speakerCardId: body.speakerCardId || null, speakerName: body.speakerName || null }
-                  : null,
-                reply: reply && reply.text ? reply : null,
-                error: reply && reply.error ? reply.error : null,
-              }
-            }
-            // T2. 第一条消息：真实回复 + 发言人 = API 返回的 speakerName。
-            const first = await sendMessage('你们好')
-            groupsEvidence.messages.push(first)
-            const speaker1 = first.response && first.response.speakerName ? String(first.response.speakerName) : null
-            const shown1 = first.reply && first.reply.speaker ? String(first.reply.speaker) : null
-            const reply1 = first.reply ? first.reply.text : ''
-            const mockPhrase = '我们可以聊聊此刻的想法'
-            const hasMockPhrase = reply1.includes(mockPhrase)
-            groupCheck(
-              groupCheckNames[1],
-              Boolean(reply1) && Boolean(speaker1) && shown1 === speaker1 && !hasMockPhrase,
-              reply1
-                ? `发言人=${shown1 || '无'}（API speakerName=${speaker1 || '无'}，HTTP ${first.httpStatus ?? 'n/a'}）；${real ? '真生成' : 'mock'} 回复：${clip(reply1, 100)}；耗时=${first.elapsedMs}ms${
-                    hasMockPhrase ? '；⚠️ 出现 mock 特征句，应用仍是 AI_MODE=mock（owner: app-auth 环境）' : ''
-                  }`
-                : `180s 内没等到群聊回复${first.error ? `（${clip(first.error, 100)}）` : ''}（owner: app-auth 群聊任务/模型网关）`,
-            )
-            if (reply1) await shot(page, '21-group-reply.png')
-            // T3. 第二条消息：发言人轮转（与第一条不同），且 UI 发言人 = 新 speakerName。
-            const nextSpeakerText = ((await frame.locator('.group-next').first().textContent().catch(() => '')) || '').trim()
-            let second = { error: '第一条没有成功，未执行第二条' }
-            if (reply1) {
-              second = await sendMessage('那你们谁先说说？')
-              groupsEvidence.messages.push(second)
-            }
-            const speaker2 = second.response && second.response.speakerName ? String(second.response.speakerName) : null
-            const shown2 = second.reply && second.reply.speaker ? String(second.reply.speaker) : null
-            const reply2 = second.reply ? second.reply.text : ''
-            groupsEvidence.rotation = { nextSpeakerText, first: speaker1, second: speaker2, shown: shown2 }
-            groupCheck(
-              groupCheckNames[2],
-              Boolean(reply1 && reply2 && speaker1 && speaker2 && speaker2 !== speaker1 && shown2 === speaker2),
-              reply2
-                ? `发言人轮转：${speaker1 || '无'} → ${speaker2 || '无'}（UI=${shown2 || '无'}；下一位提示=${clip(nextSpeakerText, 40) || '无'}）；第二条：${clip(reply2, 80)}`
-                : second.error
-                  ? `第二条没发成/没回复：${clip(second.error, 120)}（owner: app-auth 轮转/pending/模型网关）`
-                  : `发言人没有轮转（${speaker1 || '无'} → ${speaker2 || '无'}；owner: app-auth 轮转逻辑）`,
-            )
-            if (reply2) await shot(page, '22-group-rotate.png')
-            // T4. iframe 内整页刷新 → 两条问答仍在（文本比对，不只看条数）。
-            await frame.evaluate(() => location.reload()).catch(() => {})
-            const escapedId = chatId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-            const reloaded = await waitFrameUrl(new RegExp(`/characters/groups/${escapedId}`), 30000)
-            let persisted = null
-            if (reloaded) {
-              frame = reloaded
-              await frame.locator('.group-messages, .group-empty').first().waitFor({ state: 'visible', timeout: 30000 }).catch(() => {})
-              const deadline = Date.now() + 45000
-              while (Date.now() < deadline) {
-                const userTexts = ((await frame.locator('article.group-message.from-user .group-bubble').allTextContents().catch(() => [])) || []).map((text) => text.trim())
-                const assistantTexts = (((await frame.locator('article.group-message.from-assistant .group-bubble').allTextContents().catch(() => [])) || [])
-                  .map((text) => text.trim())
-                  .filter((text) => text && text !== '…' && text !== '正在组织语言…'))
-                const hasFirstUser = userTexts.some((text) => text.includes('你们好'))
-                const replyMatched = (expected) =>
-                  Boolean(expected) && assistantTexts.some((text) => text === expected || (expected.length >= 20 && text.includes(expected.slice(0, 20))))
-                const hasReply1 = replyMatched(reply1 || '')
-                const hasReply2 = replyMatched(reply2 || '')
-                if (hasFirstUser && hasReply1 && hasReply2) {
-                  persisted = {
-                    userMessages: userTexts.length,
-                    assistantMessages: assistantTexts.length,
-                    reply1Matched: hasReply1,
-                    reply2Matched: hasReply2,
-                    assistantTexts: assistantTexts.slice(-2).map((text) => clip(text, 80)),
-                  }
-                  break
-                }
-                await page.waitForTimeout(600)
-              }
-            }
-            groupsEvidence.persisted = persisted
-            groupCheck(
-              groupCheckNames[3],
-              Boolean(persisted),
-              persisted
-                ? `刷新后 user=${persisted.userMessages} assistant=${persisted.assistantMessages} 条（reply1Matched=${persisted.reply1Matched} reply2Matched=${persisted.reply2Matched}）`
-                : '刷新后群聊消息不完整或为空（owner: app-auth 持久化 / cards-client 读取）',
-            )
-            await shot(page, '23-group-reload.png')
-            // T5. 返回群聊列表 → 删除本群聊 → 列表数量回落。
-            const backLink = frame.getByRole('link', { name: '返回群聊列表' }).first()
-            if (await backLink.count().catch(() => 0)) await backLink.click({ force: true }).catch(() => {})
-            else await frame.locator('a[href="/characters/groups"]').first().click({ force: true }).catch(() => {})
-            const listFrame = await waitFrameUrl(/\/characters\/groups$/, 20000)
-            if (listFrame) frame = listFrame
-            await frame.locator('.group-list, .workspace-empty').first().waitFor({ state: 'visible', timeout: 20000 }).catch(() => {})
-            const beforeCount = await frame.locator('article.group-item').count().catch(() => 0)
-            const target = frame.locator(`article.group-item[data-chat-id="${chatId}"]`).first()
-            let deleted = null
-            if (await target.count().catch(() => 0)) {
-              await target.getByRole('button', { name: '删除' }).first().click({ force: true }).catch(() => {})
-              const confirm = target.getByRole('button', { name: /确认删除/ }).first()
-              if (await confirm.count().catch(() => 0)) await confirm.click({ force: true }).catch(() => {})
-              const deleteDeadline = Date.now() + 20000
-              while (Date.now() < deleteDeadline) {
-                const gone = (await frame.locator(`article.group-item[data-chat-id="${chatId}"]`).count().catch(() => 1)) === 0
-                const afterCount = await frame.locator('article.group-item').count().catch(() => beforeCount)
-                if (gone && afterCount < beforeCount) {
-                  deleted = { before: beforeCount, after: afterCount }
-                  break
-                }
-                await page.waitForTimeout(500)
-              }
-            }
-            groupsEvidence.deleted = deleted
-            groupCheck(
-              groupCheckNames[4],
-              Boolean(deleted),
-              deleted
-                ? `群聊列表 ${deleted.before} → ${deleted.after}`
-                : `删除后列表没有回落（chatId=${chatId}，列表 ${beforeCount} 条；owner: cards-client 删除按钮 / app-auth DELETE）`,
-            )
-            await shot(page, '24-group-deleted.png')
-          }
-        }
-      }
-    } finally {
-      page.off('response', onGroupResponse)
-      const groupConsoleErrors = consoleErrors.slice(groupConsoleStart).filter((text) => !/Failed to load resource/.test(text))
-      groupsEvidence.console = { clean: groupConsoleErrors.length === 0, errors: groupConsoleErrors.slice(0, 3) }
-      const seen = new Set(groupSteps.map((step) => step.name))
-      if (!seen.has(groupCheckNames[5])) {
-        groupCheck(groupCheckNames[5], groupConsoleErrors.length === 0, groupConsoleErrors.slice(0, 3).join(' | ') || 'clean')
-      }
-    }
-  }
-  report.groups = groupsEvidence
 
   // ── U. 长期伙伴与记忆（--memory / C 组）───────────────────────────────────
   // 依赖 task-19（app-auth：/memories CRUD、/memories/extract、/companion、context-preview 的
@@ -2549,19 +2235,29 @@ try {
   }
   report.memory = memoryEvidence
 
-  // ── M. 「我的」移除后的导航回归（task-24）───────────────────────────────────
+  // ── M. 单用户导航回归（task-24/25，随 --cards 运行）────────────────────────
   if (runCards) {
     const navNames = [
-      'M1 左侧导航不再出现「我的」分组 tab 与 7 个已删除入口',
+      'M1 左侧导航只剩「故事与阅读」「创作」两组与「探索作品」「角色卡库」两个入口',
       'M2 /tavern/settings 重定向到 /explore',
       'M3 /tavern/settings/models 重定向到 /explore',
       'M4 /tavern/notebook 重定向到 /explore',
       'M5 /tavern/help 重定向到 /explore',
       'M6 /tavern/tasks/activity 重定向到 /explore',
       'M7 /tavern/conversations 重定向到 /explore',
-      'M8 /tavern/conversations/world/:id 仍能打开聊天页',
-      'M9 M 组导航期间 console 无报错',
+      'M8 /tavern/works 重定向到 /explore',
+      'M9 /tavern/recent 重定向到 /explore',
+      'M10 /tavern/my-prompts 重定向到 /explore',
+      'M11 /tavern/product/knowledge 重定向到 /explore',
+      'M12 /tavern/characters/groups 重定向到 /explore',
+      'M13 /tavern/published/abc 重定向到 /explore',
+      'M14 /tavern/creators 重定向到 /explore',
+      'M15 /tavern/community 重定向到 /explore',
+      'M16 /tavern/conversations/world/:id 仍能打开聊天页',
+      'M17 M 组导航期间 console 无报错',
     ]
+    const chatIndex = navNames.length - 2
+    const consoleIndex = navNames.length - 1
     const navEvidence = {
       enabled: true,
       sidebar: null,
@@ -2595,36 +2291,39 @@ try {
     try {
       if (!navFrame) throw new Error('拿不到应用 iframe（owner: plugin-core）')
 
-      // ── M1 左侧导航：不得再出现「我的」分组 tab 与 7 个已删除入口 ──
+      // ── M1 左侧导航：只保留两组两个入口（task-25 单用户精简）──
       const sidebarShown = await navWait(async () => (await navFrame.locator('.shell-sidebar').count().catch(() => 0)) > 0, 15000)
       if (!sidebarShown) throw new Error('15s 内没有渲染左侧导航 .shell-sidebar（owner: cards-client）')
       const sidebarText = ((await navFrame.locator('.shell-sidebar').innerText().catch(() => '')) || '').trim()
       const groupLabels = (await navFrame.locator('.shell-nav-label').allTextContents().catch(() => [])).map((label) => label.trim())
       const navLinkNames = (await navFrame.locator('.shell-sidebar nav a span').allTextContents().catch(() => [])).map((label) => label.trim())
-      const removedEntries = ['我的对话', '我的笔记', '模型与用量', '账号设置', '任务进度', '反馈与通知', '使用帮助']
+      const expectedGroups = ['故事与阅读', '创作']
+      const expectedLinks = ['探索作品', '角色卡库']
+      const removedEntries = ['我的作品', '最近体验', '创作工作台', '群聊', '我的提示词', '参考资料',
+        '我的对话', '我的笔记', '模型与用量', '账号设置', '任务进度', '反馈与通知', '使用帮助']
       const hitEntries = removedEntries.filter((label) => sidebarText.includes(label))
       const hitGroups = groupLabels.filter((label) => label.includes('我的'))
-      navEvidence.sidebar = { text: clip(sidebarText, 600), groups: groupLabels, links: navLinkNames, removedHits: hitEntries, groupTabHits: hitGroups }
+      const groupsExact = groupLabels.length === expectedGroups.length && groupLabels.every((label, index) => label === expectedGroups[index])
+      const linksExact = navLinkNames.length === expectedLinks.length && navLinkNames.every((label, index) => label === expectedLinks[index])
+      navEvidence.sidebar = { text: clip(sidebarText, 600), groups: groupLabels, links: navLinkNames, expectedGroups, expectedLinks, removedHits: hitEntries, groupTabHits: hitGroups, groupsExact, linksExact }
       navRecord(
         0,
-        hitEntries.length === 0 && hitGroups.length === 0,
-        hitEntries.length || hitGroups.length
-          ? `左侧导航仍含已删除入口=${JSON.stringify(hitEntries)} 分组 tab=${JSON.stringify(hitGroups)}（owner: cards-client）`
-          : `分组=${groupLabels.join('/')}；入口=${navLinkNames.join('、')}`,
+        groupsExact && linksExact && hitEntries.length === 0 && hitGroups.length === 0,
+        groupsExact && linksExact && hitEntries.length === 0 && hitGroups.length === 0
+          ? `分组=${groupLabels.join('/')}；入口=${navLinkNames.join('、')}`
+          : `导航不符合单用户精简：分组=${JSON.stringify(groupLabels)}（期望 ${JSON.stringify(expectedGroups)}）入口=${JSON.stringify(navLinkNames)}（期望 ${JSON.stringify(expectedLinks)}）仍含已删入口=${JSON.stringify(hitEntries)} 分组 tab=${JSON.stringify(hitGroups)}（owner: cards-client 导航配置）`,
       )
-      await shot(page, '30-nav-sidebar.png')
+      await shot(page, '40-nav-sidebar.png')
 
-      // ── M2–M7 已删除路由应重定向到 /explore ──
+      // ── M2–M15 已删除路由应重定向到 /explore（task-24 六条 + task-25 八条）──
       const navOrigin = new URL(navFrame.url()).origin
-      const redirectCases = [
-        ['/settings', 1],
-        ['/settings/models', 2],
-        ['/notebook', 3],
-        ['/help', 4],
-        ['/tasks/activity', 5],
-        ['/conversations', 6],
+      const redirectPaths = [
+        '/settings', '/settings/models', '/notebook', '/help', '/tasks/activity', '/conversations',
+        '/works', '/recent', '/my-prompts', '/product/knowledge', '/characters/groups', '/published/abc',
+        '/creators', '/community',
       ]
-      for (const [path, index] of redirectCases) {
+      for (const [offset, path] of redirectPaths.entries()) {
+        const index = offset + 1
         const beforeErrors = consoleErrors.length
         await navFrame.goto(`${navOrigin}/tavern${path}`, { waitUntil: 'domcontentloaded' }).catch(() => {})
         const landedExplore = await navWait(async () => /\/tavern\/explore\/?(?:[?#].*)?$/.test(navFrame.url()), 25000)
@@ -2639,16 +2338,16 @@ try {
         navRecord(index, ok, ok
           ? `${path} → ${currentPath}（探索页已渲染）`
           : `${path} 未按预期重定向：当前=${currentPath} 探索页=${exploreShown} 标题=${headingShown} 提示=${JSON.stringify(alerts)} console=${JSON.stringify(chunkErrors)}（owner: cards-client 路由）`)
-        if (path === '/settings') await shot(page, '31-nav-redirect-explore.png')
+        if (path === '/settings') await shot(page, '41-nav-redirect-explore.png')
       }
 
-      // ── M8 /conversations/world/:id 仍能打开聊天页 ──
+      // ── M16 /conversations/world/:id 仍能打开聊天页 ──
       const chatUrl = memoryEvidence.chat && memoryEvidence.chat.url ? memoryEvidence.chat.url : null
       if (!chatUrl) {
         navEvidence.chat = { url: null, ok: false, skipped: true }
-        navDone.add(7)
-        navEvidence.steps.push({ index: 7, name: navNames[7], ok: true, skipped: true, detail: '本次运行没有创建单卡聊天（没有可复用的 /conversations/world/:id），跳过 M8' })
-        record(navNames[7], true, '本次运行没有创建单卡聊天（没有可复用的 /conversations/world/:id），跳过 M8', true)
+        navDone.add(chatIndex)
+        navEvidence.steps.push({ index: chatIndex, name: navNames[chatIndex], ok: true, skipped: true, detail: '本次运行没有创建单卡聊天（没有可复用的 /conversations/world/:id），跳过 M16' })
+        record(navNames[chatIndex], true, '本次运行没有创建单卡聊天（没有可复用的 /conversations/world/:id），跳过 M16', true)
       } else {
         const beforeErrors = consoleErrors.length
         await navFrame.goto(chatUrl, { waitUntil: 'domcontentloaded' }).catch(() => {})
@@ -2660,26 +2359,153 @@ try {
         const chunkErrors = consoleErrors.slice(beforeErrors).filter((text) => !/Failed to load resource/.test(text))
         const chatOk = chatReady && !chatErrorText && chunkErrors.length === 0
         navEvidence.chat = { url: chatUrl, currentPath: (() => { try { return new URL(navFrame.url()).pathname } catch { return null } })(), ok: chatOk, error: chatErrorText, consoleErrors: chunkErrors }
-        navRecord(7, chatOk, chatOk
+        navRecord(chatIndex, chatOk, chatOk
           ? `聊天页可打开：${new URL(chatUrl).pathname}，输入框可见`
           : `聊天页打不开：输入框=${chatReady} 提示=${chatErrorText} console=${JSON.stringify(chunkErrors)}（owner: cards-client / app-auth）`)
-        if (chatOk) await shot(page, '32-nav-chat-still-works.png')
+        if (chatOk) await shot(page, '42-nav-chat-still-works.png')
       }
     } catch (error) {
       navError = error instanceof Error ? error.message : String(error)
       navEvidence.error = navError
     }
-    // M9 在下面单独记录（要看 consoleErrors 切片），这里不要提前把它写成 FAIL。
-    for (let index = 0; index < 8; index += 1) {
+    // M17 在下面单独记录（要看 consoleErrors 切片），这里不要提前把它写成 FAIL。
+    for (let index = 0; index < consoleIndex; index += 1) {
       if (!navDone.has(index)) {
         navRecord(index, false, `M 组未执行完：${navError || '未执行到该步'}（owner: cards-client / harness）`)
       }
     }
-    // ── M9 console clean（只统计 M 组期间产生的报错）──
+    // ── M17 console clean（只统计 M 组期间产生的报错）──
     const navConsoleErrors = consoleErrors.slice(navConsoleStart).filter((text) => !/Failed to load resource/.test(text))
     navEvidence.console = navConsoleErrors
-    if (!navDone.has(8)) navRecord(8, navConsoleErrors.length === 0, navConsoleErrors.length ? `M 组期间 console 有报错：${JSON.stringify(navConsoleErrors.slice(0, 3))}（owner: cards-client）` : 'clean')
+    if (!navDone.has(consoleIndex)) navRecord(consoleIndex, navConsoleErrors.length === 0, navConsoleErrors.length ? `M 组期间 console 有报错：${JSON.stringify(navConsoleErrors.slice(0, 3))}（owner: cards-client）` : 'clean')
     report.nav = navEvidence
+  }
+
+  // ── N. 探索页单用户化（task-25，随 --cards 运行）────────────────────────────
+  if (runCards) {
+    const exploreNames = [
+      'N1 探索页标题行不再有指向 /recent 的「最近游玩」链接',
+      'N2 探索页不再有「公开互动作品」整节',
+      'N3 精选卡上不再有「作品详情」链接',
+      'N4 玩过精选故事后回到探索页 → 对应卡片出现文本精确为「最近游玩」的徽标',
+      'N5 N 组期间 console 无报错',
+    ]
+    const exploreEvidence = { enabled: true, recentLink: null, publicSection: null, detailLinks: null, recentFlag: null, console: null, steps: [] }
+    const exploreConsoleStart = consoleErrors.length
+    const exploreDone = new Set()
+    const exSleep = (ms) => page.waitForTimeout(ms)
+    const exWait = async (predicate, timeout = 20000, interval = 300) => {
+      const deadline = Date.now() + timeout
+      while (Date.now() < deadline) {
+        try {
+          if (await predicate()) return true
+        } catch {}
+        await exSleep(interval)
+      }
+      return false
+    }
+    const exRecord = (index, ok, detail, skipped = false) => {
+      if (exploreDone.has(index)) return
+      exploreDone.add(index)
+      exploreEvidence.steps.push({ index, name: exploreNames[index], ok: Boolean(ok), skipped: Boolean(skipped), detail: detail === undefined ? null : String(detail) })
+      if (skipped) skip(exploreNames[index], detail)
+      else check(exploreNames[index], ok, detail)
+    }
+    let exploreError = null
+    try {
+      const exFrame = fnow()
+      if (!exFrame) throw new Error('拿不到应用 iframe（owner: plugin-core）')
+      const exOrigin = new URL(exFrame.url()).origin
+      await exFrame.goto(`${exOrigin}/tavern/explore`, { waitUntil: 'domcontentloaded' }).catch(() => {})
+      const exploreReady = await exWait(async () => (await exFrame.locator('.discovery-page').count().catch(() => 0)) > 0, 25000)
+      if (!exploreReady) throw new Error('25s 内没有渲染探索页 .discovery-page（owner: cards-client）')
+      await exWait(async () => (await exFrame.locator('.curated-story-card').count().catch(() => 0)) > 0, 20000)
+      await shot(page, '43-explore-simplified.png')
+
+      // N1：标题行不再有指向 /recent 的「最近游玩」链接
+      const recentLinks = await exFrame.locator('a').filter({ hasText: '最近游玩' }).count().catch(() => 0)
+      const recentHrefs = await exFrame.locator('a[href*="/recent"]').count().catch(() => 0)
+      const headerText = ((await exFrame.locator('.workspace-page-header').innerText().catch(() => '')) || '').trim()
+      const headerRecent = headerText.includes('最近游玩')
+      exploreEvidence.recentLink = { recentLinks, recentHrefs, headerRecent, headerText: clip(headerText, 200) }
+      exRecord(0, recentLinks === 0 && recentHrefs === 0 && !headerRecent,
+        recentLinks + recentHrefs === 0 && !headerRecent
+          ? '标题行无「最近游玩」链接，页面无 /recent 链接'
+          : `仍存在「最近游玩」链接：a=${recentLinks} href=${recentHrefs} header=${headerRecent}（owner: cards-client DiscoveryPage）`)
+
+      // N2：「公开互动作品」整节不存在
+      const publicSection = await exFrame.locator('.discovery-page').getByText('公开互动作品', { exact: false }).count().catch(() => 0)
+      const publicHeading = await exFrame.getByRole('heading', { name: /公开互动作品/ }).count().catch(() => 0)
+      exploreEvidence.publicSection = { publicSection, publicHeading }
+      exRecord(1, publicSection === 0 && publicHeading === 0,
+        publicSection + publicHeading === 0 ? '无「公开互动作品」标题/区块' : `仍存在「公开互动作品」区块：text=${publicSection} heading=${publicHeading}（owner: cards-client）`)
+
+      // N3：卡片上没有「作品详情」链接
+      const detailLinkClass = await exFrame.locator('.story-detail-link').count().catch(() => 0)
+      const detailLinkText = await exFrame.locator('.curated-story-card a').filter({ hasText: '作品详情' }).count().catch(() => 0)
+      exploreEvidence.detailLinks = { detailLinkClass, detailLinkText }
+      exRecord(2, detailLinkClass === 0 && detailLinkText === 0,
+        detailLinkClass + detailLinkText === 0 ? '卡片无「作品详情」链接' : `仍有「作品详情」链接：class=${detailLinkClass} text=${detailLinkText}（owner: cards-client）`)
+
+      // N4：进入有 lineId 的精选故事再回探索页 → 对应卡片出现「最近游玩」徽标
+      const cardsLoc = exFrame.locator('.curated-story-card')
+      const cardCount = await cardsLoc.count().catch(() => 0)
+      let pick = null
+      for (let index = 0; index < cardCount; index += 1) {
+        const card = cardsLoc.nth(index)
+        const title = ((await card.locator('h3').innerText().catch(() => '')) || '').trim()
+        if (!title) continue
+        const hasFlag = (await card.locator('.recent-flag').count().catch(() => 0)) > 0
+        if (hasFlag) { pick = { title, hadFlag: true, index }; break }
+        const playable = (await card.locator('button.primary:not([disabled])').count().catch(() => 0)) > 0
+        if (playable && !pick) pick = { title, hadFlag: false, index }
+      }
+      if (!pick) {
+        exploreEvidence.recentFlag = { skipped: true, cardCount }
+        exRecord(3, false, `探索页 ${cardCount} 张精选卡都不可打开，无法验证「最近游玩」徽标（owner: app-auth 精选故事未发布/不可用）`, true)
+      } else {
+        const title = pick.title
+        let openedWorldId = null
+        let openedLineId = null
+        let played = false
+        // 即使卡上已有徽标也点一次「继续游玩」再回来，确保断言覆盖「玩过之后徽标仍在」的完整链路。
+        const card = cardsLoc.filter({ has: exFrame.locator('h3', { hasText: title }) }).first()
+        const button = card.locator('button.primary:not([disabled])').first()
+        if ((await button.count().catch(() => 0)) > 0) {
+          await button.click({ timeout: 8000 }).catch(async () => { await button.evaluate((el) => el.click()).catch(() => {}) })
+          const navigated = await exWait(async () => /\/worlds\/[^/?#]+\/(?:play|explore)/.test(exFrame.url()), 30000)
+          if (navigated) {
+            played = true
+            const match = exFrame.url().match(/\/worlds\/([^/?#]+)\/(?:play|explore)(?:\?line=([^&#]+))?/)
+            openedWorldId = match ? match[1] : null
+            openedLineId = match && match[2] ? decodeURIComponent(match[2]) : null
+            await exFrame.goto(`${exOrigin}/tavern/explore`, { waitUntil: 'domcontentloaded' }).catch(() => {})
+            await exWait(async () => (await exFrame.locator('.curated-story-card').count().catch(() => 0)) > 0, 25000)
+          } else if (!pick.hadFlag) {
+            throw new Error('点「开始游玩」后 30s 未进入 /worlds/<id>/play（owner: cards-client 探索页 open()）')
+          }
+        }
+        const targetCard = exFrame.locator('.curated-story-card').filter({ has: exFrame.locator('h3', { hasText: title }) }).first()
+        const flagShown = await exWait(async () => (await targetCard.locator('.recent-flag').count().catch(() => 0)) > 0, 20000)
+        const flagText = flagShown ? ((await targetCard.locator('.recent-flag').first().innerText().catch(() => '')) || '').trim() : null
+        exploreEvidence.recentFlag = { title, hadFlag: Boolean(pick.hadFlag), played, openedWorldId, openedLineId, flagShown, flagText, cardCount }
+        exRecord(3, Boolean(flagShown && flagText === '最近游玩'),
+          flagShown && flagText === '最近游玩'
+            ? `卡「${title}」${played ? '玩过并返回后' : '（本卡不可点，已有徽标）'}出现 .recent-flag，文本精确为「最近游玩」`
+            : `卡「${title}」的「最近游玩」徽标异常：出现=${flagShown} 文本=${JSON.stringify(flagText)}（owner: cards-client DiscoveryPage / app-auth /experience/curated）`)
+        if (flagShown) await shot(page, '44-explore-recent-flag.png')
+      }
+    } catch (error) {
+      exploreError = error instanceof Error ? error.message : String(error)
+      exploreEvidence.error = exploreError
+    }
+    for (let index = 0; index < 4; index += 1) {
+      if (!exploreDone.has(index)) exRecord(index, false, `N 组未执行完：${exploreError || '未执行到该步'}（owner: cards-client / harness）`)
+    }
+    const exploreConsoleErrors = consoleErrors.slice(exploreConsoleStart).filter((text) => !/Failed to load resource/.test(text))
+    exploreEvidence.console = exploreConsoleErrors
+    if (!exploreDone.has(4)) exRecord(4, exploreConsoleErrors.length === 0, exploreConsoleErrors.length ? `N 组期间 console 有报错：${JSON.stringify(exploreConsoleErrors.slice(0, 3))}（owner: cards-client）` : 'clean')
+    report.explore = exploreEvidence
   }
 
   // ── G. 控制台报错 ──────────────────────────────────────────────────────────

@@ -1,11 +1,11 @@
 import {beforeEach,it,expect,vi} from 'vitest'
-vi.mock('../api',()=>({api:vi.fn(),authorizationHeaders:vi.fn(()=>({Authorization:'Bearer token'})),newKey:vi.fn()}))
+vi.mock('../api',()=>({api:vi.fn(),authorizationHeaders:vi.fn(()=>({Authorization:'Bearer token'}))}))
 vi.mock('../platform/bridge',()=>({backendBase:()=>''}))
-import {api,newKey} from '../api'
-import {cardAvatarBlob,contextPreview,createGroupChat,createLore,createMemory,createPreset,createRegexScript,deleteCard,deleteGroupChat,deleteLore,deleteMemory,deletePreset,deleteRegexScript,extractMemories,getCard,getGroupChat,importCard,listCards,listGroupChats,listLore,listMemories,listPresets,listRegexScripts,sendGroupMessage,setCompanion,startCardChat,updateCard,updateLore,updateMemory,updatePreset,updateRegexScript} from './api'
+import {api} from '../api'
+import {cardAvatarBlob,contextPreview,createLore,createMemory,createPreset,createRegexScript,deleteCard,deleteLore,deleteMemory,deletePreset,deleteRegexScript,extractMemories,getCard,importCard,listCards,listLore,listMemories,listPresets,listRegexScripts,setCompanion,startCardChat,updateCard,updateLore,updateMemory,updatePreset,updateRegexScript} from './api'
 const mocked=vi.mocked(api)
 const card={id:'c1',name:'林渡',description:'',personality:'',scenario:'',tags:[],creator:null,source:'png' as const,hasAvatar:true}
-beforeEach(()=>{mocked.mockReset();vi.mocked(newKey).mockReset();vi.unstubAllGlobals()})
+beforeEach(()=>{mocked.mockReset();vi.unstubAllGlobals()})
 
 it('reads the {items} envelope and still tolerates a bare array',async()=>{
  mocked.mockResolvedValueOnce({items:[card]})
@@ -116,31 +116,6 @@ it('previews the injected context for a draft message',async()=>{
  mocked.mockResolvedValueOnce(preview)
  await expect(contextPreview('c1','外面下雨了')).resolves.toEqual(preview)
  expect(mocked).toHaveBeenLastCalledWith('/character-cards/c1/context-preview',{method:'POST',body:{message:'外面下雨了'}})
-})
-
-it('manages group chats and sends a turn with an idempotency key',async()=>{
- const summary={id:'g1',title:'林渡、沈青的群聊',cards:[{id:'c1',name:'林渡'},{id:'c2',name:'沈青'}],lastText:'你好呀',updatedAt:'2026-11-04T02:00:00Z'}
- mocked.mockResolvedValueOnce({items:[summary]})
- await expect(listGroupChats()).resolves.toEqual([summary])
- expect(mocked).toHaveBeenLastCalledWith('/card-group-chats')
- const chat={id:'g1',title:'林渡、沈青的群聊',cardIds:['c1','c2']}
- mocked.mockResolvedValueOnce({chat})
- await expect(createGroupChat(['c1','c2'])).resolves.toEqual(chat)
- expect(mocked).toHaveBeenLastCalledWith('/card-group-chats',{method:'POST',body:{cardIds:['c1','c2']}})
- const detail={chat,cards:[{id:'c1',name:'林渡'},{id:'c2',name:'沈青'}],messages:[{id:'m1',role:'user',text:'你们好'}]}
- mocked.mockResolvedValueOnce(detail)
- await expect(getGroupChat('g1')).resolves.toEqual(detail)
- expect(mocked).toHaveBeenLastCalledWith('/card-group-chats/g1')
- // A flattened backend response still reads as a detail payload.
- mocked.mockResolvedValueOnce({...chat,...detail})
- await expect(getGroupChat('g1')).resolves.toMatchObject({chat:{id:'g1'},messages:[{id:'m1'}]})
- vi.mocked(newKey).mockReturnValueOnce('turn-1' as ReturnType<typeof newKey>)
- mocked.mockResolvedValueOnce({taskId:'t1',chatId:'g1',speakerCardId:'c1',speakerName:'林渡'})
- await expect(sendGroupMessage('g1','大家好')).resolves.toMatchObject({speakerName:'林渡'})
- expect(mocked).toHaveBeenLastCalledWith('/card-group-chats/g1/messages',{method:'POST',body:{message:'大家好',turnId:'turn-1'},key:'turn-1'})
- mocked.mockResolvedValueOnce({})
- await deleteGroupChat('g1')
- expect(mocked).toHaveBeenLastCalledWith('/card-group-chats/g1',{method:'DELETE'})
 })
 
 it('manages card memories and toggles the long-term companion flag',async()=>{

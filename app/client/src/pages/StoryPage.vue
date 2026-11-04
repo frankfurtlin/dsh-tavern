@@ -75,7 +75,7 @@ watch(()=>route.params.storyId,load,{immediate:true})
 
 <template>
   <section class="story-entry" aria-label="故事入口">
-    <div class="story-entry-top"><RouterLink to="/works" class="story-back"><ArrowLeft :size="19"/>我的作品</RouterLink><button v-if="detail" class="icon-button" aria-label="管理故事" @click="openMenu"><MoreHorizontal :size="22"/></button></div>
+    <div class="story-entry-top"><RouterLink to="/explore" class="story-back"><ArrowLeft :size="19"/>返回探索</RouterLink><button v-if="detail" class="icon-button" aria-label="管理故事" @click="openMenu"><MoreHorizontal :size="22"/></button></div>
     <p v-if="error&&!menu" class="error" role="alert">{{error}}<button :disabled="busy" @click="load">重新加载</button></p>
     <div v-if="loading" class="loading" role="status">正在打开故事…</div>
     <div v-else-if="!detail" class="empty"><BookOpen :size="32"/><h1>暂时无法打开故事</h1><RouterLink to="/library" class="inline-link">回到书架</RouterLink></div>
