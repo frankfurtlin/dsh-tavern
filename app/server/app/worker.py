@@ -1070,6 +1070,14 @@ def process(task_id):
         if kind == "delete_account":
             clean_user(task_id, owner)
             return
+        if kind == "card_group_chat":
+            from .cards.groups import process_task
+            process_task(task_id)
+            return
+        if kind == "card_memory_extract":
+            from .cards.memory import process_task
+            process_task(task_id)
+            return
         check_cancel(task_id)
         transition(task_id, "preparing")
         if kind == "import":
@@ -1226,6 +1234,9 @@ def fail_task(task_id, code):
             session = db.get(RoleSession, task.payload["sessionId"])
             if session and session.pending_task_id == task.id:
                 session.pending_task_id = None
+        if task.task_type == "card_group_chat" and task.persistence_state != "recoverable":
+            from .cards.groups import fail_message
+            fail_message(db, task)
         if task.task_type == "import":
             task.result = {**task.result, "importStatus": "cancelled" if task.state == "cancelled" else "failed"}
         if task.task_type == "delete_account":

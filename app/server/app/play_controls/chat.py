@@ -1,3 +1,4 @@
+import logging
 from copy import deepcopy
 from sqlalchemy import select, func
 from ..models import Task, uid, now
@@ -9,6 +10,8 @@ from ..world.state import ancestry, public_view, public_payload, private_phrases
 from .models import WorldChatSession, WorldChatMessage
 from .attribution import participants, verified_reply, requests_participation
 from ..schemas import Strict
+
+logger = logging.getLogger("reader")
 
 class AttributionReview(Strict):
     consistent: bool
@@ -137,6 +140,12 @@ def process(task_id):
         task.state='succeeded';task.persistence_state='saved';task.result_outcome='complete' if complete else 'partial'
         task.result={**task.result,'chatId':task.payload['chatId'],'phase':'complete','attributionChecked':True,'attributionCorrected':corrected,'receiptReply':ledger_reply}
         save_reply(db,task,safe,'saved' if complete else 'interrupted')
+        try:
+            with db.begin_nested():
+                from ..cards.memory import maybe_enqueue
+                maybe_enqueue(db, task)
+        except Exception:
+            logger.warning("card memory enqueue failed task=%s", task_id, exc_info=True)
         from ..durable_stream import saved
         saved(db,task,'worldStream',safe,stage='generation')
         add_event(db,task,'terminal',{'state':task.state,'resultOutcome':task.result_outcome});db.commit()

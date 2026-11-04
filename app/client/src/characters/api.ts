@@ -1,4 +1,4 @@
-import {api,authorizationHeaders} from '../api'
+import {api,authorizationHeaders,newKey} from '../api'
 import {backendBase} from '../platform/bridge'
 
 export interface CardOut {
@@ -15,6 +15,7 @@ export interface CardOut {
   source:'png'|'json'
   hasAvatar:boolean
   presetId?:string|null
+  companion?:boolean
   chatTarget?:{worldId:string;lineId:string;checkpointId:string;characterId:string}|null
   createdAt?:string
   updatedAt?:string
@@ -30,6 +31,7 @@ export interface CardUpdate {
   postHistoryInstructions?:string
   tags?:string[]
   presetId?:string|null
+  companion?:boolean
 }
 
 export interface LoreEntry {
@@ -76,7 +78,24 @@ export interface ContextPreview {
   loreMatched:{id:string;name:string;keys:string[]}[]
   preset:{id:string;name:string}|null
   systemSuffix:string
+  memories?:{id:string;title:string;salience:number}[]
+  memorySection?:string
 }
+
+export type MemoryKind='fact'|'preference'|'relationship'|'event'
+export interface Memory {
+  id:string
+  kind:MemoryKind
+  title:string
+  content:string
+  salience:number
+  enabled:boolean
+  source:'manual'|'auto'
+  updatedAt?:string
+}
+export interface MemoryInput {kind:MemoryKind;title:string;content:string;salience?:number;enabled?:boolean}
+export interface MemoryExtractResult {added:Memory[];skipped:number}
+export interface MemoryPage {items:Memory[]}
 
 export interface CardPage {items:CardOut[]}
 export type CardListResponse = CardPage | CardOut[]
@@ -193,6 +212,82 @@ export async function deleteRegexScript(id:string):Promise<void>{
 
 export async function contextPreview(cardId:string,message:string):Promise<ContextPreview>{
   return api<ContextPreview>(PREFIX+'/'+encodeURIComponent(cardId)+'/context-preview',{method:'POST',body:{message}})
+}
+
+export interface GroupCard {id:string;name:string;description?:string;avatarUrl?:string|null}
+export interface GroupChat {id:string;title:string;cardIds:string[];presetId?:string|null;status?:string;createdAt?:string;updatedAt?:string}
+export interface GroupChatSummary {id:string;title:string;cards:{id:string;name:string}[];lastText?:string;updatedAt?:string}
+export interface GroupMessage {id:string;role:'user'|'assistant';speakerCardId?:string|null;speakerName?:string|null;text:string;status?:'saved'|'pending'|'failed';createdAt?:string}
+export interface GroupChatDetail {chat:GroupChat;cards:GroupCard[];messages:GroupMessage[]}
+export interface GroupChatSendResult {taskId:string;chatId:string;speakerCardId:string;speakerName:string}
+export interface GroupChatPage {items:GroupChatSummary[]}
+
+export async function listMemories(cardId:string):Promise<Memory[]>{
+  const result=await api<MemoryPage|Memory[]>(PREFIX+'/'+encodeURIComponent(cardId)+'/memories')
+  return itemsOf<Memory>(result)
+}
+
+export async function createMemory(cardId:string,input:MemoryInput):Promise<Memory>{
+  const result=await api<Memory|{memory:Memory}>(PREFIX+'/'+encodeURIComponent(cardId)+'/memories',{method:'POST',body:input})
+  return unwrap<Memory>(result,'memory')
+}
+
+export async function updateMemory(cardId:string,memoryId:string,patch:Partial<MemoryInput>):Promise<Memory>{
+  const result=await api<Memory|{memory:Memory}>(PREFIX+'/'+encodeURIComponent(cardId)+'/memories/'+encodeURIComponent(memoryId),{method:'PATCH',body:patch})
+  return unwrap<Memory>(result,'memory')
+}
+
+export async function deleteMemory(cardId:string,memoryId:string):Promise<void>{
+  await api<unknown>(PREFIX+'/'+encodeURIComponent(cardId)+'/memories/'+encodeURIComponent(memoryId),{method:'DELETE'})
+}
+
+// Synchronous model-assisted extraction; the server returns {added,skipped}
+// and reports model/parse failures as 502 MEMORY_EXTRACT_FAILED.
+export async function extractMemories(cardId:string):Promise<MemoryExtractResult>{
+  return api<MemoryExtractResult>(PREFIX+'/'+encodeURIComponent(cardId)+'/memories/extract',{method:'POST'})
+}
+
+export async function setCompanion(cardId:string,companion:boolean):Promise<CardOut>{
+  const result=await api<CardOut|CardEnvelope>(PREFIX+'/'+encodeURIComponent(cardId)+'/companion',{method:'POST',body:{companion}})
+  return unwrap<CardOut>(result,'card')
+}
+
+const GROUPS='/card-group-chats'
+
+export async function listGroupChats():Promise<GroupChatSummary[]>{
+  const result=await api<GroupChatPage|GroupChatSummary[]>(GROUPS)
+  return itemsOf<GroupChatSummary>(result)
+}
+
+export async function createGroupChat(cardIds:string[],title?:string):Promise<GroupChat>{
+  const body:Record<string,unknown>={cardIds}
+  if(title?.trim())body.title=title.trim()
+  const result=await api<GroupChat|{chat:GroupChat}>(GROUPS,{method:'POST',body})
+  return unwrap<GroupChat>(result,'chat')
+}
+
+// The contract returns {chat,cards,messages}; tolerate a bare chat merged with
+// the two arrays so a backend that flattens the envelope still renders.
+export async function getGroupChat(id:string):Promise<GroupChatDetail>{
+  const result=await api<GroupChatDetail|(GroupChat&{cards?:GroupCard[];messages?:GroupMessage[]})>(GROUPS+'/'+encodeURIComponent(id))
+  if(result&&typeof result==='object'&&'chat' in result)return result as GroupChatDetail
+  const chat=result as GroupChat
+  return {
+    chat,
+    cards:Array.isArray((chat as GroupChat&{cards?:GroupCard[]}).cards)?(chat as GroupChat&{cards:GroupCard[]}).cards:[],
+    messages:Array.isArray((chat as GroupChat&{messages?:GroupMessage[]}).messages)?(chat as GroupChat&{messages:GroupMessage[]}).messages:[],
+  }
+}
+
+export async function sendGroupMessage(chatId:string,message:string):Promise<GroupChatSendResult>{
+  const turnId=newKey()
+  // The turn id also acts as the idempotency key so a retried request cannot
+  // create two user messages for the same send.
+  return api<GroupChatSendResult>(GROUPS+'/'+encodeURIComponent(chatId)+'/messages',{method:'POST',body:{message,turnId},key:turnId})
+}
+
+export async function deleteGroupChat(id:string):Promise<void>{
+  await api<unknown>(GROUPS+'/'+encodeURIComponent(id),{method:'DELETE'})
 }
 
 // <img src> cannot carry the Bearer token, so avatars are fetched as blobs.

@@ -95,6 +95,7 @@ def card_out(card):
         "source": card.source,
         "hasAvatar": bool(card.avatar_path),
         "presetId": card.preset_id,
+        "companion": bool(card.companion),
         "chatTarget": target,
         "createdAt": card.created_at.isoformat(),
         "updatedAt": card.updated_at.isoformat(),
@@ -112,6 +113,8 @@ def update_card(db, owner, card, values):
         card.tags = list(values["tags"])[:200]
     if "presetId" in values:
         space.bind_preset(db, owner, card, values["presetId"])
+    if values.get("companion") is not None:
+        card.companion = bool(values["companion"])
     card.updated_at = now()
     db.commit()
     return card

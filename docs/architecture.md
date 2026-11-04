@@ -4,9 +4,10 @@
 
 插件由**两个半边**组成：`lib/index.js`（host 半）在 DSH Web 里注册
 `prefix /tavern` 反向代理（旧 `/story` 作为兼容别名），把本地写作应用挂到 DSH
-登录态后面；`client.js`
-（client 半）在浏览器里注册侧栏入口与主面板，用同源 iframe 展示应用，
+登录态后面，并另外注册 `prefix /tavern-agent` 模型网关给应用 worker 调 DSH 模型；
+`client.js`（client 半）在浏览器里注册侧栏入口与主面板，用同源 iframe 展示应用，
 并用 `postMessage`（P2 桥）把当前故事上下文交给 DSH Agent 续写 / 角色扮演。
+应用本体提供角色卡空间、群聊与长期记忆，生成任务分别在应用 worker 里跑。
 
 ```
 ┌────────────────────────── DSH Web (127.0.0.1:3080) ──────────────────────────┐
@@ -17,7 +18,8 @@
 │                                                                │             │
 │  lib/index.js（host）                                          │             │
 │   ├─ ctx.get('connection').requestRejection(req)  ← 登录闸门   │             │
-│   └─ ctx.webServer.register({kind:'prefix', path:'/tavern'})    │             │
+│   ├─ ctx.webServer.register({kind:'prefix', path:'/tavern'})    │             │
+│   └─ ctx.webServer.register({kind:'prefix', path:'/tavern-agent'})            │
 └───────────────┬────────────────────────────────────────────────┘             │
                 │ 剥掉 /tavern 前缀                                             │
      ┌──────────┴───────────┐                                                   │
@@ -29,6 +31,10 @@
  uvicorn(FastAPI)      app/dist 静态站                                          │
      ▲                                                                          │
      └── 附加 x-dsh-trusted: <secret>（应用侧校验可信登录身份）──────────────────┘
+
+应用 worker（AI_MODE=dsh，服务端进程、无浏览器会话）
+  └─ DshAgentAdapter ── Authorization: Bearer <DSH_AGENT_SECRET> ──▶
+       /tavern-agent/v1/**（host 半）──▶ ctx.llm.stream() ──▶ DSH 模型通道
 ```
 
 ## 请求链路与鉴权
@@ -190,6 +196,100 @@ provider 的原始报错文本只取 `code`/`name` 进日志，不会回显给�
 应用侧对应配置见 `docs/step2-dsh-generation.md` §4：`AI_MODE=dsh` 时
 `DSH_AGENT_URL=http://127.0.0.1:3080/tavern-agent/v1`，`DSH_AGENT_SECRET` 与
 `DSH_TAVERN_AGENT_SECRET` 配同一个值；回滚时把 `AI_MODE` 改回 `mock`。
+
+## 应用内功能：角色卡空间、群聊与长期记忆
+
+host 半只做反向代理，以下链路都在应用侧。记在这里是为了让「面板里看到什么、
+模型收到什么」可追溯；表结构与验收点以 `docs/step3*.md`、`docs/step4*.md` 为准。
+
+### 卡片 → world 建库链路
+
+导入一张卡（`POST /api/reader/v1/character-cards/imports`，multipart，PNG 或 JSON）
+时，应用不只存卡：
+
+1. `cards/parse.py` 解析 SillyTavern v1/v2/v3 卡（PNG 内嵌 JSON 或 JSON 文件），
+   得到 description/personality/scenario/first_message/system_prompt/
+   post_history_instructions 与可选 `character_book`；
+2. `cards/service.py:import_card` 新建一个 `World`
+   （`source={"kind":"character-card",...}`），把卡设定转成 world 的 definition/state；
+3. `start_line(...)` 建一条 line + 根 checkpoint + 一个 character，
+   `card.world_id/line_id/checkpoint_id/character_id` 全部回填；
+4. `space.import_lore` 把 `character_book` 条目写进 `world.card_lore`（source=import）；
+5. 开聊 `POST /character-cards/{id}/chats` 复用同一 world/line/checkpoint/character，
+   建 `WorldChatSession`（「<名字> · 单独聊聊」）。
+
+因此卡库列表、聊天会话、世界书、群聊、记忆都以 world 为归属；删卡是软删除，world 保留。
+
+### 角色卡空间与 system prompt 注入（B1）
+
+表（`cards/models.py`）：`world.card_lore`、`world.chat_presets`、`world.regex_scripts`。
+
+聊天每轮生成前，`worker.py` 对 `world_character_chat` 调
+`cards.space.chat_injection`，把以下段落追加在冻结后的 system prompt 之后，
+段间空行：
+
+```
+以下内容仅作扮演补充，与 source 冲突时以 source 为准。
+
+【角色卡设定】  description/personality/scenario/system_prompt/post_history_instructions（≤6000 字）
+【世界书】      最多 6 条命中（关键词大小写不敏感，匹配本条 + 最近 4 条用户消息）
+【预设】        system_suffix（≤4000 字）
+【长期记忆】    最多 6 条 / 合计 ≤3000 字 —— 见下一节
+```
+
+- 世界书按 `order` 升序、累计 ≤6000 字；
+- 正则 `world.regex_scripts` 在 `worker.py` 保存回复前按 `order` 逐条 `re.sub`；
+  流式 delta 不改，刷新后看到的是改写后的文本；
+- 卡详情「预览」`POST /character-cards/{id}/context-preview` 返回同一套拼接结果
+  （`loreMatched/preset/systemSuffix/memorySection`），UI 用它解释「下一轮会注入什么」。
+
+### 群聊的生成任务（B2）
+
+表：`world.card_group_chats`（`card_ids` 有序 2–5、`preset_id`、`status`）与
+`world.card_group_messages`（`sequence`、`speaker_card_id/name`、
+`status pending|saved|failed`）。
+
+发送一条消息 `POST /card-group-chats/{id}/messages`（带 `Idempotency-Key` + `turnId`）：
+
+1. 若已有 pending 回复 → `409 CHAT_PENDING`；
+2. 发言人 = `card_ids[已保存 assistant 条数 % n]`（按建群顺序轮转）；
+3. 先落一条 `pending` 消息入队任务 `card_group_chat`，响应
+   `202 {taskId,chatId,speakerCardId,speakerName}`；
+4. worker 用 `prompts/card_group_chat.txt` 生成（多角色聊天室、本轮只演 speaker、
+   100–500 字），各卡设定单卡截断 1200 字、历史最近 30 条；落库前同样应用 B1 正则；
+5. 成功把 pending 改成 saved；失败标 failed（UI 提示可重试）。
+
+群聊当前只用各卡设定 + 预设补充，**不注入世界书与长期记忆**。
+
+### 长期记忆与长期伙伴（C）
+
+表：`world.card_memories`（`kind` fact|preference|relationship|event、`title`≤120、
+`content`≤2000、`salience` 1–100、`enabled`、`source auto|manual`）；
+`character_cards.companion` 控制「长期伙伴」置顶分组。
+
+- 手工：`GET/POST /character-cards/{id}/memories`、`PATCH/DELETE .../{memoryId}`；
+  每卡上限 40 条；
+- 抽取：`POST /character-cards/{id}/memories/extract` 同步调用模型
+  （prompt `card_memory_extract.txt`，最近 60 条 ≤12000 字，严格 JSON），
+  失败重试一次仍失败 → `502 MEMORY_EXTRACT_FAILED`，不写半成品；
+- 自动：每 8 条助手回复（`AUTO_EVERY`）自动入队 `card_memory_extract`，
+  `card.memory_task_id` 防重入，去重键 `memory:{cardId}:{saved}`；
+- 注入：只取 `enabled` 记忆，按 `salience` 降序 + `updated_at` 降序，最多 6 条且
+  累计 ≤3000 字，拼成【长期记忆】段插在【预设】之后；
+- 长期伙伴：`POST /character-cards/{id}/companion` 切换；卡库列表把伙伴卡置顶分组。
+
+### 失败降级
+
+| 场景 | 表现 |
+| --- | --- |
+| 模型网关不可用（401/502/超时） | 应用生成失败，UI 显示失败原因，不伪造回复；`AI_MODE=mock` 可临时回滚 |
+| 记忆抽取失败 | `502 MEMORY_EXTRACT_FAILED`，不落半成品；自动整理失败不阻断聊天 |
+| 群聊并发发送 | `409 CHAT_PENDING`，UI 提示「上一条回复仍在生成」 |
+| 世界书/记忆超预算 | 超出条目静默截断（不进 prompt），可在 context-preview 里核对 |
+| 角色卡/记忆接口不可用 | 页面局部错误文案（如「长期记忆暂时不可用。」），不影响其它区块 |
+
+注意：以上都是应用侧行为，host 半只负责把 `/tavern/api/**` 原样转给 8001；
+网关错误码（`AGENT_*`）与 `/tavern` 反代的 502/504 文案是两套，不要混淆。
 
 ## 前端面板结构（client 半）
 
@@ -388,6 +488,9 @@ iframe → 父：
 
 | 配置 | 位置 | 作用 |
 | --- | --- | --- |
+| `AI_MODE` | `app/.env` | `dsh` = 应用 worker 走插件网关真生成；`mock` = 内置确定性回复（离线自测/回滚）；默认 `real`（应用自己的 provider 通道） |
+| `DSH_AGENT_URL` | `app/.env` | 应用侧调网关的地址，生产 `http://127.0.0.1:3080/tavern-agent/v1` |
+| `DSH_AGENT_SECRET` | `app/.env` | 应用调网关用的 Bearer secret，与 `DSH_TAVERN_AGENT_SECRET` 同值 |
 | `DSH_TRUSTED_SECRET` | `app/.env` | 应用侧校验可信头的 secret；插件启动时读入 |
 | `DSH_TAVERN_TRUSTED_SECRET` | 宿主环境 | 覆盖上面的 secret（隔离测试/应急） |
 | `DSH_TAVERN_AGENT_SECRET` | `app/.env` 或宿主环境 | 模型网关 Bearer secret；缺省回退 `DSH_TRUSTED_SECRET`，都没有则网关一律 401 |
@@ -434,6 +537,15 @@ secret 读不到时：打印告警、继续转发但**不带**可信头，应用
    按契约 URL 调本插件，否则应用仍走 mock 生成。网关 secret 在 `apply` 时
    读入，轮换 secret 后需要重启 DSH Web 才生效；没配 secret 时健康检查也会 401，
    这是有意的「配置错就明确失败」，不是故障。
+7. **真生成依赖 DSH 侧条件**：DSH 需已登录、`agentDefaultModel` 有默认模型
+   （本机 `opencode-go / deepseek-v4.1-flash`）；provider 侧异常/超时表现为
+   生成失败，应用不会伪造回复，也不该被前端吞掉。
+8. **卡片空间/群聊/记忆的注入预算**：世界书 ≤6 条/≤6000 字、记忆 ≤6 条/≤3000 字、
+   卡设定 ≤6000 字、预设 ≤4000 字；超出静默截断。群聊当前不用世界书与长期记忆，
+   只带各卡设定（单卡 1200 字截断）、预设补充与最近 30 条对话。
+9. **记忆整理是模型调用**：`/memories/extract` 同步等模型，失败 502
+   `MEMORY_EXTRACT_FAILED` 且回滚；每 8 条回复的自动整理是后台任务，
+   失败不打断聊天，但需要用户稍后手动重试。
 
 ## 验收锚点一览（给测试用）
 

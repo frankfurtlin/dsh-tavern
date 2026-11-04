@@ -13,6 +13,7 @@ const pages:Record<string,PageLocation>={
  '/worlds/scripts':{title:'创作工作台',area:creative},
  '/characters':{title:'角色卡库',area:creative,parent:creative},
  '/characters/regex':{title:'输出替换规则',area:creative,parent:creative},
+ '/characters/groups':{title:'群聊',area:creative,parent:creative},
  '/settings':{title:'账号设置',area:settings},
  '/settings/models':{title:'模型与用量',area:settings,parent:settings},
  '/settings/import-history':{title:'导入旧版内容',area:settings,parent:{path:'/settings?section=data',label:'数据与备份'}},
@@ -34,6 +35,7 @@ const pages:Record<string,PageLocation>={
 export function pageLocation(route:Pick<RouteLocationNormalizedLoaded,'path'|'params'|'meta'>):PageLocation{
  const known=pages[route.path];if(known)return known
  if(/^\/conversations\/world\/[^/]+$/.test(route.path))return {title:'角色独立对话',area:{path:'/conversations',label:'我的对话'},parent:{path:'/conversations',label:'我的对话'}}
+ if(/^\/characters\/groups\/[^/]+$/.test(route.path))return {title:'群聊',area:creative,parent:creative}
  if(/^\/characters\/[^/]+$/.test(route.path))return {title:'角色卡详情',area:creative,parent:creative}
  const world=encodeURIComponent(String(route.params.worldId||''))
  if(/^\/worlds\/[^/]+\/author$/.test(route.path))return {title:'作者工作台',area:creative,parent:{path:'/stories/world-'+world,label:'作品详情'}}

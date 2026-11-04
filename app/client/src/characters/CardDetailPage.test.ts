@@ -13,18 +13,20 @@ vi.mock('vue-router',()=>({
 vi.mock('./api',()=>({
   getCard:vi.fn(),updateCard:vi.fn(),listLore:vi.fn(),createLore:vi.fn(),updateLore:vi.fn(),deleteLore:vi.fn(),
   listPresets:vi.fn(),createPreset:vi.fn(),startCardChat:vi.fn(),cardAvatarBlob:vi.fn(),contextPreview:vi.fn(),
+  listMemories:vi.fn(),createMemory:vi.fn(),updateMemory:vi.fn(),deleteMemory:vi.fn(),extractMemories:vi.fn(),setCompanion:vi.fn(),
 }))
 vi.mock('../platform/request-scope',()=>({useRequestScope:()=>{let disposed=false;onUnmounted(()=>{disposed=true});return()=>({valid:()=>!disposed})}}))
 vi.mock('../workspace/PageHeader.vue',()=>({default:defineComponent({props:{title:String,description:String,eyebrow:String},setup:(p,{slots})=>()=>h('header',[p.title,slots.default?.()])})}))
 vi.mock('lucide-vue-next',()=>{
   const stub=defineComponent({setup:()=>()=>null})
-  return{ArrowLeft:stub,BookOpen:stub,Eye:stub,MessageSquareText:stub,Pencil:stub,Plus:stub,Replace:stub,Save:stub,Sparkles:stub,Trash2:stub}
+  return{ArrowLeft:stub,Brain:stub,BookOpen:stub,Eye:stub,Heart:stub,MessageSquareText:stub,Pencil:stub,Plus:stub,Replace:stub,Save:stub,Sparkles:stub,Trash2:stub}
 })
 compileRender(CardDetailPage,new URL('./CardDetailPage.vue',import.meta.url))
 
 const card={id:'c1',name:'林渡',description:'旧书摊主，说话总带着包袱。',personality:'机智',scenario:'北平的书摊',firstMessage:'来了？',systemPrompt:'',postHistoryInstructions:'',tags:['相声'],creator:'佚名',source:'png' as const,hasAvatar:false,presetId:null}
 const lore={id:'l1',name:'雨夜',keys:['雨','屋檐'],content:'屋檐下躲雨时，他把外套披在你肩上。',enabled:true,order:100,source:'import' as const}
 const preset={id:'p1',name:'细腻描写',systemSuffix:'多写环境与心理。',enabled:true}
+const memory={id:'m1',kind:'fact' as const,title:'读者养猫',content:'读者养了一只叫团子的猫。',salience:60,enabled:true,source:'manual' as const,updatedAt:'2026-11-04T02:00:00Z'}
 let app:ReturnType<typeof renderer.createApp>|undefined,root:Host
 
 function fire(target:Host,key:string,payload?:unknown){
@@ -50,6 +52,12 @@ beforeEach(()=>{
   vi.mocked(cardApi.startCardChat).mockReset().mockResolvedValue({sessionId:'s1',cardId:'c1'})
   vi.mocked(cardApi.cardAvatarBlob).mockReset().mockResolvedValue(null)
   vi.mocked(cardApi.contextPreview).mockReset().mockResolvedValue({loreMatched:[{id:'l1',name:'雨夜',keys:['雨']}],preset:{id:'p1',name:'细腻描写'},systemSuffix:'多写环境与心理。'})
+  vi.mocked(cardApi.listMemories).mockReset().mockResolvedValue([])
+  vi.mocked(cardApi.createMemory).mockReset()
+  vi.mocked(cardApi.updateMemory).mockReset()
+  vi.mocked(cardApi.deleteMemory).mockReset().mockResolvedValue(undefined)
+  vi.mocked(cardApi.extractMemories).mockReset()
+  vi.mocked(cardApi.setCompanion).mockReset().mockImplementation(async(_id,companion)=>({...card,companion}))
   harness.push.mockReset().mockResolvedValue(undefined)
   harness.route=reactive({params:{id:'c1'}})
 })
@@ -172,4 +180,116 @@ it('shows the load error with a retry action',async()=>{
   mount();await flush()
   expect(text(root)).toContain('角色卡不存在')
   expect(text(root)).toContain('重新加载')
+})
+
+it('renders the long-term memory list with kind, source and salience',async()=>{
+  vi.mocked(cardApi.listMemories).mockResolvedValue([{...memory}])
+  mount();await flush()
+  expect(cardApi.listMemories).toHaveBeenCalledWith('c1')
+  expect(text(root)).toContain('读者养猫')
+  expect(text(root)).toContain('读者养了一只叫团子的猫。')
+  expect(text(root)).toContain('事实')
+  expect(text(root)).toContain('手记')
+  expect(text(root)).toContain('权重 60')
+})
+
+it('creates a manual memory through the editor form',async()=>{
+  const created={...memory,id:'m2',title:'常去茶馆',content:'读者常在周末去城西的茶馆。'}
+  vi.mocked(cardApi.listMemories).mockResolvedValueOnce([]).mockResolvedValueOnce([created])
+  vi.mocked(cardApi.createMemory).mockResolvedValueOnce(created)
+  mount();await flush()
+  button('新增记忆').props.onClick()
+  await flush()
+  const form=forms()[1]
+  const title=descendants(form,item=>item.tag==='input'&&item.props.placeholder==='例如：读者养猫')[0]
+  const content=descendants(form,item=>item.tag==='textarea')[0]
+  fire(title,'onUpdate:modelValue','常去茶馆')
+  fire(content,'onUpdate:modelValue','读者常在周末去城西的茶馆。')
+  await flush()
+  fire(form,'onSubmit',{preventDefault(){}})
+  await flush()
+  expect(cardApi.createMemory).toHaveBeenCalledWith('c1',expect.objectContaining({kind:'fact',title:'常去茶馆',content:'读者常在周末去城西的茶馆。',salience:50,enabled:true}))
+  expect(text(root)).toContain('常去茶馆')
+  expect(text(root)).toContain('记忆已保存')
+})
+
+it('edits an existing memory and keeps the new content',async()=>{
+  vi.mocked(cardApi.listMemories).mockResolvedValueOnce([{...memory}]).mockResolvedValueOnce([{...memory,content:'团子是只橘猫。'}])
+  vi.mocked(cardApi.updateMemory).mockResolvedValueOnce({...memory,content:'团子是只橘猫。'})
+  mount();await flush()
+  fire(descendants(root,item=>item.props['aria-label']==='编辑记忆')[0],'onClick')
+  await flush()
+  const form=forms()[1]
+  const content=descendants(form,item=>item.tag==='textarea')[0]
+  fire(content,'onUpdate:modelValue','团子是只橘猫。')
+  await flush()
+  fire(form,'onSubmit',{preventDefault(){}})
+  await flush()
+  expect(cardApi.updateMemory).toHaveBeenCalledWith('c1','m1',expect.objectContaining({title:'读者养猫',content:'团子是只橘猫。',salience:60}))
+  expect(text(root)).toContain('团子是只橘猫。')
+})
+
+it('toggles and deletes a memory with two-step confirmation',async()=>{
+  vi.mocked(cardApi.listLore).mockResolvedValue([])
+  vi.mocked(cardApi.listMemories).mockResolvedValue([{...memory}])
+  vi.mocked(cardApi.updateMemory).mockResolvedValueOnce({...memory,enabled:false})
+  mount();await flush()
+  button('停用').props.onClick()
+  await flush()
+  expect(cardApi.updateMemory).toHaveBeenCalledWith('c1','m1',{enabled:false})
+  fire(descendants(root,item=>item.props['aria-label']==='删除记忆')[0],'onClick')
+  await flush()
+  button('确认删除').props.onClick()
+  await flush()
+  expect(cardApi.deleteMemory).toHaveBeenCalledWith('c1','m1')
+  expect(text(root)).toContain('记忆已删除')
+})
+
+it('extracts new memories and reports how many were added',async()=>{
+  const added={...memory,id:'m3',source:'auto' as const}
+  vi.mocked(cardApi.listMemories).mockResolvedValueOnce([]).mockResolvedValueOnce([added])
+  vi.mocked(cardApi.extractMemories).mockResolvedValueOnce({added:[added],skipped:1})
+  mount();await flush()
+  button('立即整理').props.onClick()
+  await flush()
+  expect(cardApi.extractMemories).toHaveBeenCalledWith('c1')
+  expect(text(root)).toContain('新增 1 条记忆')
+  expect(text(root)).toContain('读者养猫')
+})
+
+it('reports when extraction finds nothing new',async()=>{
+  vi.mocked(cardApi.extractMemories).mockResolvedValueOnce({added:[],skipped:2})
+  mount();await flush()
+  button('立即整理').props.onClick()
+  await flush()
+  expect(text(root)).toContain('暂无新记忆')
+})
+
+it('surfaces the backend message when extraction fails',async()=>{
+  vi.mocked(cardApi.extractMemories).mockRejectedValueOnce(new Error('记忆整理失败，请稍后重试'))
+  mount();await flush()
+  button('立即整理').props.onClick()
+  await flush()
+  expect(text(root)).toContain('记忆整理失败，请稍后重试')
+})
+
+it('marks the card as a long-term companion through the toggle',async()=>{
+  vi.mocked(cardApi.getCard).mockResolvedValue({...card,companion:false})
+  vi.mocked(cardApi.setCompanion).mockResolvedValueOnce({...card,companion:true})
+  mount();await flush()
+  const toggle=descendants(root,item=>item.tag==='input'&&item.props.type==='checkbox')[0]
+  fire(toggle,'onChange')
+  await flush()
+  expect(cardApi.setCompanion).toHaveBeenCalledWith('c1',true)
+  expect(text(root)).toContain('已设为长期伙伴')
+})
+
+it('removes the companion flag again',async()=>{
+  vi.mocked(cardApi.getCard).mockResolvedValue({...card,companion:true})
+  vi.mocked(cardApi.setCompanion).mockResolvedValueOnce({...card,companion:false})
+  mount();await flush()
+  fire(descendants(root,item=>item.tag==='input'&&item.props.type==='checkbox')[0],'onChange')
+  await flush()
+  expect(cardApi.setCompanion).toHaveBeenCalledWith('c1',false)
+  expect(text(root)).toContain('已取消长期伙伴')
 })

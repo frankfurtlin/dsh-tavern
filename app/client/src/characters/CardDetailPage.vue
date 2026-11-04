@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import {ref,reactive,computed,onMounted,onUnmounted,watch} from 'vue'
 import {useRoute,useRouter,RouterLink} from 'vue-router'
-import {ArrowLeft,BookOpen,Eye,MessageSquareText,Pencil,Plus,Replace,Save,Sparkles,Trash2} from 'lucide-vue-next'
+import {ArrowLeft,Brain,BookOpen,Eye,Heart,MessageSquareText,Pencil,Plus,Replace,Save,Sparkles,Trash2} from 'lucide-vue-next'
 import PageHeader from '../workspace/PageHeader.vue'
 import {useRequestScope} from '../platform/request-scope'
-import {cardAvatarBlob,contextPreview,createLore,createPreset,deleteLore,getCard,listLore,listPresets,startCardChat,updateCard,updateLore,type CardOut,type CardUpdate,type ContextPreview,type LoreEntry,type Preset} from './api'
+import {cardAvatarBlob,contextPreview,createLore,createMemory,createPreset,deleteLore,deleteMemory,extractMemories,getCard,listLore,listMemories,listPresets,setCompanion,startCardChat,updateCard,updateLore,updateMemory,type CardOut,type CardUpdate,type ContextPreview,type LoreEntry,type Memory,type Preset} from './api'
 
 const route=useRoute(),router=useRouter(),capture=useRequestScope()
 const cardId=computed(()=>String(route.params.id||''))
@@ -17,6 +17,13 @@ const presetForm=reactive({name:'',systemSuffix:''})
 const loreEditing=ref(''),loreSaving=ref(false),loreError=ref(''),deletingLore=ref(''),loreBusy=ref('')
 const loreForm=reactive({name:'',keys:'',content:'',enabled:true,order:100})
 const previewMessage=ref(''),preview=ref<ContextPreview|null>(null),previewLoading=ref(false),previewError=ref('')
+const memories=ref<Memory[]>([]),memoryError=ref(''),memoryEditing=ref(''),memorySaving=ref(false),memoryBusy=ref(''),deletingMemory=ref('')
+const extracting=ref(false),extractNotice=ref(''),companionBusy=ref(false),companionNotice=ref('')
+const memoryForm=reactive({kind:'fact' as Memory['kind'],title:'',content:'',salience:50,enabled:true})
+const memoryKinds:{value:Memory['kind'];label:string}[]=[
+  {value:'fact',label:'事实'},{value:'preference',label:'偏好'},{value:'relationship',label:'关系'},{value:'event',label:'事件'},
+]
+function kindLabel(kind:string){return memoryKinds.find(item=>item.value===kind)?.label||kind}
 let epoch=0
 
 function splitList(value:string):string[]{
@@ -56,12 +63,14 @@ async function load(){
     void loadAvatar()
     // A card without a world book or preset must still open while the B-step
     // server endpoints are rolling out, so these two load independently.
-    const [loreResult,presetResult]=await Promise.allSettled([listLore(id),listPresets()])
+    const [loreResult,presetResult,memoryResult]=await Promise.allSettled([listLore(id),listPresets(),listMemories(id)])
     if(!scope.valid()||version!==epoch)return
     if(loreResult.status==='fulfilled'){lore.value=[...loreResult.value].sort((a,b)=>a.order-b.order);loreError.value=''}
     else loreError.value=(loreResult.reason as Error).message||'世界书暂时不可用。'
     if(presetResult.status==='fulfilled')presets.value=presetResult.value
     else presetNotice.value=(presetResult.reason as Error).message||'预设列表暂时不可用。'
+    if(memoryResult.status==='fulfilled'){memories.value=sortMemories(memoryResult.value);memoryError.value=''}
+    else memoryError.value=(memoryResult.reason as Error).message||'长期记忆暂时不可用。'
   }catch(cause){
         if(scope.valid()&&version===epoch)error.value=(cause as Error).message
   }finally{
@@ -232,13 +241,120 @@ async function openChat(){
     if(scope.valid())opening.value=false
   }
 }
+function sortMemories(items:Memory[]):Memory[]{
+  return [...items].sort((a,b)=>(b.salience-a.salience)||String(b.updatedAt||'').localeCompare(String(a.updatedAt||'')))
+}
+async function refreshMemories(){
+  const id=cardId.value
+  if(!id)return
+  const scope=capture()
+  try{const items=await listMemories(id);if(scope.valid())memories.value=sortMemories(items)}catch(cause){if(scope.valid())memoryError.value=(cause as Error).message}
+}
+function newMemory(){
+  memoryEditing.value='new'
+  Object.assign(memoryForm,{kind:'fact',title:'',content:'',salience:50,enabled:true})
+  memoryError.value='';deletingMemory.value='';extractNotice.value=''
+}
+function editMemory(entry:Memory){
+  memoryEditing.value=entry.id
+  Object.assign(memoryForm,{kind:entry.kind,title:entry.title,content:entry.content,salience:entry.salience,enabled:entry.enabled})
+  memoryError.value='';deletingMemory.value='';extractNotice.value=''
+}
+function cancelMemory(){memoryEditing.value='';memoryError.value=''}
+async function saveMemory(){
+  const id=cardId.value
+  if(!id||memorySaving.value)return
+  if(!memoryForm.title.trim()){memoryError.value='请填写记忆标题。';return}
+  if(!memoryForm.content.trim()){memoryError.value='请填写记忆内容。';return}
+  const scope=capture(),target=memoryEditing.value
+  memorySaving.value=true;memoryError.value=''
+  const payload={kind:memoryForm.kind,title:memoryForm.title.trim(),content:memoryForm.content.trim(),salience:Number(memoryForm.salience)||50,enabled:memoryForm.enabled}
+  try{
+    if(target==='new')await createMemory(id,payload)
+    else await updateMemory(id,target,payload)
+    if(!scope.valid())return
+    memoryEditing.value=''
+    await refreshMemories()
+    if(scope.valid())notice.value='记忆已保存，下一轮对话生效。'
+  }catch(cause){
+    if(scope.valid())memoryError.value=(cause as Error).message
+  }finally{
+    if(scope.valid())memorySaving.value=false
+  }
+}
+async function toggleMemory(entry:Memory){
+  const id=cardId.value
+  if(!id||memoryBusy.value)return
+  const scope=capture()
+  memoryBusy.value=entry.id;memoryError.value=''
+  try{
+    const updated=await updateMemory(id,entry.id,{enabled:!entry.enabled})
+    if(!scope.valid())return
+    const index=memories.value.findIndex(item=>item.id===entry.id)
+    if(index>=0)memories.value[index]={...memories.value[index],...updated}
+  }catch(cause){
+    if(scope.valid())memoryError.value=(cause as Error).message
+  }finally{
+    if(scope.valid())memoryBusy.value=''
+  }
+}
+async function removeMemory(entry:Memory){
+  const id=cardId.value
+  if(!id||memoryBusy.value)return
+  const scope=capture()
+  memoryBusy.value=entry.id;memoryError.value=''
+  try{
+    await deleteMemory(id,entry.id)
+    if(!scope.valid())return
+    deletingMemory.value=''
+    memories.value=memories.value.filter(item=>item.id!==entry.id)
+    notice.value='记忆已删除。'
+  }catch(cause){
+    if(scope.valid())memoryError.value=(cause as Error).message
+  }finally{
+    if(scope.valid())memoryBusy.value=''
+  }
+}
+async function runExtract(){
+  const id=cardId.value
+  if(!id||extracting.value)return
+  const scope=capture()
+  extracting.value=true;memoryError.value='';extractNotice.value=''
+  try{
+    const result=await extractMemories(id)
+    if(!scope.valid())return
+    memories.value=sortMemories(await listMemories(id))
+    if(!scope.valid())return
+    extractNotice.value=result.added.length?'新增 '+result.added.length+' 条记忆。':'暂无新记忆。'
+  }catch(cause){
+    if(scope.valid())memoryError.value=(cause as Error).message||'记忆整理失败，请稍后重试。'
+  }finally{
+    if(scope.valid())extracting.value=false
+  }
+}
+async function toggleCompanion(){
+  const id=cardId.value
+  if(!id||companionBusy.value||!card.value)return
+  const scope=capture(),next=!card.value.companion
+  companionBusy.value=true;companionNotice.value=''
+  try{
+    const updated=await setCompanion(id,next)
+    if(!scope.valid())return
+    card.value={...card.value,...updated,companion:next} as CardOut
+    companionNotice.value=next?'已设为长期伙伴，会置顶展示在角色卡库。':'已取消长期伙伴。'
+  }catch(cause){
+    if(scope.valid())companionNotice.value=(cause as Error).message
+  }finally{
+    if(scope.valid())companionBusy.value=false
+  }
+}
 watch(cardId,id=>{if(id){revokeAvatar();void load()}})
 onMounted(load)
 onUnmounted(revokeAvatar)
 </script>
 <template>
   <div class="workspace-page card-detail-page">
-    <PageHeader :title="card?.name||'角色卡详情'" eyebrow="角色卡" description="编辑角色设定、世界书与预设，并预览下一轮对话会注入什么。">
+    <PageHeader :title="card?.name||'角色卡详情'" eyebrow="角色卡" description="编辑角色设定、世界书、预设与长期记忆，并预览下一轮对话会注入什么。">
       <RouterLink class="inline-link" to="/characters"><ArrowLeft :size="17"/>角色卡库</RouterLink>
       <RouterLink class="inline-link" to="/characters/regex"><Replace :size="17"/>输出替换规则</RouterLink>
       <button class="primary" :disabled="opening||!card" @click="openChat"><MessageSquareText :size="17"/>{{opening?'正在开聊…':'开聊'}}</button>
@@ -255,6 +371,12 @@ onUnmounted(revokeAvatar)
           <p>{{card.description||'还没有描述。'}}</p>
           <p v-if="card.tags.length" class="tag-row"><span v-for="tag in card.tags" :key="tag" class="badge">{{tag}}</span></p>
           <small>{{card.source==='png'?'PNG 角色卡':'JSON 角色卡'}} · {{card.hasAvatar?'已有头像':'暂无头像'}}</small>
+          <div class="companion-line">
+            <label class="check-line"><input type="checkbox" :checked="!!card.companion" :disabled="companionBusy" @change="toggleCompanion">{{card.companion?'长期伙伴':'设为长期伙伴'}}</label>
+            <span v-if="card.companion" class="badge">长期伙伴</span>
+            <small>{{companionBusy?'正在更新…':'设为长期伙伴后会置顶显示在角色卡库'}}</small>
+          </div>
+          <p v-if="companionNotice" class="product-hint" role="status">{{companionNotice}}</p>
         </div>
       </section>
       <section class="workspace-card">
@@ -338,6 +460,55 @@ onUnmounted(revokeAvatar)
       </section>
       <section class="workspace-card">
         <div class="workspace-section-title">
+          <h2><Brain :size="18"/>长期记忆</h2>
+          <span class="row">
+            <button :disabled="extracting||memorySaving" @click="runExtract">{{extracting?'正在整理…':'立即整理'}}</button>
+            <button :disabled="!!memoryEditing" @click="newMemory"><Plus :size="16"/>新增记忆</button>
+          </span>
+        </div>
+        <p class="product-hint">聊天时最多注入 6 条高权重记忆；「立即整理」会从最近的对话中抽取新记忆，需要先聊过几句。</p>
+        <p v-if="memoryError" class="error" role="alert">{{memoryError}}</p>
+        <p v-if="extractNotice" class="product-hint" role="status">{{extractNotice}}</p>
+        <form v-if="memoryEditing" class="lore-editor memory-editor" @submit.prevent="saveMemory">
+          <h3>{{memoryEditing==='new'?'新增长期记忆':'编辑长期记忆'}}</h3>
+          <div class="form-grid">
+            <label>类型<select v-model="memoryForm.kind" :disabled="memorySaving"><option v-for="item in memoryKinds" :key="item.value" :value="item.value">{{item.label}}</option></select></label>
+            <label>权重（1–100）<input v-model.number="memoryForm.salience" type="number" min="1" max="100" step="1" :disabled="memorySaving"></label>
+          </div>
+          <label>标题<input v-model="memoryForm.title" required maxlength="120" :disabled="memorySaving" placeholder="例如：读者养猫"></label>
+          <label>内容<textarea v-model="memoryForm.content" required rows="4" maxlength="2000" :disabled="memorySaving" placeholder="例如：读者养了一只叫团子的猫。"></textarea></label>
+          <label class="check-line"><input v-model="memoryForm.enabled" type="checkbox" :disabled="memorySaving">启用这条记忆</label>
+          <div class="actions">
+            <button class="primary" :disabled="memorySaving">{{memorySaving?'正在保存…':'保存记忆'}}</button>
+            <button type="button" :disabled="memorySaving" @click="cancelMemory">取消</button>
+          </div>
+        </form>
+        <p v-if="!memories.length&&!memoryEditing" class="product-hint">还没有长期记忆。可以手工新增，或聊过几句后点「立即整理」让模型从对话里抽取。</p>
+        <ul v-else-if="memories.length" class="lore-list memory-list">
+          <li v-for="entry in memories" :key="entry.id" class="lore-item memory-item">
+            <div class="row between">
+              <strong>{{entry.title}}
+                <span class="badge">{{kindLabel(entry.kind)}}</span>
+                <span class="badge">{{entry.source==='auto'?'自动':'手记'}}</span>
+                <span class="badge">权重 {{entry.salience}}</span>
+                <span v-if="!entry.enabled" class="badge">已停用</span>
+              </strong>
+              <span class="row">
+                <button :disabled="memoryBusy===entry.id" aria-label="编辑记忆" @click="editMemory(entry)"><Pencil :size="15"/></button>
+                <button :disabled="memoryBusy===entry.id" @click="toggleMemory(entry)">{{entry.enabled?'停用':'启用'}}</button>
+                <template v-if="deletingMemory===entry.id">
+                  <button class="danger" :disabled="memoryBusy===entry.id" @click="removeMemory(entry)">确认删除</button>
+                  <button @click="deletingMemory=''">取消</button>
+                </template>
+                <button v-else class="danger" aria-label="删除记忆" @click="deletingMemory=entry.id"><Trash2 :size="15"/></button>
+              </span>
+            </div>
+            <p class="lore-content">{{entry.content}}</p>
+          </li>
+        </ul>
+      </section>
+      <section class="workspace-card">
+        <div class="workspace-section-title">
           <h2><Eye :size="18"/>注入预览</h2>
           <button :disabled="previewLoading" @click="runPreview">{{previewLoading?'正在预览…':'预览'}}</button>
         </div>
@@ -348,6 +519,8 @@ onUnmounted(revokeAvatar)
           <p><strong>预设：</strong>{{preview.preset?.name||'未绑定'}}</p>
           <p><strong>系统提示后缀：</strong></p>
           <pre class="preview-suffix">{{preview.systemSuffix||'（空）'}}</pre>
+          <p><strong>注入的长期记忆：</strong>{{preview.memories?.length?preview.memories.map(item=>item.title).join('、'):'无'}}</p>
+          <pre v-if="preview.memorySection" class="preview-suffix">{{preview.memorySection}}</pre>
         </div>
       </section>
     </template>
@@ -378,6 +551,9 @@ onUnmounted(revokeAvatar)
 .preset-editor{border-top:1px dashed var(--edge);margin-top:16px;padding-top:8px}
 .preview-result{border:1px solid var(--edge);border-radius:12px;padding:14px 16px;background:var(--wash);margin-top:14px}
 .preview-result p{margin:0 0 8px;line-height:1.8}
+.companion-line{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px}
+.companion-line small{color:var(--quiet);font-size:12px}
+.memory-item .lore-content{-webkit-line-clamp:6}
 .preview-suffix{white-space:pre-wrap;font-size:13px;line-height:1.8;max-height:220px;overflow:auto;background:var(--canvas);border:1px solid var(--edge);border-radius:10px;padding:10px;margin:0}
 @media(max-width:767px){
   .card-hero{flex-direction:column;gap:14px}

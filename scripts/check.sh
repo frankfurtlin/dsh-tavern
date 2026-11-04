@@ -12,6 +12,8 @@
 #   scripts/check.sh --real          # 真生成验收：隐含 --cards，断言回复不是 mock、刷新后仍在（需应用 AI_MODE=dsh + DSH 网关）
 #   scripts/check.sh --real-negative # 负向演练：假定网关已被弄坏，断言 UI 显示失败而不是假回复（侵入环境，手动用）
 #   scripts/check.sh --space         # B 步角色卡空间：隐含 --cards，S1–S6 断言详情/世界书/正则/预设/context-preview（UI 未接入时逐项 SKIP）
+#   scripts/check.sh --groups        # B2 群聊：隐含 --cards，T1–T6 多选建群/发言人/轮转/刷新/删除（需群聊前后端就绪，真实回复建议配合 --real）
+#   scripts/check.sh --memory        # C 步长期伙伴与记忆：隐含 --cards，C1–C6 手工记忆/立即整理/注入预览/停用删除/伙伴置顶（需记忆前后端就绪，抽取需真生成）
 #   scripts/check.sh --keep-home     # 保留 /tmp/dsh-tavern-check（排查用）
 #   scripts/check.sh --port 3199     # 换端口
 #
@@ -25,6 +27,10 @@
 #        v2-lore.json（陆三更）带 character_book，仅 --space 时由 verify.mjs 读取 manifest.space.lorebook 使用。
 #   --real 时 report.real 记录首句前 60 字/字数/耗时/模型名（不写 prompt 全文）。
 #   --space 时 report.space 记录 S1–S6 的 steps 与证据（世界书条目、正则回复、context-preview）。
+#   --groups 时 report.groups 记录 T1–T6 的 steps 与证据（参与者、API speakerName、轮转、刷新、删除）。
+#       截图 20-groups-select.png … 24-group-deleted.png。
+#   --memory 时 report.memory 记录 C1–C6 的 steps 与证据（手工记忆、extract added、preview 标题、停用/删除、long-term companion）。
+#       截图 25-memory-manual.png … 29-companion-library.png。
 #
 # 设计（参考同级插件 dsh-ziwei/scripts/check.sh）：
 #   - 在 /tmp/dsh-tavern-check 起一个完全隔离的 DSH_HOME，profile=check，端口默认 3099，
@@ -56,6 +62,8 @@ CARDS=0
 REAL=0
 REAL_NEGATIVE=0
 SPACE=0
+RUN_GROUPS=0
+MEMORY=0
 KEEP_HOME=0
 PASS=0
 FAIL=0
@@ -73,6 +81,8 @@ while [[ $# -gt 0 ]]; do
     --real) REAL=1; CARDS=1 ;;
     --real-negative) REAL_NEGATIVE=1; REAL=1; CARDS=1 ;;
     --space) SPACE=1; CARDS=1 ;;
+    --groups) RUN_GROUPS=1; CARDS=1 ;;
+    --memory) MEMORY=1; CARDS=1 ;;
     --keep-home) KEEP_HOME=1 ;;
     --port) PORT="${2:?--port 需要端口号}"; shift ;;
     --help|-h) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -399,8 +409,11 @@ instance_checks() {
   [[ "$OPEN_STORY" -eq 1 ]] && verify_args+=(--open-story)
   [[ "$CARDS" -eq 1 ]] && verify_args+=(--cards --cards-dir /tmp/tavern-verify/cards)
   [[ "$SPACE" -eq 1 ]] && verify_args+=(--space)
+  [[ "$RUN_GROUPS" -eq 1 ]] && verify_args+=(--groups)
+  [[ "$MEMORY" -eq 1 ]] && verify_args+=(--memory)
   [[ "$REAL" -eq 1 ]] && verify_args+=(--real)
   [[ "$REAL_NEGATIVE" -eq 1 ]] && verify_args+=(--real-negative)
+  [[ -n "${DSH_TAVERN_DEBUG:-}" ]] && echo "verify args: ${verify_args[*]}"
   if node "$ROOT/verify.mjs" "${verify_args[@]}"; then
     ok "verify.mjs 全部检查通过"
   else

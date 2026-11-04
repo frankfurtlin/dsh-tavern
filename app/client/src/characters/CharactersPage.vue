@@ -1,17 +1,61 @@
 <script setup lang="ts">
 import {computed,onMounted,onUnmounted,ref} from 'vue'
 import {useRouter} from 'vue-router'
-import {Upload,Users,MessageCircle,Pencil,Replace,Trash2} from 'lucide-vue-next'
+import {Upload,Users,MessageCircle,Pencil,Replace,Trash2,MessagesSquare,Heart} from 'lucide-vue-next'
 import PageHeader from '../workspace/PageHeader.vue'
 import {useApp} from '../stores/app'
 import {useRequestScope} from '../platform/request-scope'
-import {cardAvatarBlob,deleteCard,importCard,listCards,startCardChat,type CardOut} from './api'
+import {cardAvatarBlob,createGroupChat,deleteCard,importCard,listCards,startCardChat,type CardOut} from './api'
 const router=useRouter(),store=useApp(),capture=useRequestScope()
 const cards=ref<CardOut[]>([]),loading=ref(true),listError=ref(''),importError=ref('')
 const importing=ref(false),chatting=ref(''),deleting=ref(''),avatars=ref<Record<string,string>>({})
+const selected=ref<string[]>([]),startingGroup=ref(false),groupError=ref('')
 const fileInput=ref<HTMLInputElement>()
 const empty=computed(()=>!loading.value&&!listError.value&&!cards.value.length)
+const selectedCards=computed(()=>selected.value.filter(id=>cards.value.some(card=>card.id===id)))
+const canGroup=computed(()=>selectedCards.value.length>=2)
+type GridRow={key:string;heading?:string;hint?:string;card?:CardOut}
+const companionCards=computed(()=>cards.value.filter(card=>card.companion))
+const regularCards=computed(()=>cards.value.filter(card=>!card.companion))
+const gridRows=computed<GridRow[]>(()=>{
+  const rows:GridRow[]=[]
+  if(companionCards.value.length){
+    rows.push({key:'heading-companion',heading:'长期伙伴',hint:'置顶展示，常聊的角色'})
+    for(const card of companionCards.value)rows.push({key:'card-'+card.id,card})
+  }
+  if(companionCards.value.length&&regularCards.value.length)rows.push({key:'heading-all',heading:'全部角色卡'})
+  for(const card of regularCards.value)rows.push({key:'card-'+card.id,card})
+  return rows
+})
 let disposed=false,listEpoch=0,avatarEpoch=0
+function toggleSelect(id:string){
+  if(startingGroup.value)return
+  groupError.value=''
+  if(selected.value.includes(id)){
+    selected.value=selected.value.filter(item=>item!==id)
+    return
+  }
+  if(selected.value.length>=5){groupError.value='群聊最多选择 5 张角色卡。';return}
+  selected.value=[...selected.value,id]
+}
+function clearSelection(){if(startingGroup.value)return;selected.value=[];groupError.value=''}
+async function startGroup(){
+  if(startingGroup.value||chatting.value||deleting.value)return
+  if(selectedCards.value.length<2){groupError.value='至少选择 2 张角色卡才能发起群聊。';return}
+  const scope=capture()
+  startingGroup.value=true
+  groupError.value=''
+  try{
+    const chat=await createGroupChat(selectedCards.value)
+    if(!scope.valid())return
+    selected.value=[]
+    await router.push('/characters/groups/'+chat.id)
+  }catch(e){
+    if(scope.valid())groupError.value='发起群聊失败：'+((e as Error).message||'请稍后重试。')
+  }finally{
+    if(!disposed)startingGroup.value=false
+  }
+}
 function description(card:CardOut){return card.description||card.personality||card.scenario||'暂无描述'}
 function pickFile(){if(!importing.value)fileInput.value?.click()}
 function revokeAll(){for(const url of Object.values(avatars.value))URL.revokeObjectURL(url);avatars.value={}}
@@ -39,6 +83,7 @@ async function load(){
     const items=await listCards()
     if(!scope.valid()||epoch!==listEpoch)return
     cards.value=items
+    selected.value=selected.value.filter(id=>items.some(card=>card.id===id))
     void loadAvatars(items)
   }catch(e){
     if(scope.valid()&&epoch===listEpoch)listError.value=(e as Error).message||'角色卡暂时无法读取，请稍后重试。'
@@ -64,9 +109,9 @@ async function importFile(event:Event){
     if(!disposed)importing.value=false
   }
 }
-function openDetail(card:CardOut){if(!chatting.value&&!deleting.value)void router.push('/characters/'+card.id)}
+function openDetail(card:CardOut){if(!chatting.value&&!deleting.value&&!startingGroup.value)void router.push('/characters/'+card.id)}
 async function openChat(card:CardOut){
-  if(chatting.value||deleting.value)return
+  if(chatting.value||deleting.value||startingGroup.value)return
   const scope=capture()
   chatting.value=card.id
   listError.value=''
@@ -81,7 +126,7 @@ async function openChat(card:CardOut){
   }
 }
 async function remove(card:CardOut){
-  if(chatting.value||deleting.value)return
+  if(chatting.value||deleting.value||startingGroup.value)return
   const scope=capture()
   deleting.value=card.id
   listError.value=''
@@ -101,14 +146,17 @@ onUnmounted(()=>{disposed=true;listEpoch++;avatarEpoch++;revokeAll()})
 </script>
 <template>
  <div class="workspace-page characters-page">
-  <PageHeader title="角色卡库" eyebrow="独立角色卡" description="导入 SillyTavern 角色卡（PNG / JSON），选择一张就能和 TA 单独聊天。">
+  <PageHeader title="角色卡库" eyebrow="独立角色卡" description="导入 SillyTavern 角色卡（PNG / JSON），选一张单独聊天，或勾选 2–5 张发起群聊。">
    <label class="workspace-file-button character-import" :aria-busy="importing?'true':'false'">
     <Upload :size="17"/>{{importing?'正在导入…':'导入角色卡'}}
     <input ref="fileInput" type="file" accept=".png,.json" :disabled="importing" @change="importFile">
    </label>
+   <button type="button" :disabled="!canGroup||startingGroup||!!chatting||!!deleting" @click="startGroup"><Users :size="17"/>{{startingGroup?'正在创建…':(selectedCards.length?'发起群聊（'+selectedCards.length+'）':'发起群聊')}}</button>
+   <button type="button" @click="router.push('/characters/groups')"><MessagesSquare :size="17"/>群聊</button>
    <button type="button" @click="router.push('/characters/regex')"><Replace :size="17"/>输出替换规则</button>
   </PageHeader>
   <p v-if="importError" class="error" role="alert">{{importError}}</p>
+  <p v-if="groupError" class="error" role="alert">{{groupError}}</p>
   <p v-if="listError" class="error" role="alert">{{listError}} <button type="button" @click="load">重新载入角色卡</button></p>
   <p v-if="loading" class="workspace-loading" role="status">正在读取角色卡…</p>
   <section v-else-if="empty" class="workspace-empty">
@@ -117,26 +165,42 @@ onUnmounted(()=>{disposed=true;listEpoch++;avatarEpoch++;revokeAll()})
    <p>导入一张 SillyTavern 角色卡开始聊天。支持内嵌角色数据的 PNG，以及 v1 / v2 / v3 格式的 JSON 卡。</p>
    <button class="primary" :disabled="importing" @click="pickFile">{{importing?'正在导入…':'选择 PNG 或 JSON 文件'}}</button>
   </section>
-  <div v-else class="character-grid">
-   <article v-for="card in cards" :key="card.id" class="workspace-card character-card" :data-card-id="card.id">
-    <div class="character-card-head">
-     <span class="character-avatar" data-character-avatar>
-      <img v-if="avatars[card.id]" :src="avatars[card.id]" :alt="card.name+'头像'" loading="lazy">
-      <span v-else aria-hidden="true">{{Array.from(card.name.trim())[0]||'·'}}</span>
-     </span>
-     <div class="character-card-title"><h2>{{card.name}}</h2><small>{{card.creator||'角色卡'}} · {{card.source==='png'?'PNG':'JSON'}}</small></div>
+  <template v-else>
+   <div class="selection-bar">
+    <span class="selection-count">已选 {{selectedCards.length}} 张</span>
+    <span class="product-hint">群聊需要 2–5 张角色卡；勾选卡片即可加入。</span>
+    <button v-if="selectedCards.length" type="button" :disabled="startingGroup" @click="clearSelection">清空选择</button>
+   </div>
+   <div class="character-grid">
+   <template v-for="row in gridRows" :key="row.key">
+    <div v-if="row.heading" class="grid-heading">
+     <h2>{{row.heading}}</h2><small v-if="row.hint">{{row.hint}}</small>
     </div>
-    <p class="character-description">{{description(card)}}</p>
-    <div v-if="card.tags?.length" class="character-tags"><span v-for="tag in card.tags.slice(0,6)" :key="tag" class="badge">{{tag}}</span></div>
-    <div class="workspace-card-actions">
-     <button class="primary" :disabled="!!chatting||!!deleting" @click="openChat(card)"><MessageCircle :size="16"/>{{chatting===card.id?'正在打开…':'开聊'}}</button>
-     <button :disabled="!!chatting||!!deleting" @click="openDetail(card)"><Pencil :size="15"/>编辑</button>
-     <button class="danger" :disabled="!!chatting||!!deleting" @click="remove(card)"><Trash2 :size="15"/>{{deleting===card.id?'正在删除…':'删除'}}</button>
-    </div>
-   </article>
-  </div>
+    <article v-else-if="row.card" :class="['workspace-card','character-card',{selected:selected.includes(row.card.id),companion:row.card.companion}]" :data-card-id="row.card.id">
+     <div class="character-card-head">
+      <span class="character-avatar" data-character-avatar>
+       <img v-if="avatars[row.card.id]" :src="avatars[row.card.id]" :alt="row.card.name+'头像'" loading="lazy">
+       <span v-else aria-hidden="true">{{Array.from(row.card.name.trim())[0]||'·'}}</span>
+      </span>
+      <div class="character-card-title"><h2>{{row.card.name}}</h2><small>{{row.card.creator||'角色卡'}} · {{row.card.source==='png'?'PNG':'JSON'}} <span v-if="row.card.companion" class="badge companion-badge">长期伙伴</span></small></div>
+     </div>
+     <p class="character-description">{{description(row.card)}}</p>
+     <div v-if="row.card.tags?.length" class="character-tags"><span v-for="tag in row.card.tags.slice(0,6)" :key="tag" class="badge">{{tag}}</span></div>
+     <label class="character-select">
+      <input type="checkbox" :checked="selected.includes(row.card.id)" :disabled="startingGroup||!!chatting||!!deleting" @change="toggleSelect(row.card.id)">
+      <span>{{selected.includes(row.card.id)?'已加入群聊':'加入群聊'}}</span>
+     </label>
+     <div class="workspace-card-actions">
+      <button class="primary" :disabled="!!chatting||!!deleting" @click="openChat(row.card)"><MessageCircle :size="16"/>{{chatting===row.card.id?'正在打开…':'开聊'}}</button>
+      <button :disabled="!!chatting||!!deleting" @click="openDetail(row.card)"><Pencil :size="15"/>编辑</button>
+      <button class="danger" :disabled="!!chatting||!!deleting" @click="remove(row.card)"><Trash2 :size="15"/>{{deleting===row.card.id?'正在删除…':'删除'}}</button>
+     </div>
+    </article>
+   </template>
+   </div>
+  </template>
  </div>
 </template>
 <style scoped>
-.characters-page{width:100%;min-width:0}.character-import{display:inline-flex;align-items:center;gap:8px;font-size:13px;padding:11px 16px;min-height:44px}.character-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px}.character-card{display:flex;flex-direction:column;gap:14px}.character-card-head{display:flex;gap:14px;align-items:center;min-width:0}.character-avatar{width:72px;height:72px;flex:none;display:grid;place-items:center;border:1px solid var(--edge);border-radius:50%;overflow:hidden;background:var(--wash);color:var(--accent);font-family:var(--font-ui);font-size:26px;font-weight:600;line-height:1}.character-avatar img{display:block;width:100%;height:100%;object-fit:cover}.character-card-title{min-width:0}.character-card-title h2{font-family:var(--font-ui);font-size:18px;margin:0 0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.character-card-title small{font-size:12px;color:var(--quiet)}.character-description{font-size:13px;line-height:1.8;color:var(--quiet);margin:0;min-height:46px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}.character-tags{display:flex;flex-wrap:wrap;gap:6px}.character-tags .badge{font-size:11px}.character-card .workspace-card-actions{margin-top:auto}@media(max-width:767px){.character-grid{grid-template-columns:1fr}}
+.characters-page{width:100%;min-width:0}.character-import{display:inline-flex;align-items:center;gap:8px;font-size:13px;padding:11px 16px;min-height:44px}.character-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px}.character-card{display:flex;flex-direction:column;gap:14px}.character-card-head{display:flex;gap:14px;align-items:center;min-width:0}.character-avatar{width:72px;height:72px;flex:none;display:grid;place-items:center;border:1px solid var(--edge);border-radius:50%;overflow:hidden;background:var(--wash);color:var(--accent);font-family:var(--font-ui);font-size:26px;font-weight:600;line-height:1}.character-avatar img{display:block;width:100%;height:100%;object-fit:cover}.character-card-title{min-width:0}.character-card-title h2{font-family:var(--font-ui);font-size:18px;margin:0 0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.character-card-title small{font-size:12px;color:var(--quiet)}.character-description{font-size:13px;line-height:1.8;color:var(--quiet);margin:0;min-height:46px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}.character-tags{display:flex;flex-wrap:wrap;gap:6px}.character-tags .badge{font-size:11px}.character-card .workspace-card-actions{margin-top:auto}.character-select{display:inline-flex;align-items:center;gap:8px;color:var(--quiet);font-size:12px;cursor:pointer}.character-select input{width:auto;min-height:auto;margin:0}.character-card.selected{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}.grid-heading{grid-column:1/-1;display:flex;align-items:baseline;gap:10px;margin:6px 0 -2px}.grid-heading h2{font-family:var(--font-ui);font-size:18px;margin:0;display:inline-flex;align-items:center;gap:8px}.grid-heading small{color:var(--quiet);font-size:12px}.character-card.companion{border-color:var(--accent)}.companion-badge{margin-left:6px;background:var(--accent);color:var(--paper);border-color:var(--accent)}.selection-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 16px;padding:10px 14px;border:1px solid var(--edge);border-radius:10px;background:var(--wash)}.selection-count{font-family:var(--font-ui);font-weight:600;color:var(--ink)}.selection-bar .product-hint{margin:0}@media(max-width:767px){.character-grid{grid-template-columns:1fr}}
 </style>
