@@ -4,9 +4,10 @@ import {useRoute,useRouter} from 'vue-router'
 import {ArrowLeft,ChevronLeft,ChevronRight,Download,Pencil,RefreshCw,Send,Square,Trash2,X} from 'lucide-vue-next'
 import {useApp} from '../stores/app'
 import {useRequestScope} from '../platform/request-scope'
-import {deleteMessage,editMessage,exportChatBlob,getChat,messageText,selectSwipe,updateChat,type ChatDetail,TavernMessage} from './api'
+import {deleteMessage,editMessage,exportChatBlob,getChat,messageText,selectSwipe,updateChat,updateChatSampling,type ChatDetail,TavernMessage} from './api'
 import {saveBlob,safeFileName} from '../platform/download'
 import {streamChat} from './sse'
+import Sheet from '../components/Sheet.vue'
 
 const route=useRoute(),router=useRouter(),store=useApp(),scope=useRequestScope()
 const chatId=computed(()=>String(route.params.id||''))
@@ -27,6 +28,10 @@ const titleText=ref('')
 const deletingId=ref('')
 const exporting=ref('')
 const exportMenuOpen=ref(false)
+const samplingOpen=ref(false)
+const savingSampling=ref(false)
+const samplingError=ref('')
+const sampling=ref({temperature:0.8,topP:0.95,maxTokens:1024,stopText:''})
 const hasMore=ref(false)
 const loadingEarlier=ref(false)
 const log=ref<HTMLElement|null>(null)
@@ -200,6 +205,27 @@ async function confirmDelete(message:TavernMessage){
     await load(true)
   }catch(e){streamError.value=(e as Error).message||'删除消息失败，请稍后重试。'}
 }
+function openSampling(){
+  const value=detail.value?.chat.sampling
+  sampling.value={temperature:value?.temperature??0.8,topP:value?.topP??0.95,maxTokens:value?.maxTokens??1024,stopText:(value?.stop||[]).join('\n')}
+  samplingError.value='';samplingOpen.value=true;exportMenuOpen.value=false
+}
+async function saveSampling(){
+  if(savingSampling.value)return
+  const value=sampling.value
+  if(value.temperature<0||value.temperature>2){samplingError.value='temperature 需要在 0 到 2 之间。';return}
+  if(value.topP<0||value.topP>1){samplingError.value='top_p 需要在 0 到 1 之间。';return}
+  if(value.maxTokens<16||value.maxTokens>8192){samplingError.value='max_tokens 需要在 16 到 8192 之间。';return}
+  savingSampling.value=true;samplingError.value=''
+  try{
+    const chat=await updateChatSampling(chatId.value,{temperature:value.temperature,topP:value.topP,maxTokens:value.maxTokens,stop:value.stopText.split(/\n/).map(item=>item.trim()).filter(Boolean).slice(0,8)})
+    if(detail.value)detail.value.chat={...detail.value.chat,...chat}
+    samplingOpen.value=false
+    store.message('采样参数已保存。')
+  }catch(e){
+    samplingError.value=(e as Error).message||'保存采样参数失败，服务端可能尚未支持聊天级采样。'
+  }finally{savingSampling.value=false}
+}
 async function exportChat(format:'jsonl'|'json'){
   if(exporting.value)return
   exporting.value=format;exportMenuOpen.value=false;streamError.value=''
@@ -249,6 +275,7 @@ onUnmounted(()=>{mounted=false;abort?.abort();abort=null})
     <div v-if="exportMenuOpen" class="chat-menu-pop" role="menu">
      <button type="button" role="menuitem" :disabled="!!exporting" @click="exportChat('jsonl')">{{exporting==='jsonl'?'导出中…':'导出聊天 (JSONL)'}}</button>
      <button type="button" role="menuitem" :disabled="!!exporting" @click="exportChat('json')">{{exporting==='json'?'导出中…':'导出聊天 (JSON)'}}</button>
+     <button type="button" role="menuitem" @click="openSampling">采样参数</button>
     </div>
    </div>
    <span class="chat-status" role="status">{{streaming?'正在回复…':(streamError?'出错':'')}}</span>
@@ -309,6 +336,23 @@ onUnmounted(()=>{mounted=false;abort?.abort();abort=null})
 
   <p v-if="streamError" class="error chat-stream-error" role="alert">{{streamError}}<button class="inline-link" type="button" @click="streamError=''"><X :size="14"/></button></p>
 
+  <Sheet v-if="samplingOpen" title="采样参数" @close="!savingSampling&&(samplingOpen=false)">
+   <form class="sampling-form" @submit.prevent="saveSampling">
+    <p class="muted">这些参数只影响当前聊天；留空/默认值表示沿用角色卡设置。</p>
+    <p v-if="samplingError" class="error" role="alert">{{samplingError}}</p>
+    <div class="form-pair">
+     <label>temperature<input v-model.number="sampling.temperature" type="number" min="0" max="2" step="0.05" aria-label="temperature"></label>
+     <label>top_p<input v-model.number="sampling.topP" type="number" min="0" max="1" step="0.01" aria-label="top_p"></label>
+    </div>
+    <label>max_tokens<input v-model.number="sampling.maxTokens" type="number" min="16" max="8192" aria-label="max_tokens"></label>
+    <label>停止词（每行一个，最多 8 个）<textarea v-model="sampling.stopText" rows="3" aria-label="停止词"></textarea></label>
+    <div class="form-actions">
+     <button type="submit" class="primary" :disabled="savingSampling">{{savingSampling?'保存中…':'保存参数'}}</button>
+     <button type="button" @click="samplingOpen=false">取消</button>
+    </div>
+   </form>
+  </Sheet>
+
   <form class="chat-compose" @submit.prevent="send">
    <textarea v-model="input" rows="1" placeholder="说点什么…" aria-label="聊天输入框" :disabled="streaming" @keydown.enter.exact.prevent="send"></textarea>
    <button v-if="streaming" type="button" class="chat-stop" aria-label="停止生成" @click="stop"><Square :size="18"/>停止</button>
@@ -331,6 +375,10 @@ onUnmounted(()=>{mounted=false;abort?.abort();abort=null})
 .bubble-confirm{font-size:12px;color:var(--quiet)}
 .bubble-actions .danger-text{color:#b23b3b}
 .bubble-actions .danger-text:hover{background:rgba(178,59,59,.08)}
+.sampling-form{display:flex;flex-direction:column;gap:12px}
+.sampling-form label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--quiet)}
+.sampling-form .form-pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.sampling-form .form-actions{display:flex;gap:10px}
 .chat-title{min-width:0;text-align:center}
 .chat-name{max-width:100%;min-height:40px;padding:0 10px;border:0;background:transparent;font-family:var(--font-serif);font-size:17px;color:var(--ink);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .chat-title-form{display:flex;gap:6px;align-items:center;justify-content:center}

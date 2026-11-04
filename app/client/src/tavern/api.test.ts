@@ -2,9 +2,10 @@ import {describe,expect,it,vi,beforeEach} from 'vitest'
 import {api} from '../api'
 import {
   characterAvatarBlob,createCharacterChat,createWorldInfo,editMessage,exportCharacterBlob,
-  exportChatBlob,getCharacter,getChat,importCharacter,importChats,listCharacterChats,
-  listCharacters,listWorldInfo,messageText,previewWorldInfo,selectSwipe,updateCharacter,
-  updateChat,worldInfoKeys,type TavernCharacter,
+  exportChatBlob,getCharacter,getChat,getPrompt,importCharacter,importChats,listCharacterChats,
+  listCharacters,listPresets,listWorldInfo,messageText,previewWorldInfo,selectSwipe,setDefaultPreset,
+  updateCharacter,updateChat,updateChatSampling,updatePreset,updatePrompt,updateWorldInfo,worldInfoKeys,
+  createPreset,type TavernCharacter,
 } from './api'
 
 vi.mock('../api',()=>({
@@ -155,5 +156,64 @@ describe('tavern chat pagination and import/export',()=>{
     vi.stubGlobal('fetch',vi.fn(async()=>new Response('',{status:404})))
     await expect(exportChatBlob('chat-1')).rejects.toThrow('服务端暂不支持导出聊天')
     vi.unstubAllGlobals()
+  })
+
+  it('saves chat-level sampling through the chat patch',async()=>{
+    vi.mocked(api).mockResolvedValueOnce({id:'chat-1',title:'林渡 · 聊天',sampling:{temperature:0.7,topP:0.9,maxTokens:512,stop:['END']}})
+    await expect(updateChatSampling('chat-1',{temperature:0.7,topP:0.9,maxTokens:512,stop:['END']})).resolves.toMatchObject({sampling:{temperature:0.7}})
+    expect(vi.mocked(api)).toHaveBeenCalledWith('/tavern/chats/chat-1',{method:'PATCH',key:'key-1',body:{sampling:{temperature:0.7,topP:0.9,maxTokens:512,stop:['END']}}})
+  })
+
+  it('unwraps prompt settings and fills defaults',async()=>{
+    vi.mocked(api).mockResolvedValueOnce({prompt:{systemPrompt:'系统',mainPrompt:'主线',temperature:0.5,topP:0.8,maxTokens:2048,stop:['STOP']}})
+    const value=await getPrompt('c1')
+    expect(value).toMatchObject({systemPrompt:'系统',mainPrompt:'主线',temperature:0.5,topP:0.8,maxTokens:2048,stop:['STOP']})
+    vi.mocked(api).mockResolvedValueOnce({prompt:{}})
+    await expect(getPrompt('c1')).resolves.toMatchObject({temperature:0.8,topP:0.95,maxTokens:1024,stop:[]})
+    expect(vi.mocked(api)).toHaveBeenCalledWith('/tavern/characters/c1/prompt')
+  })
+
+  it('patches prompt overrides with an idempotency key',async()=>{
+    vi.mocked(api).mockResolvedValueOnce({prompt:{systemPrompt:'新'}})
+    await updatePrompt('c1',{systemPrompt:'新',temperature:0.9})
+    expect(vi.mocked(api)).toHaveBeenCalledWith('/tavern/characters/c1/prompt',{method:'PATCH',key:'key-1',body:{systemPrompt:'新',temperature:0.9}})
+  })
+
+  it('maps preset envelope fields between the wire names and the prompt names',async()=>{
+    vi.mocked(api).mockResolvedValueOnce({items:[{id:'p1',name:'细腻',isDefault:true,system:'系统',main:'主线',jailbreak:'越狱',postHistory:'后置',temperature:0.8,topP:0.95,maxTokens:1024,stop:[]}]})
+    const [preset]=await listPresets()
+    expect(preset).toMatchObject({id:'p1',name:'细腻',systemPrompt:'系统',mainPrompt:'主线',jailbreakPrompt:'越狱',postHistoryPrompt:'后置',isDefault:true})
+  })
+
+  it('creates a preset using the server field names',async()=>{
+    vi.mocked(api).mockResolvedValueOnce({preset:{id:'p2',name:'冷硬',system:'S',main:'M',jailbreak:'J',postHistory:'P',temperature:0.4,topP:0.9,maxTokens:512,stop:[]}})
+    await expect(createPreset({name:'冷硬',systemPrompt:'S',mainPrompt:'M',jailbreakPrompt:'J',postHistoryPrompt:'P',temperature:0.4,topP:0.9,maxTokens:512,stop:[]})).resolves.toMatchObject({id:'p2',systemPrompt:'S',mainPrompt:'M'})
+    expect(vi.mocked(api)).toHaveBeenLastCalledWith('/tavern/presets',{method:'POST',key:'key-1',body:{name:'冷硬',system:'S',main:'M',jailbreak:'J',postHistory:'P',temperature:0.4,topP:0.9,maxTokens:512,stop:[]}})
+  })
+
+  it('never sends isDefault inside preset create or update bodies',async()=>{
+    vi.mocked(api).mockResolvedValueOnce({preset:{id:'p3',name:'默认款',system:'',main:'',jailbreak:'',postHistory:'',temperature:null,topP:null,maxTokens:null,stop:[]}})
+    await createPreset({name:'默认款',isDefault:true})
+    const createBody=(vi.mocked(api).mock.calls[0][1] as {body:Record<string,unknown>}).body
+    expect(createBody).not.toHaveProperty('isDefault')
+    expect(createBody).toMatchObject({name:'默认款'})
+
+    vi.mocked(api).mockResolvedValueOnce({preset:{id:'p3',name:'默认款',system:'',main:'',jailbreak:'',postHistory:'',temperature:null,topP:null,maxTokens:null,stop:[]}})
+    await updatePreset('p3',{name:'默认款',isDefault:true})
+    const updateBody=(vi.mocked(api).mock.calls[1][1] as {body:Record<string,unknown>}).body
+    expect(updateBody).not.toHaveProperty('isDefault')
+    expect(updateBody).toEqual({name:'默认款'})
+  })
+
+  it('patches preset fields with the wire names and maps the reply back',async()=>{
+    vi.mocked(api).mockResolvedValueOnce({preset:{id:'p1',name:'细腻',system:'新系统',main:'',jailbreak:'',postHistory:'',temperature:0.8,topP:0.95,maxTokens:1024,stop:[]}})
+    await expect(updatePreset('p1',{systemPrompt:'新系统'})).resolves.toMatchObject({systemPrompt:'新系统'})
+    expect(vi.mocked(api)).toHaveBeenCalledWith('/tavern/presets/p1',{method:'PATCH',key:'key-1',body:{system:'新系统'}})
+  })
+
+  it('marks a preset as default',async()=>{
+    vi.mocked(api).mockResolvedValueOnce({preset:{id:'p1',name:'细腻',isDefault:true}})
+    await setDefaultPreset('p1')
+    expect(vi.mocked(api)).toHaveBeenCalledWith('/tavern/presets/p1',{method:'PATCH',key:'key-1',body:{isDefault:true}})
   })
 })

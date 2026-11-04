@@ -13,6 +13,7 @@ from ..cards.models import (  # noqa: F401  (registers the world.card_* tables)
 from ..tavern.models import (  # noqa: F401  (registers the native tavern tables)
     TavernChat,
     TavernMessage,
+    TavernPreset,
     TavernWorldInfo,
 )
 
@@ -33,6 +34,60 @@ def migrate():
         conn.execute(text("ALTER TABLE world_chat_sessions ADD COLUMN IF NOT EXISTS persona_id varchar(32)"))
         # Native tavern: per-card prompt settings live on the card row.
         conn.execute(text("ALTER TABLE world.character_cards ADD COLUMN IF NOT EXISTS prompt_settings jsonb NOT NULL DEFAULT '{}'::jsonb"))
+        # P2 presets: chats may bind one preset; presets themselves are created by create_all.
+        conn.execute(text("ALTER TABLE world.tavern_chats ADD COLUMN IF NOT EXISTS preset_id varchar(32)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_world_tavern_chats_preset_id ON world.tavern_chats (preset_id)"))
+        conn.execute(text("ALTER TABLE world.tavern_chats ADD COLUMN IF NOT EXISTS sampling jsonb"))
+        # P2 presets: one built-in 「默认」 per owner; duplicated rows from the
+        # earlier lazy-create race are collapsed here (idempotent).
+        conn.execute(text("ALTER TABLE world.tavern_presets ADD COLUMN IF NOT EXISTS builtin boolean NOT NULL DEFAULT false"))
+        deduped = conn.execute(text("""
+            WITH ranked AS (
+                SELECT id, row_number() OVER (
+                    PARTITION BY owner_id ORDER BY is_default DESC, created_at, id
+                ) AS rn
+                FROM world.tavern_presets WHERE is_default
+            )
+            UPDATE world.tavern_presets p SET is_default = false
+            FROM ranked r WHERE p.id = r.id AND r.rn > 1
+        """)).rowcount
+        marked = conn.execute(text("""
+            WITH ranked AS (
+                SELECT id, row_number() OVER (
+                    PARTITION BY owner_id
+                    ORDER BY (is_default AND name = '默认') DESC, is_default DESC, created_at, id
+                ) AS rn
+                FROM world.tavern_presets WHERE builtin = false AND name = '默认'
+            )
+            UPDATE world.tavern_presets p SET builtin = true
+            FROM ranked r WHERE p.id = r.id AND r.rn = 1
+        """)).rowcount
+        conn.execute(text("""
+            UPDATE world.tavern_chats c SET preset_id = keep.id
+            FROM world.tavern_presets p
+            JOIN world.tavern_presets keep
+              ON keep.owner_id = p.owner_id AND keep.builtin
+            WHERE c.preset_id = p.id AND p.name = '默认' AND p.id <> keep.id
+        """))
+        removed = conn.execute(text("""
+            DELETE FROM world.tavern_presets p
+            USING world.tavern_presets keep
+            WHERE p.name = '默认' AND keep.builtin
+              AND p.owner_id = keep.owner_id AND p.id <> keep.id
+        """)).rowcount
+        conn.execute(text("""
+            UPDATE world.tavern_presets b SET is_default = true
+            WHERE b.builtin = true AND NOT EXISTS (
+                SELECT 1 FROM world.tavern_presets d
+                WHERE d.owner_id = b.owner_id AND d.is_default = true
+            )
+        """))
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_world_tavern_presets_builtin "
+                          "ON world.tavern_presets (owner_id) WHERE builtin"))
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_world_tavern_presets_default "
+                          "ON world.tavern_presets (owner_id) WHERE is_default"))
+        if deduped or marked or removed:
+            print(f"tavern_presets: reset_default={deduped} marked_builtin={marked} removed_duplicates={removed}")
         # P2 world exports use source='world-export', wider than the original varchar(8).
         width = conn.execute(text("SELECT character_maximum_length FROM information_schema.columns "
                                  "WHERE table_schema='world' AND table_name='character_cards' AND column_name='source'")).scalar()

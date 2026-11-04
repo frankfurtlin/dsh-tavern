@@ -51,14 +51,14 @@ def validate_url(url):
 
 
 class ChatCompletionsAdapter:
-    def generate(self, profile, system_prompt, data, output_limit, *, conversation_id=None, thinking_mode=None):
-        return asyncio.run(self._generate(profile, system_prompt, data, output_limit, conversation_id=conversation_id, thinking_mode=thinking_mode))
+    def generate(self, profile, system_prompt, data, output_limit, *, conversation_id=None, thinking_mode=None, sampling=None):
+        return asyncio.run(self._generate(profile, system_prompt, data, output_limit, conversation_id=conversation_id, thinking_mode=thinking_mode, sampling=sampling))
 
-    def generate_stream(self, profile, system_prompt, data, output_limit, *, on_delta, cancel_check, conversation_id=None, thinking_mode=None):
+    def generate_stream(self, profile, system_prompt, data, output_limit, *, on_delta, cancel_check, conversation_id=None, thinking_mode=None, sampling=None):
         return asyncio.run(self._generate(profile, system_prompt, data, output_limit, conversation_id=conversation_id,
-            thinking_mode=thinking_mode, on_delta=on_delta, cancel_check=cancel_check))
+            thinking_mode=thinking_mode, on_delta=on_delta, cancel_check=cancel_check, sampling=sampling))
 
-    async def _generate(self, profile, system_prompt, data, output_limit, *, conversation_id=None, thinking_mode=None, on_delta=None, cancel_check=None):
+    async def _generate(self, profile, system_prompt, data, output_limit, *, conversation_id=None, thinking_mode=None, on_delta=None, cancel_check=None, sampling=None):
         started = time.monotonic()
         try:
             hostname, pinned_addresses = await asyncio.wait_for(asyncio.to_thread(validate_url, profile.base_url), timeout=10)
@@ -85,6 +85,13 @@ class ChatCompletionsAdapter:
         streaming = on_delta is not None or structured_stream
         wire_data = {k:v for k,v in data.items() if k != '_visionStream'}
         request_body = {"model": profile.model_id, "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": wire_json(wire_data)}], profile.output_parameter: output_limit}
+        if sampling:
+            if sampling.get("temperature") is not None:
+                request_body["temperature"] = float(sampling["temperature"])
+            if sampling.get("topP") is not None:
+                request_body["top_p"] = float(sampling["topP"])
+            if sampling.get("stop"):
+                request_body["stop"] = [str(item)[:200] for item in sampling["stop"]][:4]
         if data.get('_sceneImage') or data.get('_sceneImages'):
             # Only internally built, bounded image bytes; never fetch arbitrary URLs.
             pictures=data.get('_sceneImages', [data.get('_sceneImage')])
@@ -306,11 +313,11 @@ class DshAgentAdapter(ChatCompletionsAdapter):
     profile keys. Only the cancellation watchdog is shared with the base class.
     """
 
-    def generate(self, profile, system_prompt, data, output_limit, *, conversation_id=None, thinking_mode=None):
-        return asyncio.run(self._complete(system_prompt, data, output_limit, conversation_id))
+    def generate(self, profile, system_prompt, data, output_limit, *, conversation_id=None, thinking_mode=None, sampling=None):
+        return asyncio.run(self._complete(system_prompt, data, output_limit, conversation_id, sampling))
 
-    def generate_stream(self, profile, system_prompt, data, output_limit, *, on_delta, cancel_check, conversation_id=None, thinking_mode=None):
-        return asyncio.run(self._stream(system_prompt, data, output_limit, on_delta, cancel_check, conversation_id))
+    def generate_stream(self, profile, system_prompt, data, output_limit, *, on_delta, cancel_check, conversation_id=None, thinking_mode=None, sampling=None):
+        return asyncio.run(self._stream(system_prompt, data, output_limit, on_delta, cancel_check, conversation_id, sampling))
 
     def _endpoint(self, suffix):
         base = (settings.dsh_agent_url or "").strip().rstrip("/")
@@ -330,8 +337,15 @@ class DshAgentAdapter(ChatCompletionsAdapter):
         total = max(0.01, float(settings.dsh_agent_timeout_seconds))
         return httpx.Timeout(total, connect=min(10.0, total))
 
-    def _body(self, system_prompt, data, output_limit, conversation_id=None):
+    def _body(self, system_prompt, data, output_limit, conversation_id=None, sampling=None):
         body = {"system": system_prompt, "messages": [{"role": "user", "content": wire_json(data)}], "maxTokens": output_limit}
+        if sampling:
+            if sampling.get("temperature") is not None:
+                body["temperature"] = float(sampling["temperature"])
+            if sampling.get("topP") is not None:
+                body["topP"] = float(sampling["topP"])
+            if sampling.get("stop"):
+                body["stop"] = [str(item)[:200] for item in sampling["stop"]][:4]
         # 上游 opencode-go 要求请求带会话标识（x-opencode-session）；用聊天会话 id
         # 保持同一段对话的路由/缓存稳定，避免每轮被当成一次性请求。
         if conversation_id:
@@ -352,11 +366,11 @@ class DshAgentAdapter(ChatCompletionsAdapter):
                 {"reason": "http_error", "httpStatus": 401, "latencyMs": round((time.monotonic() - started) * 1000)})
         raise self._gateway_error("http_error", started, httpStatus=status)
 
-    async def _complete(self, system_prompt, data, output_limit, conversation_id=None):
+    async def _complete(self, system_prompt, data, output_limit, conversation_id=None, sampling=None):
         started = time.monotonic()
         try:
             async with httpx.AsyncClient(timeout=self._timeout(), follow_redirects=False, trust_env=False) as client:
-                response = await client.post(self._endpoint("/complete"), json=self._body(system_prompt, data, output_limit, conversation_id), headers=self._headers())
+                response = await client.post(self._endpoint("/complete"), json=self._body(system_prompt, data, output_limit, conversation_id, sampling), headers=self._headers())
                 self._check_status(response.status_code, started)
                 try:
                     payload = response.json()
@@ -377,7 +391,7 @@ class DshAgentAdapter(ChatCompletionsAdapter):
         return {"text": text, "finishReason": finish if isinstance(finish, str) else None,
                 "usage": gateway_usage(payload.get("usage")), "latencyMs": round((time.monotonic() - started) * 1000)}
 
-    async def _stream(self, system_prompt, data, output_limit, on_delta, cancel_check, conversation_id=None):
+    async def _stream(self, system_prompt, data, output_limit, on_delta, cancel_check, conversation_id=None, sampling=None):
         started = time.monotonic()
 
         async def read():
@@ -385,7 +399,7 @@ class DshAgentAdapter(ChatCompletionsAdapter):
             bound = min(262144, max(4096, output_limit * 32))
 
             async with httpx.AsyncClient(timeout=self._timeout(), follow_redirects=False, trust_env=False) as client:
-                async with client.stream("POST", self._endpoint("/stream"), json=self._body(system_prompt, data, output_limit, conversation_id), headers=self._headers()) as response:
+                async with client.stream("POST", self._endpoint("/stream"), json=self._body(system_prompt, data, output_limit, conversation_id, sampling), headers=self._headers()) as response:
                     if response.status_code != 200:
                         await response.aread()
                         self._check_status(response.status_code, started)

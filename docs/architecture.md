@@ -220,8 +220,9 @@ host 半只做反向代理，以下链路都在应用侧。设计文档见
 | --- | --- | --- |
 | `/` | `tavern/TavernCharactersPage.vue` | 角色卡网格：搜索、导入（PNG/JSON）、点卡开聊、右上「设置」进卡详情 |
 | `/characters/:id` | `tavern/TavernCharacterPage.vue` | 卡详情：设定编辑/保存/删除、导出卡、世界书 CRUD、聊天历史、开新聊天 |
-| `/chats/:id` | `tavern/TavernChatPage.vue` | 全屏聊天（`immersive`）：消息列表、流式气泡、swipe 版本、编辑/删除、重新生成、标题改名、导出聊天 |
-| `/settings` | `tavern/TavernSettingsPage.vue` | 设置占位：人设/预设与采样/正则/导入导出/世界书说明，全部标「即将开放」 |
+| `/chats/:id` | `tavern/TavernChatPage.vue` | 全屏聊天（`immersive`）：消息列表、流式气泡、swipe 版本、编辑/删除、重新生成、标题改名、导出聊天、「采样参数」Sheet（temperature/top_p/max_tokens/stop，落库并回显） |
+| `/settings` | `tavern/TavernSettingsPage.vue` | 设置：人设（`PersonaControl` + 默认人设）、预设管理（`TavernPresetsPanel`）、输出替换规则入口、导入导出说明 |
+| `/settings/regex` | `tavern/TavernRegexPage.vue` | 输出替换规则：账号级正则列表 CRUD、启停、两步删除、客户端校验（名称 ≤80 / 正则 ≤500 / 替换 ≤2000 / 顺序）；规则按账号级存储（`world.regex_scripts`，owner 级），**回复落库前会调用 `apply_regex`**（流式 delta 为原文，刷新后见替换结果） |
 
 `/characters/groups`、`/characters/groups/:id`、`/characters/regex` 以及所有未知
 路径都 redirect `/`（旧链接不落死页）。壳层 `tavern/TavernShell.vue`：
@@ -233,9 +234,9 @@ sticky 顶栏（「酒馆」品牌、返回角色卡、标题、设置入口）�
 | --- | --- |
 | `app/server/app/tavern/api.py` | `APIRouter(prefix="/tavern")`，挂到 `/api/reader/v1` 下：角色卡、聊天、消息、世界书、prompt 设置（见下） |
 | `app/server/app/tavern/stream.py` | SSE 生成流水线：请求线程组装 prompt，后台线程跑适配器，队列把 delta 交给响应生成器；结束后**只把完整文本**落库 |
-| `app/server/app/tavern/prompt.py` | SillyTavern 顺序的 prompt 组装、世界书匹配、历史裁剪 |
-| `app/server/app/tavern/service.py` | 序列化、归属校验（`owner_id`）、导入卡、swipe 内容读取、消息/聊天 CRUD 辅助 |
-| `app/server/app/tavern/models.py` | `world.tavern_chats`、`world.tavern_messages`、`world.tavern_world_info`（`WorldBase` + `WorldOwned`，由 `app.world.migrate` 的 `create_all` 建表，不需要 reader alembic revision） |
+| `app/server/app/tavern/prompt.py` | SillyTavern 顺序的 prompt 组装、世界书匹配（含命中原因）、历史裁剪；`effective_prompts` 做 preset > 卡设置的提示词合并 |
+| `app/server/app/tavern/service.py` | 序列化、归属校验（`owner_id`）、导入卡、swipe 内容读取、消息/聊天 CRUD 辅助、预设读取/删除（内置默认不可删） |
+| `app/server/app/tavern/models.py` | `world.tavern_chats`、`world.tavern_messages`、`world.tavern_world_info`、`world.tavern_presets`（`WorldBase` + `WorldOwned`，由 `app.world.migrate` 的 `create_all` 建表，不需要 reader alembic revision） |
 | `app/server/app/cards/parse.py`、`exporting.py` | SillyTavern 卡解析（PNG 内嵌 JSON / JSON，v1/v2/v3，`character_book`）与导出（PNG + JSON） |
 
 ### 数据模型
@@ -249,6 +250,8 @@ sticky 顶栏（「酒馆」品牌、返回角色卡、标题、设置入口）�
 | `title` | 默认「<卡名> 的对话」，≤160 |
 | `last_message_at` | 最近消息时间（卡库排序、聊天历史排序用） |
 | `model_name` | 最近一次生成用的模型名，≤150 |
+| `preset_id` | 绑定的提示词预设（`world.tavern_presets.id`，可空，有索引）；空 = 用默认预设 |
+| `sampling` | JSONB 聊天级采样覆盖：`temperature` / `topP` / `maxTokens` / `stop`，空字段回退到预设/卡设置 |
 | `updated_at` | 更新时间 |
 
 **`world.tavern_messages`**
@@ -268,15 +271,28 @@ sticky 顶栏（「酒馆」品牌、返回角色卡、标题、设置入口）�
 **`world.tavern_world_info`**：`card_id`、`keys`（JSONB string[]，≤20）、
 `content`（≤8000）、`position`（`before_char` / `after_char` / `before_example` /
 `at_depth`）、`depth`（0–100，`at_depth` 用）、`constant`（常驻）、
-`probability`（1–100）、`order`（0–10000，升序注入）、`enabled`、
-`source`（`manual` / `import`）、`updated_at`。
+`probability`（0–100，按 `sha256(id|匹配文本)` 确定性抽样；卡详情 UI 用 0–1
+输入、提交时乘 100 存百分比）、`order`
+（0–10000，升序注入）、`enabled`、`source`（`manual` / `import`）、`updated_at`。
+
+**`world.tavern_presets`**（P2）：`id`、`owner_id`、`name`（≤80）、`builtin`
+（内置「默认」= true，不可删）、`is_default`、`system` / `main` / `jailbreak` /
+`post_history`（各 ≤20000）、`temperature`（0–2）、`top_p`（0–1）、
+`max_tokens`（16–8192）、`stop`（JSONB，≤4 条）、`created_at` / `updated_at`。
+两个 partial unique index 保证每个用户只有一条 `builtin` 预设、且只有一条
+`is_default` 预设；切换默认时先把同用户其它预设的 `is_default` 置 false，
+并发冲突报 409 `PRESET_CONFLICT`。
 
 **`character_cards.prompt_settings`**（JSONB，复用 cards 表）：`mainPrompt`、
-`temperature`（默认 0.8）、`topP`（默认 0.95）、`maxTokens`（默认 1024）、
-`stop`（默认 `[]`）；卡自身的 `system_prompt` 仍是独立列。默认值在
-`tavern/api.py:PROMPT_DEFAULTS`。
+`system`、`jailbreakPrompt`、`postHistory`、`worldInfoPosition`（默认
+`before_char`，作为新建世界书条目的默认注入位置）、`temperature`（默认 0.8）、
+`topP`（默认 0.95）、`maxTokens`（默认 1024）、`stop`（默认 `[]`）；卡自身的
+`system_prompt` 仍是独立列。默认值在 `tavern/api.py:PROMPT_DEFAULTS`。
 
 ### 应用 API（`/api/reader/v1/tavern/**`）
+
+应用服务端当前共注册约 361 条路由（`app.routes`），其中 `tavern` 模块 30 条；
+下表只列 `tavern` 模块对前端暴露的部分。
 
 所有接口都要登录（`current_user`：cookie 会话或插件签发的 `x-dsh-trusted`），
 按 `owner_id` 做归属校验，找不到统一 `404 RESOURCE_NOT_FOUND`。
@@ -293,7 +309,7 @@ sticky 顶栏（「酒馆」品牌、返回角色卡、标题、设置入口）�
 | `GET` | `/characters/{id}/chats` | 该卡聊天列表（含 `lastText`/`messageCount`）+ `card` |
 | `POST` | `/characters/{id}/chats` | 新建聊天（201）；`greetingId` 选备用开场白，默认用 `firstMessage`；非空开场白作为第一条 assistant 消息 |
 | `GET` | `/chats/{id}` | 聊天 + 消息：`before=<sequence>`、`limit=1..500`（默认 200）分页；返回 `hasMore`/`latestSequence`，向上翻页用 |
-| `PATCH` | `/chats/{id}` | 改标题（1–160） |
+| `PATCH` | `/chats/{id}` | 改 `title`（1–160）、`presetId`（校验归属后绑定/解绑预设）、`sampling`（`temperature` / `topP` / `maxTokens` / `stop`，非法值 422） |
 | `DELETE` | `/chats/{id}` | 删聊天与其全部消息（204） |
 | `GET` | `/chats/{id}/export?format=jsonl\|json` | 导出聊天：JSONL 为 ST 风格逐行；JSON 为 `{chat, card, messages}`；文件名在 `Content-Disposition` |
 | `POST` | `/characters/{id}/chats/imports` | multipart `file`（ST JSONL）→ `{chat, imported, skipped}`（201）；≤20000 行、≤32 MiB，坏行跳过，空/全坏 422 `CHAT_IMPORT_EMPTY`，超限 422 `CHAT_IMPORT_TOO_LARGE` |
@@ -303,13 +319,16 @@ sticky 顶栏（「酒馆」品牌、返回角色卡、标题、设置入口）�
 | `PATCH` | `/chats/{id}/messages/{mid}` | 只能改 user 消息；改完**截断其后所有消息**，返回 `{message, deleted}` |
 | `DELETE` | `/chats/{id}/messages/{mid}` | 删除该消息及其后消息（204） |
 | `GET/POST` | `/characters/{id}/world-info` | 世界书列表 / 新建（201） |
-| `PATCH/DELETE` | `/characters/{id}/world-info/{entryId}` | 改 / 删条目 |
-| `POST` | `/characters/{id}/world-info/preview` | body `{message}` → `{matched, injection}`；卡详情已有「注入预览」UI |
-| `GET/PATCH` | `/characters/{id}/prompt` | 读写 `systemPrompt` 与 `prompt_settings`（temperature 0–2、topP 0–1、maxTokens 16–8192、stop ≤8 条） |
+| `PATCH/DELETE` | `/characters/{id}/world-info/{entryId}` | 改 / 删条目；可改 `keys` / `content` / `position` / `depth` / `constant` / `probability` / `order` / `enabled` |
+| `POST` | `/characters/{id}/world-info/preview` | body `{message, chatId?}`（message 空则取最近 user 文本）→ `{matched, injection, reasons:[{id, reason}], worldInfoPosition, sections, systemPrompt}`；命中原因 `constant` / `keyword:<词>`；与生成共用 `prompt.build`，卡详情已有「注入预览」UI |
+| `GET/PATCH` | `/characters/{id}/prompt?chatId=` | 读/写提示词与采样覆盖：`systemPrompt`、`mainPrompt`、`jailbreakPrompt`、`postHistory`、`worldInfoPosition`、`temperature` 0–2、`topP` 0–1、`maxTokens` 16–8192、`stop` ≤8 条；GET 还返回当前生效预设、拼好的 `systemPrompt` / `sections` / `matched` |
+| `GET/POST` | `/presets` | 预设列表（默认在首位）/ 新建（201）；默认预设不存在时自动补一条 builtin「默认」 |
+| `PATCH/DELETE` | `/presets/{presetId}` | 改字段 / 设默认（`isDefault` 互斥）/ 删除（204）；内置默认与 `isDefault` 预设不可删，返回 409 `PRESET_IMMUTABLE` |
 
-错误码（应用侧 `Problem`）：`RESOURCE_NOT_FOUND` 404、`GREETING_INVALID` /
-`SWIPE_INVALID` / `MESSAGE_NOT_EDITABLE` / `MESSAGE_REQUIRED` / `INVALID_REQUEST` /
-`CHAT_IMPORT_EMPTY` / `CHAT_IMPORT_TOO_LARGE` 422、`NOTHING_TO_REGENERATE` 409。
+错误码（应用侧 `Problem`）：`RESOURCE_NOT_FOUND` / `PRESET_NOT_FOUND` 404、
+`GREETING_INVALID` / `SWIPE_INVALID` / `MESSAGE_NOT_EDITABLE` / `MESSAGE_REQUIRED` /
+`INVALID_REQUEST` / `CHAT_IMPORT_EMPTY` / `CHAT_IMPORT_TOO_LARGE` 422、
+`NOTHING_TO_REGENERATE` / `PRESET_IMMUTABLE` / `PRESET_CONFLICT` 409。
 
 导出/导入/分页（P1）已在服务端落地：导出走 `cards/exporting.py`（`chat_jsonl` /
 卡 `card_png`/`card_document`），导入按行解析 ST JSONL（`mes`/`is_user`/`swipes`/
@@ -317,16 +336,33 @@ sticky 顶栏（「酒馆」品牌、返回角色卡、标题、设置入口）�
 `before` 之前最后 `limit` 条。客户端聊天页已有「导出聊天 (JSONL/JSON)」菜单、
 「加载更早」按钮，角色页有「导入聊天记录」。
 
+### 提示词与采样解析（P2）
+
+生成前按固定优先级解析，不需要用户重复配置：
+
+- **提示词**（`prompt.effective_prompts`）：`preset > character_cards.prompt_settings
+  > 卡字段/默认值`；预设字段留空则落到卡设置，卡设置留空再落到
+  `DEFAULT_MAIN_PROMPT` 等默认值。`system_prompt` 独立列不参与预设覆盖，
+  `[越狱提示]` 块只在 preset/卡设置给值时出现。
+- **采样**（`stream.sampling_for`）：`chat.sampling > 当前预设 > prompt_settings`；
+  `None` 表示交给适配器默认值。`maxTokens` 走 `output_limit_for`，最终
+  `min(模型 completion 上限, 请求值)`，下限 16。
+- **预设绑定**：`chat.preset_id` 为空时使用 `service.default_preset`（内置
+  「默认」）；聊天页可改绑定，`PATCH /chats/{id}` 会校验预设归属。
+- **世界书位置**：每条条目自己的 `position` 决定拼块位置；卡级
+  `worldInfoPosition` 只作为「新建条目」的默认值/回显，不覆盖已有条目。
+
 ### 聊天生成链路
 
 `POST /chats/{id}/messages`（以及 `/regenerate`）不是任务队列，而是在**请求线程**
 里完成三件事，然后返回 `StreamingResponse`：
 
 1. 校验并写 user 消息（`add_message`，`sequence` 递增）；
-2. `_reply_context` 组装 prompt：取卡的 `prompt_settings` 与 `default_profile`，
-   拼 system prompt 与 `data`，算出本次 `output_limit`（`completion_limit` 与
-   `maxTokens` 取小，下限 16）；
-3. 返回 `stream.reply_events(...)`。
+2. `_reply_context` 组装 prompt：取卡 `prompt_settings`、`chat.preset_id` 绑定的预设
+   （未绑定用默认预设）与 `default_profile`，按 `preset > 卡设置 > 默认值` 合并
+   提示词，按 `chat > 预设 > 卡设置` 解析采样，算出本次 `output_limit`
+   （`completion_limit` 与 `maxTokens` 取小，下限 16）；
+3. 返回 `stream.reply_events(...)`，采样参数一起传给适配器调用。
 
 `reply_events` 的运行时形状：
 
@@ -365,26 +401,34 @@ SSE 响应头：`text/event-stream`、`Cache-Control: no-store`、
 `tavern/prompt.py:build` 生成的 system prompt 以 `tavern-v1` 开头，然后按顺序拼块：
 
 ```
-[系统提示词]   卡 system_prompt（可空）         ← 用 {{char}}/{{user}} 宏替换
-[主提示词]     prompt_settings.mainPrompt（空则用 DEFAULT_MAIN_PROMPT）
-[世界书]       position=before_char 的命中条目
+[系统提示词]   预设 system > 卡 prompt_settings.system > 卡 system_prompt（可空）
+[主提示词]     预设 main > 卡 prompt_settings.mainPrompt > DEFAULT_MAIN_PROMPT
+[世界书 · 角色设定之前]   position=before_char 的命中条目
 [角色设定]     姓名/描述/性格/场景
-[世界书]       position=before_example 的命中条目
+[你的角色]     人设（persona；聊天可带 personaId）
 [示例对话]     example_messages（<START> 分隔）
-[世界书]       position=after_char 的命中条目
-[你的角色]     人设（persona，P2 的 UI 未开；当前通常为空）
+[世界书 · 示例对话之前]   position=before_example 的命中条目
+[世界书 · 角色设定之后]   position=after_char 的命中条目
 [对话历史]     历史消息按预算裁剪；at_depth 世界书按 depth 插进去
-[后置指令]     卡 post_history_instructions
+[后置指令]     预设 post_history > 卡 postHistory / post_history_instructions
+[越狱提示]     预设 jailbreak > 卡 jailbreakPrompt（都空则不出现）
 [本轮要求]     "Only write {char}'s next reply now…"
 ```
+
+提示词来源优先级为 **预设 > 卡 prompt_settings > 卡字段/默认值**
+（`effective_prompts`）；预设由 `chat.preset_id` 绑定，未绑定用当前默认预设。
+每块的字符数记录在 `build()` 返回的 `sections` 里，注入预览和
+`/characters/{id}/prompt` 都会返回。
 
 宏：`{{char}}`/`<BOT>`/`[char]` → 卡名；`{{user}}`/`<USER>`/`[user]` → 用户名
 （当前默认 `User`，带 persona 时用 persona 名）。
 
-**世界书匹配**（`match_world_info`）：只看 `enabled` 条目；`constant` 无条件注入；
-否则把条目的 `keys`（小写）与本轮消息 + 最近 4 条用户消息拼成的文本做子串匹配；
-`probability < 100` 时用 `sha256(id + "|" + haystack)` 前 8 位取模做**确定性**抽样
-（同一输入结果稳定，便于回放）。命中条目按 `order` 升序注入。
+**世界书匹配**（`match_world_info_with_reason`）：只看 `enabled` 条目；`constant`
+无条件注入（reason=`constant`）；否则把条目的 `keys`（小写）与本轮消息 + 最近 4 条
+用户消息拼成的文本做子串匹配（reason=`keyword:<命中的词>`）；`probability < 100`
+时用 `sha256(id + "|" + haystack)` 前 8 位取模做**确定性**抽样（同一输入结果稳定，
+便于回放）。命中条目按 `order` 升序注入；预览返回的 `reasons` 与生成共用同一套
+匹配，因此预览就是「这一轮会注入什么」。
 
 **历史裁剪**：`budget_chars = clamp(1200, 60000, (context_window - output_limit - 1024) * 3)`
 （字符≈token×3）；从最新消息往前装，单条过长时保留**尾部**（续写需要承接最近内容），
@@ -409,7 +453,7 @@ SSE 响应头：`text/event-stream`、`Cache-Control: no-store`、
 | 模块 | 状态 |
 | --- | --- |
 | `app/server/app/world/**`、`play_controls`、`experience`、`story_flow` 等故事模式 | 路由仍挂载但客户端无入口；旧路由 redirect `/` |
-| `cards/space.py`（`card_lore`、`chat_presets`、`regex_scripts`、context-preview） | 旧卡片空间，2.0 聊天改用 `tavern_world_info`，不再调用 |
+| `cards/space.py`（`card_lore`、`chat_presets`、`regex_scripts`、context-preview） | 旧卡片空间；2.0 聊天改用 `tavern_world_info`，不再调用 `card_lore`。`regex_scripts` 的 CRUD 仍被设置页使用，但 2.0 生成流程未接入 `apply_regex` |
 | `cards/memory.py`（长期记忆/伙伴）、`cards/groups.py` 已删 | 记忆 UI 下线、群聊已整体删除；旧表保留 |
 | `worker` / `world-worker` 进程 | 2.0 聊天不建任务；进程仍在跑，仅旧代码可能入队 |
 | 旧客户端页面（探索/作品/群聊/记忆等） | 路由表已删，打包不再引用 |
@@ -479,7 +523,7 @@ DSH 切到别的面板会卸载 main 座位，iframe 一并销毁。插件侧做
   路由互相打架；`onLoad` 之后应用上报的路由才是权威值；
 - 恢复的地址失效（应用 redirect 到 `/` 或报错页）不会卡死面板：点「刷新」
   清空记忆并回应用首页即可；
-- 2.0 应用的路由是 `/`、`/characters/:id`、`/chats/:id`、`/settings`，重挂面板
+- 2.0 应用的路由是 `/`、`/characters/:id`、`/chats/:id`、`/settings`、`/settings/regex`，重挂面板
   通常能回到上次的聊天或卡详情。注意 `hasContext` 在 2.0 里基本为 `false`，
   实际记住的是 `/chats/` 等路径——比 1.x 严格（只认 `/worlds/`）时更好用。
 
@@ -567,8 +611,10 @@ secret 读不到时：打印告警、继续转发但**不带**可信头，应用
    uvicorn 默认单进程，并发聊天会排队。压测或多人使用前先确认 worker 数。
 4. **面板工具条遗留动作**：「让 DSH 续写/角色扮演」读不到故事上下文（应用没有
    P2 数据源），点击只会提示失败；清理属于 P3（`client.js`）。
-5. **采样参数未在生产生效**：网关支持 temperature/topP/stop，但生产 DSH Web
-   未重启；且 `opencode-go` 适配器忽略 topP/stop，只有 temperature 会到上游。
+5. **采样参数的生效条件**：应用侧已将 chat > 预设 > 卡设置解析好的
+   temperature/topP/stop/maxTokens 透传到网关；网关改写后需 **DSH Web 重启**
+   才加载（本轮验收后重启）。即使重启，`opencode-go` 适配器也只消费
+   temperature/maxTokens/sessionId，忽略 topP/stop，`stop` 不作为硬截断保证。
 6. **模型网关依赖应用侧 adapter**：`AI_MODE=dsh` 下应用走 `DshAgentAdapter`；
    网关 secret 在 `apply` 时读入，轮换后需重启 DSH Web；没配 secret 时连
    `/v1/health` 都 401（有意的「配置错就明确失败」）。
@@ -577,8 +623,12 @@ secret 读不到时：打印告警、继续转发但**不带**可信头，应用
    `PROVIDER_UNAVAILABLE`/`AGENT_UPSTREAM_FAILED`，应用不伪造回复。
 8. **旧代码暂留**：故事模式、卡片空间、记忆等模块仍可 import，旧表未 DROP；
    清理前要确认没有数据迁移/回滚需求（P3 范围）。
+
 9. **导入卡兼容性**：只解析 SillyTavern v1/v2/v3（PNG 内嵌 JSON 或 JSON）；
    异常卡会 4xx，不会半写入。
+10. **正则替换只作用于落库文本**：`/settings/regex` 的启用规则在回复落库前按
+    order 应用（`cards/space.apply_regex`，非法正则 warning 跳过）；SSE 流式
+    delta 仍是原文，刷新后读到替换后的文本。开场白不经过正则。
 
 ## 验收锚点一览（给测试用）
 
@@ -587,5 +637,10 @@ secret 读不到时：打印告警、继续转发但**不带**可信头，应用
   `[data-dsh-tavern-frame]`、`[data-dsh-tavern-action=reload|open|continue|roleplay]`；
 - 应用：`TavernShell` 顶栏品牌「酒馆」；角色卡网格、导入、点卡进 `/chats/<id>`；
   聊天 SSE（C 组断言 250ms 内文本增长 ≥2 种长度）；重生成后 `‹n/m›` 变多；
+- P2 功能（W/S2/Q 组）：世界书 `position=after_char` / `depth=2` / `constant` /
+  `probability` / `order` 保存回显，注入预览出现命中与原因；聊天页「采样参数」
+  Sheet 保存后刷新回显且带参生成不报错；设置页新建预设（system/temperature/
+  maxTokens）→ 设默认 → 新聊天 prompt 含预设文本，非法采样后端 422；
+- 最新完整验收（隔离实例 + 生产）各 **41 PASS / 0 FAIL / 0 SKIP**；
 - 旧路由：`/tavern/explore`、`/tavern/works`、`/tavern/worlds/scripts` 落 `/`；
   页面无「探索作品」入口（M 组）。

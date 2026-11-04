@@ -1,6 +1,11 @@
 """Native tavern chat: card import, chats, SSE replies, swipes, edit, prompt."""
 import json
 
+from sqlalchemy import select
+
+from app.cards.models import RegexScript
+from app.db import SessionLocal
+from app.models import User, now, uid
 from app.providers import MockAdapter
 
 BASE = "/api/reader/v1"
@@ -231,9 +236,10 @@ def test_prompt_assembly_and_injection_order(client, reader, profile, monkeypatc
     assert "{{char}}" not in system and "{{user}}" not in system
     assert "[角色设定]" in system and "阿岩" in system
     order = [system.index(marker) for marker in (
-        "[系统提示词]", "[主提示词]", "[世界书]", "[角色设定]", "[对话历史]", "[后置指令]", "[本轮要求]")]
+        "[系统提示词]", "[主提示词]", "[世界书 · 角色设定之前]", "[角色设定]",
+        "[对话历史]", "[后置指令]", "[本轮要求]")]
     assert order == sorted(order)
-    assert system.count("[世界书]") == 2
+    assert "[世界书 · 角色设定之后]" in system
     assert seen["data"]["character"]["name"] == "阿岩"
     assert seen["data"]["chatId"] == chat["id"]
     assert seen["limit"] == 2048
@@ -380,3 +386,53 @@ def test_chat_import_validation(client, reader):
                            files={"file": ("big.jsonl", oversized, "application/jsonl")})
     assert too_many.status_code == 422
     assert too_many.json()["code"] == "CHAT_IMPORT_TOO_LARGE"
+
+
+def _owner_id(username="reader_one"):
+    with SessionLocal() as db:
+        return db.scalar(select(User).where(User.username == username)).id
+
+
+def test_regex_scripts_apply_to_saved_reply_only(client, reader, profile):
+    first = client.post(f"{BASE}/regex-scripts", json={
+        "name": "句号换感叹号", "pattern": "。", "replacement": "！", "order": 0})
+    assert first.status_code == 201, first.text
+    disabled = client.post(f"{BASE}/regex-scripts", json={
+        "name": "禁用规则", "pattern": "！", "replacement": "？", "enabled": False, "order": 1})
+    assert disabled.status_code == 201, disabled.text
+    card = import_card(client)
+    chat = create_chat(client, card["id"])
+    events = read_sse(client, "POST", f"{TAVERN}/chats/{chat['id']}/messages",
+                      json={"message": "我回来了。"})
+    streamed = deltas(events)
+    assert "。" in streamed  # SSE deltas are the raw model output
+    saved = client.get(f"{TAVERN}/chats/{chat['id']}").json()["messages"][-1]["text"]
+    assert "。" not in saved
+    assert saved == streamed.replace("。", "！")
+    assert "？" not in saved  # disabled rule is not applied
+
+
+def test_regex_scripts_absent_keeps_text(client, reader, profile):
+    card = import_card(client)
+    chat = create_chat(client, card["id"])
+    events = read_sse(client, "POST", f"{TAVERN}/chats/{chat['id']}/messages",
+                      json={"message": "我回来了。"})
+    streamed = deltas(events)
+    saved = client.get(f"{TAVERN}/chats/{chat['id']}").json()["messages"][-1]["text"]
+    assert saved == streamed
+
+
+def test_invalid_regex_does_not_break_reply(client, reader, profile):
+    owner = _owner_id()
+    with SessionLocal() as db:
+        db.add(RegexScript(id=uid(), owner_id=owner, name="坏正则", pattern="(",
+                           replacement="x", enabled=True, order=0, updated_at=now()))
+        db.commit()
+    card = import_card(client)
+    chat = create_chat(client, card["id"])
+    events = read_sse(client, "POST", f"{TAVERN}/chats/{chat['id']}/messages",
+                      json={"message": "我回来了。"})
+    assert events[-1]["type"] == "done"
+    streamed = deltas(events)
+    saved = client.get(f"{TAVERN}/chats/{chat['id']}").json()["messages"][-1]["text"]
+    assert saved == streamed  # invalid rule is logged and skipped

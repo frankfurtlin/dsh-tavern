@@ -87,6 +87,17 @@ DSH_TAVERN_ONLY=a,n,c node verify.mjs ...   # 只跑某几组（a/n/c/r/h/s/m）
 | M1 | 旧路由 `/explore`、`/works`、`/worlds/scripts`、`/conversations/world/x` 全部下线（落 `/` 或 404，无死链） | `native.oldRoutes.routes` |
 | M2 | 页面无「探索作品」等旧入口 | `native.oldRoutes.deadLinks` |
 | G | 浏览器控制台无 JS 报错（过滤 `Failed to load resource`） | `checks[]` |
+| W1 | 世界书条目 position=after_char / depth=2 / constant / probability / order 保存后列表回显 | `native.worldInfoDeep.entry` |
+| W2 | 注入预览命中条目并显示原因（关键词/常驻） | `native.worldInfoDeep.preview` |
+| W3 | context-preview API 命中条目按 order 返回，position/depth 生效，injection 包含条目文本 | `native.worldInfoDeep.api` |
+| S2-1 | 聊天页菜单可打开「采样参数」对话框 | `native.sampling.dialog` |
+| S2-2 | 采样参数 temperature/topP/maxTokens 保存后刷新回显 | `native.sampling.persisted` |
+| S2-3 | 带采样参数发送一条消息不报错（真实生成 +1） | `native.sampling.send` |
+| Q1 | 设置页可打开预设管理 | `native.presets.steps` |
+| Q2 | 新建预设（system/temperature/maxTokens）并出现在列表 | `native.presets.created` |
+| Q3 | 预设设为默认且刷新保持 | `native.presets.defaulted` |
+| Q4 | 新聊天使用默认预设（`GET prompt?chatId=` 包含预设文本） | `native.presets.prompt` |
+| Q5 | 非法采样值被拒绝（前端拦截或后端 422） | `native.presets.invalid` |
 
 报告里 `report.ok = (fail === 0)`，`report.summary` 给出 PASS/FAIL/SKIP 计数；
 `report.app.nativeReady` / `report.app.oldUi` 记录原生 UI 判定，便于快速定位是
@@ -132,7 +143,7 @@ rm -f /root/workspace/plugins/dsh-tavern/app/data/private/*/card-avatar-*.png
   `app/.env` 的 `DSH_AGENT_URL=http://127.0.0.1:3080/tavern-agent/v1`，不要指向临时端口。
 - **iframe 导航竞态**：`frame` 对象跨导航会 stale；`verify.mjs` 统一用
   `waitFrameUrl()` / `appGoto()` 重新取 frame，断言失败时优先看 `report.app.frameUrl`。
-- **旧截图已删除**（20–79 属于已下线的探索/群聊/记忆流程）；当前保留 90–107（P0 90–99、P1 100–107）。
+- **旧截图已删除**（20–79 属于已下线的探索/群聊/记忆流程）；当前保留 90–115（P0 90–99、P1 100–107、P2 110–115）。
 
 ## P1 断言（task-48，客户端/服务端交付后跑）
 
@@ -151,6 +162,32 @@ assistant「雨下得正好，进来坐坐？」+ user「好，来一盏茶。�
 - 停止生成/版本切换/标题/编辑删除/导出菜单/导入按钮缺失或行为不符 → `owner: cards-client`；
 - 导出响应 4xx/5xx、导入 422、swipe select 失败 → `owner: app-auth`（服务端 P1 接口）；
 - 下载事件与 fixture 路径问题 → `owner: verifier`（harness）。
+
+## P2 断言（task-51，客户端/服务端交付后跑）
+
+P2 在 P1 的 30 项之外新增 11 项（W1–W3、S2-1–S2-3、Q1–Q5）：
+
+- **W 组（世界书深度语义）**：卡详情新增条目 `position=after_char`、`depth=2`、`constant=true`、
+  `probability=100`、`order=5`；列表 meta 回显这些字段；注入预览命中并显示原因；
+  `POST /world-info/preview` 返回的 `matched` 按 `order` 升序、`position/depth` 生效、`injection`
+  包含条目文本。现有 P1 世界书编辑器已支持这些字段，W 组在 P1 UI 上即可全绿。
+- **S2 组（采样参数）**：聊天页菜单 →「采样参数」对话框 → 设 `temperature=1.2 / topP=0.9 /
+  maxTokens=200` → 保存 → 刷新后重开对话框回显一致 → 带参数发送一条消息（真实生成 +1）不报错。
+- **Q 组（预设与提示词）**：设置页 →「新建预设」（名称「E2E 预设 P2」、system 提示词含
+  `【E2E-PRESET】`、temperature=1.2、maxTokens=200）→ 列表出现 → 设为默认（API `is_default=true`，
+  刷新保持）→ 新聊天 `GET /characters/{id}/prompt?chatId=` 返回文本包含 `【E2E-PRESET】` →
+  非法 temperature（5）后端返回 422（或前端拦截）。
+
+预期（P2 全部交付时）：**41 PASS / 0 FAIL / 0 SKIP**（30 + 11）。真实生成次数 ≤4：
+C 发送 1 + C2 停止演练 1（取消）+ R 重新生成 1 + S2 发送 1。P2 未交付时 W 组仍可跑（P1 UI），
+S2/Q 组按缺入口记 SKIP 并注明 `owner: cards-client`；Q4 的 `prompt?chatId=` 未上线记 SKIP
+（`owner: app-auth`），Q5 预设接口 404 记 SKIP（`owner: app-auth`）。
+
+截图新增：`110-w-worldinfo.png`、`111-w-preview.png`、`112-s2-sampling.png`、
+`113-q-presets.png`、`114-q-prompt.png`、`115-q-invalid.png`。
+
+失败归因：预设/采样/世界书编辑器 UI 缺失或行为不符 → `owner: cards-client`；
+预设 CRUD、prompt 组装、preview 顺序、422 校验 → `owner: app-auth`；harness 时序 → `owner: verifier`。
 
 ## 实测记录（P0，2026-11-05）
 
@@ -231,3 +268,47 @@ systemd-run --scope --unit=tavern-native-p1 --property=MemoryMax=2G \
 5. 导出菜单等待 `.chat-menu-pop [role=menuitem]` 出现（最多 6s，必要时重开一次菜单）；
    导入文件输入改为轮询查找（历史区块可能尚未挂载），找不到时重进一次详情页。
 
+## 实测记录（P2，2026-11-05）
+
+命令同 P1（隔离 3099 + 生产 app 8001/8810 + 生产 DSH 网关，systemd-run 独立 cgroup）：
+
+```bash
+systemd-run --scope --unit=tavern-p2-run --property=MemoryMax=2G \
+  --setenv=HOME=/root --setenv=XDG_CACHE_HOME=/root/.cache \
+  bash -c 'cd /root/workspace/plugins/dsh-tavern && bash scripts/check.sh --instance'
+```
+
+结果：浏览器 **41 PASS / 0 FAIL / 0 SKIP**，`report.ok=true`；报告
+`/tmp/dsh-tavern-native/check/report.json`（startedAt 2026-11-04T19:47:05Z），
+截图 90–115（P2 新增 110–115）。真实生成 4 次（C 1 + C2 停止 1 + R 1 + S2 1）。
+
+关键证据（`report.native.*`）：
+
+- W（世界书语义）：条目「茶」+ `【E2E-WORLD-INFO-P2】`，回显
+  `after_char · depth 2 · order 5 · 100% · 手写`；注入预览「命中 1 条世界书」且显示原因
+  「关键词「茶」」；`context-preview` API `matched=1 orders=5 sorted=true position/depth=true injection=true`。
+- S2（采样参数）：Sheet 内 temperature/topP/maxTokens 填 `1.2 / 0.9 / 200` → 保存后
+  `GET /chats/{id}` 落库 `{temperature:1.2,topP:0.9,maxTokens:200,stop:[]}`，reload 重开回显一致；
+  带参数发送一条消息 `sent=true alert=无`。
+- Q（预设）：新建「E2E 预设 P2」（system 含 `【E2E-PRESET】`、temperature 1.2、maxTokens 200）成功；
+  设为默认后 `isDefault=true` 且刷新保持；新聊天 `GET /characters/{id}/prompt?chatId=` 返回
+  `status=200 含预设文本=true len=1835`；非法 temperature=5 前端拦截 + 后端 422。
+- 既有 A/N/C/C2/R/P/T/H/E/S/I/M 30 项无回归；console clean。
+
+本轮修复（harness 时序，不是产品缺陷）：
+
+1. `appGoto()` 末尾等 Vue 应用真正挂载（`.tavern-home/.tavern-settings/.tavern-character/.bubble-row/.tavern-empty`）：
+   `index.html` 启动占位里也有 `h1`，只等标题会把启动占位误判成已渲染（Q/S2 全 SKIP 的根因）。
+2. S2 开始时 iframe 可能停在卡详情页：先用 C 组记录的聊天 URL `appGoto('/chats/<id>')` 回聊天页，
+   再等 `.bubble-row` 与菜单；找不到菜单时 reload 重试一次并把菜单文本写进 detail。
+3. S2 读输入值放在点「保存参数」之前（保存成功 Sheet 立即关闭，读 input 会拿到 null）；
+   落库用 `GET /chats/{id}` 的 `chat.sampling` 断言，回显再 reload 重开 Sheet 读。
+4. reload 后 Vue 事件可能尚未绑定：菜单点击最多重试 3 次（每次等 4s）；Q4「开新聊天」点击也加了
+   DOM click 兜底（`el.click()`），否则偶发点了没反应。
+5. 每轮跑前/跑后清库（保留内置「默认」预设）：`DELETE FROM world.tavern_messages/tavern_chats/
+   tavern_world_info; DELETE FROM world.tavern_presets WHERE name LIKE 'E2E%'; DELETE FROM
+   world.character_cards;` + `rm -f app/data/private/*/card-avatar-*.png`。
+
+本轮发现的真实客户端缺陷（已由 cards-client 修复，dist 03:27 重建）：`presetToWire()` 把 `isDefault`
+塞进 POST `/tavern/presets` body，服务端 `PresetInput` 为 Strict 模型 → 422「请求字段不符合要求」；
+修复后 create/update 不再带 `isDefault`，设默认改走 `PATCH {isDefault:true}`。

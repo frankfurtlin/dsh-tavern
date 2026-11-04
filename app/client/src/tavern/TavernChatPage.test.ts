@@ -1,7 +1,7 @@
 import {beforeEach,afterEach,describe,it,expect,vi} from 'vitest'
 import {defineComponent,h,onUnmounted} from 'vue'
 import TavernChatPage from './TavernChatPage.vue'
-import {deleteMessage,editMessage,exportChatBlob,getChat,selectSwipe} from './api'
+import {deleteMessage,editMessage,exportChatBlob,getChat,selectSwipe,updateChatSampling} from './api'
 import {saveBlob} from '../platform/download'
 import {streamChat} from './sse'
 import {compileRender,descendants,flush,node,provideSfc,renderer,text,type Host} from '../test/host-renderer'
@@ -16,11 +16,13 @@ vi.mock('./api',()=>({
   deleteMessage:vi.fn(),
   selectSwipe:vi.fn(),
   updateChat:vi.fn(),
+  updateChatSampling:vi.fn(),
   exportChatBlob:vi.fn(),
   messageText:(message:{swipes?:{content:string}[];activeSwipe?:number})=>message.swipes?.[message.activeSwipe??0]?.content??'',
 }))
 vi.mock('../platform/download',()=>({saveBlob:vi.fn(),safeFileName:(name:string,fallback:string)=>name||fallback}))
 vi.mock('./sse',()=>({streamChat:vi.fn()}))
+vi.mock('../components/Sheet.vue',()=>({default:defineComponent({props:{title:{type:String,default:''}},emits:['close'],setup:(props,{slots})=>()=>h('section',{class:'sheet-stub'},[h('h2',{},props.title),slots.default?.()])})}))
 vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{ArrowLeft:stub,ChevronLeft:stub,ChevronRight:stub,Download:stub,Pencil:stub,RefreshCw:stub,Send:stub,Square:stub,Trash2:stub,X:stub}})
 compileRender(TavernChatPage,new URL('./TavernChatPage.vue',import.meta.url))
 
@@ -52,6 +54,7 @@ beforeEach(()=>{
   vi.mocked(exportChatBlob).mockReset().mockResolvedValue(new Blob(['{}']))
   vi.mocked(saveBlob).mockReset()
   vi.mocked(streamChat).mockReset()
+  vi.mocked(updateChatSampling).mockReset().mockResolvedValue({id:'chat-1',cardId:'c1',title:'林渡 · 聊天'} as never)
 })
 afterEach(()=>{app?.unmount();app=undefined;vi.unstubAllGlobals()})
 
@@ -175,5 +178,20 @@ describe('TavernChatPage',()=>{
     await flush()
     expect(exportChatBlob).toHaveBeenCalledWith('chat-1','jsonl')
     expect(saveBlob).toHaveBeenCalledWith(expect.any(Blob),'林渡.jsonl')
+  })
+
+  it('edits chat-level sampling from the chat menu',async()=>{
+    mount();await flush()
+    aria('聊天菜单').props.onClick?.()
+    await flush()
+    const open=descendants(host,item=>item.tag==='button'&&text(item).trim()==='采样参数')[0]
+    open.props.onClick?.()
+    await flush()
+    const setup=state()
+    ;(setup.sampling as {temperature:number;topP:number;maxTokens:number;stopText:string})={temperature:0.5,topP:0.85,maxTokens:640,stopText:'END\nSTOP'}
+    const samplingForm=descendants(host,item=>item.tag==='form'&&descendants(item,child=>child.props['aria-label']==='temperature').length>0)[0]
+    samplingForm.props.onSubmit?.({preventDefault(){}})
+    await flush()
+    expect(updateChatSampling).toHaveBeenCalledWith('chat-1',{temperature:0.5,topP:0.85,maxTokens:640,stop:['END','STOP']})
   })
 })

@@ -1,39 +1,101 @@
 <script setup lang="ts">
-import {BookMarked,Brush,Download,SlidersHorizontal,UserRound} from 'lucide-vue-next'
-const items=[
-  {title:'人设（我是谁）',detail:'选择或编辑你在对话中扮演的身份。',icon:UserRound},
-  {title:'预设与采样',detail:'主提示词、越狱与后置提示词、temperature / top_p 等参数。',icon:SlidersHorizontal},
-  {title:'正则替换',detail:'保存回复时执行的输出替换规则。',icon:Brush},
-  {title:'导入与导出',detail:'角色卡导入、聊天记录导入导出。',icon:Download},
-  {title:'世界书',detail:'在角色详情页维护每张卡的世界书条目。',icon:BookMarked},
-]
+import {computed,onMounted,ref} from 'vue'
+import {BookMarked,Brush,Download,UserRound} from 'lucide-vue-next'
+import PersonaControl from '../characters/PersonaControl.vue'
+import {listPersonas,type Persona} from '../characters/api'
+import TavernPresetsPanel from './TavernPresetsPanel.vue'
+
+const DEFAULT_PERSONA_KEY='tavern:default-persona'
+const personaId=ref<string|null>(null)
+const personas=ref<Persona[]>([])
+const personaError=ref('')
+const defaultPersonaId=ref<string>('')
+
+const defaultPersonaName=computed(()=>personas.value.find(item=>item.id===defaultPersonaId.value)?.name||'')
+
+async function loadPersonas(){
+  try{
+    personas.value=await listPersonas()
+    if(defaultPersonaId.value&&!personas.value.some(item=>item.id===defaultPersonaId.value)){
+      defaultPersonaId.value=''
+      window.localStorage.removeItem(DEFAULT_PERSONA_KEY)
+    }
+  }catch(e){
+    personaError.value=(e as Error).message||'人设暂时无法读取。'
+  }
+}
+
+function chooseDefault(event:Event){
+  const value=(event.target as HTMLSelectElement).value
+  defaultPersonaId.value=value
+  if(value)window.localStorage.setItem(DEFAULT_PERSONA_KEY,value)
+  else window.localStorage.removeItem(DEFAULT_PERSONA_KEY)
+}
+
+onMounted(()=>{
+  try{defaultPersonaId.value=window.localStorage.getItem(DEFAULT_PERSONA_KEY)||''}catch{defaultPersonaId.value=''}
+  void loadPersonas()
+})
 </script>
 
 <template>
  <section class="tavern-settings" aria-label="设置">
   <h1>设置</h1>
-  <p class="muted">酒馆 2.0 正在迁移，以下模块会在后续版本开放；所有数据都保存在你自己的账号下。</p>
-  <ul class="settings-list">
-   <li v-for="item in items" :key="item.title" class="settings-item">
-    <component :is="item.icon" :size="20" aria-hidden="true"/>
-    <div>
-     <p class="settings-title">{{item.title}}<span class="badge">即将开放</span></p>
-     <p class="settings-detail">{{item.detail}}</p>
-    </div>
-   </li>
-  </ul>
-  <RouterLink to="/" class="settings-back">返回角色卡</RouterLink>
+  <p class="muted">酒馆 2.0 的全局设置：你的身份、提示词预设与导入导出。所有数据都保存在你自己的账号下。</p>
+
+  <section class="settings-section" aria-label="人设（我是谁）">
+   <h2><UserRound :size="18"/>人设（我是谁）</h2>
+   <PersonaControl v-model="personaId"/>
+   <p class="section-hint">人设会在对话中以「你的对话对象」注入；在这里创建和管理多个人设。</p>
+   <label class="default-persona">默认人设
+    <select :value="defaultPersonaId" aria-label="默认人设" @change="chooseDefault">
+     <option value="">不设置</option>
+     <option v-for="persona in personas" :key="persona.id" :value="persona.id">{{persona.name}}</option>
+    </select>
+   </label>
+   <p class="section-hint">默认人设会作为新聊天的初始选择（当前版本在聊天页仍可随时切换）。</p>
+   <p v-if="personaError" class="error" role="alert">{{personaError}}</p>
+  </section>
+
+  <section class="settings-section" aria-label="预设">
+   <h2><BookMarked :size="18"/>预设</h2>
+   <TavernPresetsPanel/>
+  </section>
+
+  <section class="settings-section" aria-label="输出替换规则">
+   <h2><Brush :size="18"/>输出替换规则</h2>
+   <p class="section-hint">角色回复保存前按正则改写文字。规则按角色卡保存，可在对应角色卡里维护。</p>
+   <RouterLink to="/settings/regex" class="settings-link">打开输出替换规则</RouterLink>
+  </section>
+
+  <section class="settings-section" aria-label="导入与导出">
+   <h2><Download :size="18"/>导入与导出</h2>
+   <ul class="import-list">
+    <li><RouterLink to="/" class="settings-link">角色卡库</RouterLink>：导入 SillyTavern PNG/JSON 角色卡。</li>
+    <li>角色详情：导出角色卡 PNG、导入酒馆聊天 JSONL。</li>
+    <li>聊天页：菜单里导出当前聊天（JSONL / JSON）。</li>
+   </ul>
+  </section>
+
+  <div class="settings-footer">
+   <RouterLink to="/" class="settings-back">返回角色卡</RouterLink>
+   <small v-if="defaultPersonaName">默认人设：{{defaultPersonaName}}</small>
+  </div>
  </section>
 </template>
 
 <style scoped>
-.tavern-settings{width:100%;max-width:720px;margin:0 auto;padding:24px clamp(14px,3vw,28px) 72px}
+.tavern-settings{width:100%;max-width:760px;margin:0 auto;padding:24px clamp(14px,3vw,28px) 72px;display:flex;flex-direction:column;gap:26px}
 h1{font-family:var(--font-serif);font-size:28px;margin:0 0 8px}
-.muted{color:var(--quiet);font-size:14px;line-height:1.7;margin:0 0 24px}
-.settings-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
-.settings-item{display:flex;gap:14px;align-items:flex-start;padding:14px;border:1px solid var(--edge);border-radius:14px;background:var(--canvas);color:var(--quiet)}
-.settings-item>svg{flex:none;margin-top:2px;color:var(--accent)}
-.settings-title{display:flex;align-items:center;gap:8px;margin:0 0 4px;font-size:15px;color:var(--ink)}
-.settings-detail{margin:0;font-size:13px;line-height:1.6}
-.settings-back{display:inline-flex;margin-top:28px;min-height:44px;align-items:center;color:var(--accent)}
+.muted{color:var(--quiet);font-size:14px;line-height:1.7;margin:0}
+.settings-section{display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--edge);padding-top:20px}
+.settings-section h2{display:flex;align-items:center;gap:8px;font-size:17px;margin:0;font-family:var(--font-serif)}
+.settings-section h2 svg{color:var(--accent)}
+.section-hint{color:var(--quiet);font-size:13px;line-height:1.6;margin:0}
+.default-persona{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--quiet);max-width:320px}
+.import-list{margin:0;padding-left:18px;color:var(--quiet);font-size:14px;line-height:1.9}
+.settings-link{color:var(--accent);text-decoration:underline}
+.settings-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.settings-back{display:inline-flex;min-height:44px;align-items:center;color:var(--accent)}
+.settings-footer small{color:var(--quiet)}
 </style>

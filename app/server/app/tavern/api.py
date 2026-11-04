@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import AliasChoices, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from ..cards import exporting, parse, personas
 from ..cards import service as card_service
@@ -18,11 +18,13 @@ from ..security import current_user
 from ..story_flow import default_profile
 from . import prompt as prompt_builder
 from . import service, stream
-from .models import TavernChat, TavernMessage, TavernWorldInfo
+from .models import TavernChat, TavernMessage, TavernPreset, TavernWorldInfo
 
 router = APIRouter(prefix="/tavern", tags=["tavern"])
 
-PROMPT_DEFAULTS = {"mainPrompt": "", "temperature": 0.8, "topP": 0.95, "maxTokens": 1024, "stop": []}
+PROMPT_DEFAULTS = {"mainPrompt": "", "temperature": 0.8, "topP": 0.95, "maxTokens": 1024,
+                   "stop": [], "system": "", "jailbreakPrompt": "", "postHistory": "",
+                   "worldInfoPosition": "before_char"}
 
 IMPORT_MAX_BYTES = 32 * 1024 * 1024
 IMPORT_MAX_LINES = 20000
@@ -55,10 +57,14 @@ class TavernCardPatch(Strict):
 class ChatCreate(Strict):
     greetingId: int | None = Field(default=None, ge=0)
     title: str | None = Field(default=None, min_length=1, max_length=160)
+    presetId: str | None = Field(default=None, max_length=32)
+    sampling: dict | None = None
 
 
 class ChatPatch(Strict):
-    title: str = Field(min_length=1, max_length=160)
+    title: str | None = Field(default=None, min_length=1, max_length=160)
+    presetId: str | None = Field(default=None, max_length=32)
+    sampling: dict | None = None
 
 
 class MessageInput(Strict):
@@ -82,7 +88,7 @@ class WorldInfoInput(Strict):
     position: str = Field(default="before_char", max_length=20)
     depth: int = Field(default=4, ge=0, le=100)
     constant: bool = False
-    probability: int = Field(default=100, ge=1, le=100)
+    probability: int = Field(default=100, ge=0, le=100)
     order: int = Field(default=100, ge=0, le=10000)
     enabled: bool = True
 
@@ -93,13 +99,14 @@ class WorldInfoUpdate(Strict):
     position: str | None = Field(default=None, max_length=20)
     depth: int | None = Field(default=None, ge=0, le=100)
     constant: bool | None = None
-    probability: int | None = Field(default=None, ge=1, le=100)
+    probability: int | None = Field(default=None, ge=0, le=100)
     order: int | None = Field(default=None, ge=0, le=10000)
     enabled: bool | None = None
 
 
 class PreviewInput(Strict):
     message: str = Field(default="", max_length=4000)
+    chatId: str | None = Field(default=None, max_length=32)
 
 
 class PromptInput(Strict):
@@ -109,6 +116,85 @@ class PromptInput(Strict):
     topP: float | None = Field(default=None, ge=0, le=1)
     maxTokens: int | None = Field(default=None, ge=16, le=8192)
     stop: list[str] | None = Field(default=None, max_length=8)
+    system: str | None = Field(default=None, max_length=20000,
+                               validation_alias=AliasChoices("system", "system_prompt"))
+    main: str | None = Field(default=None, max_length=20000,
+                             validation_alias=AliasChoices("main", "main_prompt"))
+    jailbreakPrompt: str | None = Field(default=None, max_length=20000)
+    postHistory: str | None = Field(default=None, max_length=20000)
+    worldInfoPosition: str | None = Field(default=None, max_length=20)
+
+
+class PresetInput(Strict):
+    name: str = Field(min_length=1, max_length=80)
+    system: str = Field(default="", max_length=20000)
+    main: str = Field(default="", max_length=20000)
+    jailbreak: str = Field(default="", max_length=20000)
+    postHistory: str = Field(default="", max_length=20000)
+    temperature: float | None = Field(default=None, ge=0, le=2)
+    topP: float | None = Field(default=None, ge=0, le=1)
+    maxTokens: int | None = Field(default=None, ge=16, le=8192)
+    stop: list[str] = Field(default_factory=list, max_length=4)
+
+
+class PresetUpdate(Strict):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    system: str | None = Field(default=None, max_length=20000)
+    main: str | None = Field(default=None, max_length=20000)
+    jailbreak: str | None = Field(default=None, max_length=20000)
+    postHistory: str | None = Field(default=None, max_length=20000)
+    temperature: float | None = Field(default=None, ge=0, le=2)
+    topP: float | None = Field(default=None, ge=0, le=1)
+    maxTokens: int | None = Field(default=None, ge=16, le=8192)
+    stop: list[str] | None = Field(default=None, max_length=4)
+    isDefault: bool | None = Field(default=None,
+                                   validation_alias=AliasChoices("isDefault", "is_default"))
+
+
+def _clean_stop(values):
+    cleaned = [str(item)[:200] for item in (values or []) if str(item).strip()]
+    if len(cleaned) != len(values or []) or any(len(str(item)) > 200 for item in (values or [])):
+        raise Problem("PRESET_INVALID", "stop 最多 4 条、每条不超过 200 字", 422)
+    return cleaned
+
+
+SAMPLING_KEYS = ("temperature", "topP", "maxTokens", "stop")
+
+
+def _clean_sampling(value):
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise Problem("INVALID_REQUEST", "sampling 必须是对象", 422)
+    result = {}
+
+    def number(key, snake_key, minimum, maximum):
+        raw = value.get(key, value.get(snake_key))
+        if raw is None:
+            return None
+        try:
+            parsed = float(raw)
+        except (TypeError, ValueError):
+            raise Problem("INVALID_REQUEST", "采样参数必须是数字", 422)
+        if parsed < minimum or parsed > maximum:
+            raise Problem("INVALID_REQUEST", "采样参数超出范围", 422)
+        return parsed
+
+    temperature = number("temperature", "temperature", 0, 2)
+    top_p = number("topP", "top_p", 0, 1)
+    max_tokens = number("maxTokens", "max_tokens", 16, 8192)
+    stop = value.get("stop")
+    if temperature is not None:
+        result["temperature"] = temperature
+    if top_p is not None:
+        result["topP"] = top_p
+    if max_tokens is not None:
+        result["maxTokens"] = int(max_tokens)
+    if stop is not None:
+        if not isinstance(stop, list):
+            raise Problem("INVALID_REQUEST", "stop 必须是数组", 422)
+        result["stop"] = _clean_stop(stop)
+    return result
 
 
 def _lore_rows(db, owner, card):
@@ -122,20 +208,44 @@ def _history(db, chat, *, before=None):
     return [row for row in service.list_messages(db, chat) if before is None or row.sequence < before]
 
 
-def _reply_context(db, owner, chat, card, history_rows, message, persona_id):
+def _build_prompt(db, owner, card, chat, history_rows, message, persona_id,
+                  preset=None, require_profile=True):
     settings = dict(card.prompt_settings or {})
-    profile = default_profile(db, owner)
+    try:
+        profile = default_profile(db, owner)
+    except Problem:
+        if require_profile:
+            raise
+        profile = None
+    preset = preset if preset is not None else service.preset_for_chat(db, owner, chat)
     persona = personas.get_persona(db, owner, persona_id) if persona_id else None
     persona_view = {"name": persona.name, "description": persona.description} if persona else None
-    limit = stream.output_limit_for(profile, settings)
+    chat_sampling = dict(chat.sampling or {}) if chat is not None else {}
+    if profile is None:
+        limit = int(chat_sampling.get("maxTokens") or getattr(preset, "max_tokens", None)
+                    or settings.get("maxTokens") or 1024)
+    else:
+        limit = stream.output_limit_for(profile, settings, preset, chat_sampling)
+    sampling = stream.sampling_for(settings, preset, chat_sampling)
     history = [{"role": row.role, "text": service.swipe_content(row.swipes, row.active_swipe)}
                for row in history_rows]
-    built = prompt_builder.build(card, chat, history=history, message=message,
+    built = prompt_builder.build(card, chat if chat is not None else SimpleNamespace(id=""),
+                                 history=history, message=message,
                                  user_name=persona_view["name"] if persona_view else "User",
                                  persona=persona_view, settings=settings, profile=profile,
                                  output_limit=limit,
-                                 world_info=service.world_info_rows(db, card))
-    return built["systemPrompt"], built["data"], limit, stream.profile_view(profile), profile.model_id
+                                 world_info=service.world_info_rows(db, card),
+                                 preset=preset)
+    return {"built": built, "limit": limit, "profile": profile, "sampling": sampling,
+            "preset": preset, "persona": persona_view}
+
+
+def _reply_context(db, owner, chat, card, history_rows, message, persona_id):
+    context = _build_prompt(db, owner, card, chat, history_rows, message, persona_id)
+    built = context["built"]
+    return (built["systemPrompt"], built["data"], context["limit"],
+            stream.profile_view(context["profile"]), context["profile"].model_id,
+            context["sampling"], context["preset"])
 
 
 def _prompt_view(card):
@@ -263,6 +373,7 @@ def create_chat(card_id: str, payload: ChatCreate | None = None,
                 user=Depends(current_user), db=Depends(get_db)):
     payload = payload or ChatCreate()
     card = service.card_or_404(db, user.id, card_id)
+    preset_id = service.get_preset(db, user.id, payload.presetId).id if payload.presetId else None
     greetings = [str(item).strip() for item in (card.alternate_greetings or []) if str(item).strip()]
     if payload.greetingId is None:
         greeting = (card.first_message or "").strip()
@@ -271,6 +382,7 @@ def create_chat(card_id: str, payload: ChatCreate | None = None,
             raise Problem("GREETING_INVALID", "这个开场白不存在", 422)
         greeting = greetings[payload.greetingId]
     chat = TavernChat(id=service.uid(), owner_id=user.id, card_id=card.id,
+                      preset_id=preset_id, sampling=_clean_sampling(payload.sampling),
                       title=_default_chat_title(db, user.id, card, payload.title), model_name="",
                       updated_at=now())
     db.add(chat)
@@ -392,8 +504,18 @@ async def import_chat(card_id: str, file: UploadFile = File(...),
 @router.patch("/chats/{chat_id}")
 def patch_chat(chat_id: str, payload: ChatPatch, user=Depends(current_user),
                db=Depends(get_db)):
+    fields = payload.model_fields_set
+    if not fields:
+        raise Problem("INVALID_REQUEST", "没有需要更新的字段", 422)
     chat = service.chat_or_404(db, user.id, chat_id, lock=True)
-    chat.title = payload.title.strip()
+    if "title" in fields and payload.title:
+        chat.title = payload.title.strip()
+    if "presetId" in fields:
+        if payload.presetId:
+            service.get_preset(db, user.id, payload.presetId)
+        chat.preset_id = payload.presetId or None
+    if "sampling" in fields:
+        chat.sampling = _clean_sampling(payload.sampling)
     chat.updated_at = now()
     db.commit()
     return {"chat": service.chat_out(chat)}
@@ -418,7 +540,7 @@ def send_message(chat_id: str, payload: MessageInput, user=Depends(current_user)
     text = payload.message.strip()
     if not text:
         raise Problem("MESSAGE_REQUIRED", "消息不能为空", 422)
-    system_prompt, data, limit, profile, model_name = _reply_context(
+    system_prompt, data, limit, profile, model_name, sampling, preset = _reply_context(
         db, user.id, chat, card, _history(db, chat), text, payload.personaId)
     user_row = service.add_message(db, chat, user.id, "user", text, "")
     db.commit()
@@ -427,7 +549,8 @@ def send_message(chat_id: str, payload: MessageInput, user=Depends(current_user)
     return StreamingResponse(
         stream.reply_events(owner=user.id, chat_id=chat.id, mode="message",
                             system_prompt=system_prompt, data=data, output_limit=limit,
-                            profile=profile, model_name=model_name, initial=initial),
+                            profile=profile, model_name=model_name, initial=initial,
+                            sampling=sampling),
         media_type=stream.SSE_MEDIA_TYPE, headers=stream.SSE_HEADERS)
 
 
@@ -443,12 +566,13 @@ def regenerate(chat_id: str, payload: RegenerateInput | None = None,
     persona_id = payload.personaId if payload else None
     message = next((service.swipe_content(row.swipes, row.active_swipe)
                     for row in reversed(history) if row.role == "user"), "")
-    system_prompt, data, limit, profile, model_name = _reply_context(
+    system_prompt, data, limit, profile, model_name, sampling, preset = _reply_context(
         db, user.id, chat, card, history, message, persona_id)
     return StreamingResponse(
         stream.reply_events(owner=user.id, chat_id=chat.id, mode="regenerate",
                             system_prompt=system_prompt, data=data, output_limit=limit,
                             profile=profile, model_name=model_name, target_id=target.id,
+                            sampling=sampling,
                             initial={"type": "message", "messageId": target.id,
                                      "activeSwipe": target.active_swipe}),
         media_type=stream.SSE_MEDIA_TYPE, headers=stream.SSE_HEADERS)
@@ -568,22 +692,57 @@ def drop_world_info(card_id: str, entry_id: str, user=Depends(current_user),
     return Response(status_code=204)
 
 
+def _last_user_text(rows):
+    for row in reversed(rows):
+        if row.role == "user":
+            text = service.swipe_content(row.swipes, row.active_swipe).strip()
+            if text:
+                return text
+    return ""
+
+
 @router.post("/characters/{card_id}/world-info/preview")
 def preview_world_info(card_id: str, payload: PreviewInput, user=Depends(current_user),
                        db=Depends(get_db)):
     card = service.card_or_404(db, user.id, card_id)
-    rows = service.world_info_rows(db, card)
-    history = [{"role": "user", "text": payload.message}] if payload.message else []
-    matched = prompt_builder.match_world_info(rows, prompt_builder.scan_text(payload.message, history))
-    return {"matched": [service.world_info_out(row) for row in matched],
-            "injection": prompt_builder.world_section(matched)}
+    chat = service.chat_or_404(db, user.id, payload.chatId) if payload.chatId else None
+    if chat is not None and chat.card_id != card.id:
+        raise Problem("RESOURCE_NOT_FOUND", "会话不存在", 404)
+    history_rows = service.list_messages(db, chat) if chat is not None else []
+    message = payload.message.strip() or _last_user_text(history_rows)
+    context = _build_prompt(db, user.id, card, chat, history_rows, message, None,
+                            require_profile=False)
+    built = context["built"]
+    view = _prompt_view(card)
+    return {"matched": built["matched"], "injection": built["worldInjection"],
+            "reasons": [{"id": item["id"], "reason": item["reason"]}
+                        for item in built["matched"]],
+            "worldInfoPosition": view.get("worldInfoPosition", "before_char"),
+            "sections": built["sections"], "systemPrompt": built["systemPrompt"]}
 
 
 # ------------------------------------------------------------------- prompt
 @router.get("/characters/{card_id}/prompt")
-def get_prompt(card_id: str, user=Depends(current_user), db=Depends(get_db)):
+def get_prompt(card_id: str, chatId: str | None = Query(default=None, max_length=32),
+               user=Depends(current_user), db=Depends(get_db)):
     card = service.card_or_404(db, user.id, card_id)
-    return {"prompt": _prompt_view(card)}
+    chat = service.chat_or_404(db, user.id, chatId) if chatId else None
+    if chat is not None and chat.card_id != card.id:
+        raise Problem("RESOURCE_NOT_FOUND", "会话不存在", 404)
+    history_rows = service.list_messages(db, chat) if chat is not None else []
+    context = _build_prompt(db, user.id, card, chat, history_rows,
+                            _last_user_text(history_rows), None, require_profile=False)
+    built = context["built"]
+    preset = context["preset"]
+    view = _prompt_view(card)
+    return {"prompt": view, "presetId": preset.id, "presetName": preset.name,
+            "system": view.get("system", ""), "main": view.get("mainPrompt", ""),
+            "jailbreakPrompt": view.get("jailbreakPrompt", ""),
+            "postHistory": view.get("postHistory", ""),
+            "worldInfoPosition": view.get("worldInfoPosition", "before_char"),
+            "systemPrompt": built["systemPrompt"], "sections": built["sections"],
+            "segments": built["sections"],
+            "matched": built["matched"], "worldInjection": built["worldInjection"]}
 
 
 @router.patch("/characters/{card_id}/prompt")
@@ -598,7 +757,74 @@ def patch_prompt(card_id: str, payload: PromptInput, user=Depends(current_user),
     for key in ("mainPrompt", "temperature", "topP", "maxTokens", "stop"):
         if key in fields:
             settings[key] = getattr(payload, key)
+    mapping = {"system": "system", "main": "mainPrompt", "jailbreakPrompt": "jailbreakPrompt",
+               "postHistory": "postHistory", "worldInfoPosition": "worldInfoPosition"}
+    for api_name, setting_key in mapping.items():
+        if api_name in fields:
+            settings[setting_key] = (getattr(payload, api_name) or "").strip()
     card.prompt_settings = settings
     card.updated_at = now()
     db.commit()
     return {"prompt": _prompt_view(card)}
+
+
+# ------------------------------------------------------------------ presets
+@router.get("/presets")
+def list_presets(user=Depends(current_user), db=Depends(get_db)):
+    rows = service.list_presets(db, user.id)
+    return {"items": [service.preset_out(row) for row in rows]}
+
+
+@router.post("/presets", status_code=201)
+def create_preset(payload: PresetInput, user=Depends(current_user), db=Depends(get_db)):
+    row = TavernPreset(id=service.uid(), owner_id=user.id, name=payload.name.strip(),
+                       is_default=False, system=payload.system.strip(),
+                       main=payload.main.strip(), jailbreak=payload.jailbreak.strip(),
+                       post_history=payload.postHistory.strip(),
+                       temperature=payload.temperature, top_p=payload.topP,
+                       max_tokens=payload.maxTokens, stop=_clean_stop(payload.stop),
+                       updated_at=now())
+    db.add(row)
+    db.commit()
+    return {"preset": service.preset_out(row)}
+
+
+@router.patch("/presets/{preset_id}")
+def patch_preset(preset_id: str, payload: PresetUpdate, user=Depends(current_user),
+                 db=Depends(get_db)):
+    row = service.get_preset(db, user.id, preset_id)
+    fields = payload.model_fields_set
+    if not fields:
+        raise Problem("INVALID_REQUEST", "没有需要更新的字段", 422)
+    mapping = {"name": "name", "system": "system", "main": "main", "jailbreak": "jailbreak",
+               "postHistory": "post_history", "temperature": "temperature",
+               "topP": "top_p", "maxTokens": "max_tokens", "stop": "stop"}
+    for api_name, column in mapping.items():
+        if api_name not in fields:
+            continue
+        value = getattr(payload, api_name)
+        if api_name in ("name", "system", "main", "jailbreak", "postHistory") and value is not None:
+            value = value.strip()
+        if api_name == "stop":
+            value = _clean_stop(value)
+        setattr(row, column, value)
+    if "isDefault" in fields and payload.isDefault is not None:
+        if payload.isDefault:
+            db.execute(update(TavernPreset).where(
+                TavernPreset.owner_id == user.id, TavernPreset.id != row.id).values(is_default=False))
+            row.is_default = True
+        else:
+            row.is_default = False
+    row.updated_at = now()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise Problem("PRESET_CONFLICT", "默认预设切换冲突，请重试", 409, retryable=True)
+    return {"preset": service.preset_out(row)}
+
+
+@router.delete("/presets/{preset_id}", status_code=204)
+def drop_preset(preset_id: str, user=Depends(current_user), db=Depends(get_db)):
+    service.delete_preset(db, user.id, preset_id)
+    return Response(status_code=204)
