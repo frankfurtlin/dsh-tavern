@@ -283,6 +283,170 @@ class ChatCompletionsAdapter:
         return {"inputTokens": None, "outputTokens": None, "state": "unknown", **details}
 
 
+def gateway_usage(value):
+    """Normalize the DSH gateway receipt; never invent token counts."""
+    if not isinstance(value, dict):
+        return {"state": "unknown", "inputTokens": None, "outputTokens": None}
+    state = value.get("state")
+    if state not in ("known", "estimated"):
+        state = "unknown"
+
+    def token(name):
+        amount = value.get(name)
+        return amount if type(amount) is int and amount >= 0 else None
+
+    return {"state": state, "inputTokens": token("inputTokens"), "outputTokens": token("outputTokens")}
+
+
+class DshAgentAdapter(ChatCompletionsAdapter):
+    """Adapter for the DSH model gateway (docs/step2-dsh-generation.md §3).
+
+    The gateway runs inside the DSH process and reuses its logged-in model
+    selection, so this adapter neither validates provider URLs nor decrypts
+    profile keys. Only the cancellation watchdog is shared with the base class.
+    """
+
+    def generate(self, profile, system_prompt, data, output_limit, *, conversation_id=None, thinking_mode=None):
+        return asyncio.run(self._complete(system_prompt, data, output_limit, conversation_id))
+
+    def generate_stream(self, profile, system_prompt, data, output_limit, *, on_delta, cancel_check, conversation_id=None, thinking_mode=None):
+        return asyncio.run(self._stream(system_prompt, data, output_limit, on_delta, cancel_check, conversation_id))
+
+    def _endpoint(self, suffix):
+        base = (settings.dsh_agent_url or "").strip().rstrip("/")
+        parsed = urlsplit(base)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            raise Problem("PROVIDER_UNAVAILABLE", "DSH 模型网关不可用，未收到回复", 502, {"reason": "invalid_configuration"})
+        return base + suffix
+
+    def _headers(self):
+        headers = {"User-Agent": "story-reader/1.0"}
+        secret = (settings.dsh_agent_secret or "").strip()
+        if secret:
+            headers["Authorization"] = "Bearer " + secret
+        return headers
+
+    def _timeout(self):
+        total = max(0.01, float(settings.dsh_agent_timeout_seconds))
+        return httpx.Timeout(total, connect=min(10.0, total))
+
+    def _body(self, system_prompt, data, output_limit, conversation_id=None):
+        body = {"system": system_prompt, "messages": [{"role": "user", "content": wire_json(data)}], "maxTokens": output_limit}
+        # 上游 opencode-go 要求请求带会话标识（x-opencode-session）；用聊天会话 id
+        # 保持同一段对话的路由/缓存稳定，避免每轮被当成一次性请求。
+        if conversation_id:
+            body["sessionId"] = str(conversation_id)[:200]
+        if data.get("_structured"):
+            body["temperature"] = 0.2
+        return body
+
+    def _gateway_error(self, reason, started, *, message="DSH 模型网关不可用，未收到回复", **details):
+        return Problem("PROVIDER_UNAVAILABLE", message, 502,
+            {"reason": reason, "latencyMs": round((time.monotonic() - started) * 1000), **details})
+
+    def _check_status(self, status, started):
+        if status == 200:
+            return
+        if status == 401:
+            raise Problem("AGENT_UNAUTHORIZED", "DSH 模型网关未授权，请联系管理员更新共享密钥", 502,
+                {"reason": "http_error", "httpStatus": 401, "latencyMs": round((time.monotonic() - started) * 1000)})
+        raise self._gateway_error("http_error", started, httpStatus=status)
+
+    async def _complete(self, system_prompt, data, output_limit, conversation_id=None):
+        started = time.monotonic()
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout(), follow_redirects=False, trust_env=False) as client:
+                response = await client.post(self._endpoint("/complete"), json=self._body(system_prompt, data, output_limit, conversation_id), headers=self._headers())
+                self._check_status(response.status_code, started)
+                try:
+                    payload = response.json()
+                except ValueError:
+                    raise self._gateway_error("invalid_response", started) from None
+        except (Problem, LeaseLost):
+            raise
+        except (httpx.TimeoutException, TimeoutError):
+            raise self._gateway_error("timeout", started) from None
+        except httpx.TransportError:
+            raise self._gateway_error("transport_error", started) from None
+        except Exception:
+            raise self._gateway_error("invalid_response", started) from None
+        text = payload.get("text") if isinstance(payload, dict) else None
+        if not isinstance(text, str):
+            raise self._gateway_error("invalid_response", started)
+        finish = payload.get("finishReason")
+        return {"text": text, "finishReason": finish if isinstance(finish, str) else None,
+                "usage": gateway_usage(payload.get("usage")), "latencyMs": round((time.monotonic() - started) * 1000)}
+
+    async def _stream(self, system_prompt, data, output_limit, on_delta, cancel_check, conversation_id=None):
+        started = time.monotonic()
+
+        async def read():
+            fragments, finish, usage, done, size = [], None, None, False, 0
+            bound = min(262144, max(4096, output_limit * 32))
+
+            async with httpx.AsyncClient(timeout=self._timeout(), follow_redirects=False, trust_env=False) as client:
+                async with client.stream("POST", self._endpoint("/stream"), json=self._body(system_prompt, data, output_limit, conversation_id), headers=self._headers()) as response:
+                    if response.status_code != 200:
+                        await response.aread()
+                        self._check_status(response.status_code, started)
+                    async for line in response.aiter_lines():
+                        if len(line) > 1048576:
+                            raise self._gateway_error("invalid_response", started)
+                        if not line.startswith("data:"):
+                            continue
+                        payload = line[5:].lstrip(" ")
+                        if payload == "[DONE]":
+                            done = True
+                            break
+                        try:
+                            frame = json.loads(payload)
+                        except ValueError:
+                            raise self._gateway_error("invalid_response", started) from None
+                        if not isinstance(frame, dict):
+                            raise self._gateway_error("invalid_response", started)
+                        kind = frame.get("type")
+                        if kind == "delta":
+                            text = frame.get("text")
+                            if not isinstance(text, str):
+                                raise self._gateway_error("invalid_response", started)
+                            if text:
+                                size += len(text)
+                                if size > bound:
+                                    raise self._gateway_error("invalid_response", started)
+                                fragments.append(text)
+                                if on_delta is not None:
+                                    await asyncio.to_thread(on_delta, text)
+                        elif kind == "usage":
+                            usage = gateway_usage(frame.get("usage") if "usage" in frame else frame)
+                        elif kind == "finish":
+                            reason = frame.get("reason")
+                            if isinstance(reason, str):
+                                finish = reason
+                        elif kind == "error":
+                            error = frame.get("error") if isinstance(frame.get("error"), dict) else {}
+                            code = error.get("code") if isinstance(error.get("code"), str) else "AGENT_UPSTREAM_FAILED"
+                            if code == "AGENT_UNAUTHORIZED":
+                                raise Problem("AGENT_UNAUTHORIZED", "DSH 模型网关未授权，请联系管理员更新共享密钥", 502,
+                                    {"reason": "gateway_error", "gatewayCode": code, "latencyMs": round((time.monotonic() - started) * 1000)})
+                            raise Problem("PROVIDER_UNAVAILABLE", "DSH 模型网关不可用，未收到回复", 502,
+                                {"reason": "gateway_error", "gatewayCode": code[:64], "latencyMs": round((time.monotonic() - started) * 1000)})
+            if not done:
+                raise self._gateway_error("incomplete_stream", started)
+            return {"text": "".join(fragments), "finishReason": finish or "stop", "usage": usage or gateway_usage(None),
+                    "latencyMs": round((time.monotonic() - started) * 1000)}
+
+        try:
+            return await read() if cancel_check is None else await self._with_cancel(read(), cancel_check)
+        except (Problem, LeaseLost):
+            raise
+        except (httpx.TimeoutException, TimeoutError):
+            raise self._gateway_error("timeout", started) from None
+        except httpx.TransportError:
+            raise self._gateway_error("transport_error", started) from None
+        except Exception:
+            raise self._gateway_error("invalid_response", started) from None
+
+
 class MockAdapter(ChatCompletionsAdapter):
     """Deterministic fixture adapter. Only explicitly enabled by AI_MODE=mock."""
     def generate_stream(self, profile, system_prompt, data, output_limit, *, on_delta, cancel_check, **kwargs):

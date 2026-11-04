@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     trusted_auth: bool = Field(False, validation_alias=AliasChoices("DSH_TRUSTED_AUTH", "TRUSTED_AUTH"))
     trusted_username: str = Field("", validation_alias=AliasChoices("DSH_TRUSTED_USERNAME", "TRUSTED_USERNAME"))
     trusted_secret: str = Field("", validation_alias=AliasChoices("DSH_TRUSTED_SECRET", "TRUSTED_SECRET"))
+    # DSH model gateway (docs/step2-dsh-generation.md). The gateway runs inside
+    # the DSH process and reuses its logged-in model selection; the app only
+    # needs this local URL and the shared secret.
+    dsh_agent_url: str = Field("http://127.0.0.1:3080/tavern-agent/v1", validation_alias=AliasChoices("DSH_AGENT_URL", "AGENT_URL"))
+    dsh_agent_secret: str = Field("", validation_alias=AliasChoices("DSH_AGENT_SECRET", "AGENT_SECRET"))
+    dsh_agent_timeout_seconds: float = Field(120, validation_alias=AliasChoices("DSH_AGENT_TIMEOUT_SECONDS", "AGENT_TIMEOUT_SECONDS"))
 
 
 settings = Settings()

@@ -117,5 +117,18 @@ iframe → 父（主动，节流）：
 | `package.json`、`cordis.patch.yml`、`lib/**`、`client.js`、`README.md`、`docs/architecture.md`、`docs/contract.md` | plugin-core |
 | `scripts/**`、`verify.mjs`、`docs/testing.md` | verifier |
 | `/etc/systemd/system`、Caddy、`/root/.dsh/profiles/web`（host 级，不在本仓库） | Lead |
+| `docs/step2-dsh-generation.md`、`app/.env`（含 `DSH_AGENT_*`、`AI_MODE`）、host 重启与上线 | Lead |
 
 任何人不改别人范围的文件；发现 bug 用 send_message 报给 owner 或 Lead。
+
+## 6. 第二步：真生成（DSH 模型网关）
+
+- 链路：应用 worker（`ai_mode='dsh'` 的 `DshAgentAdapter`）→
+  `POST /tavern-agent/v1/{complete,stream}`（`Authorization: Bearer <secret>`）→
+  插件调 `ctx.llm.stream()`，默认模型取 `ctx.agentDefaultModel.currentSelection()`
+  （本机 `opencode-go / deepseek-v4.1-flash`）。
+- 鉴权 secret：`DSH_TAVERN_AGENT_SECRET`（插件侧，回退 `DSH_TRUSTED_SECRET`）
+  必须与 `DSH_AGENT_SECRET`（应用侧）一致；只出现在 host 环境文件，不入库、不入日志。
+- 失败语义：网关不可用 → `PROVIDER_UNAVAILABLE / 502`「DSH 模型网关不可用，未收到回复」；
+  secret 错 → `AGENT_UNAUTHORIZED`；界面显示失败，不落假回复。
+- 端点、请求/响应、超时、日志约束以 `docs/step2-dsh-generation.md` 为准。

@@ -21,7 +21,7 @@
 | --- | --- |
 | `package.json` | 声明 `dsh.bundle.patch`（cordis patch）、`dsh.client.platform=web`、`exports["./client"]`；`npm run check` 做语法检查 |
 | `cordis.patch.yml` | `- insert: [{id: dsh-tavern, name: dsh-tavern}]`，`id` 必须等于包名 |
-| `lib/index.js` | host 半：注册 `prefix /tavern` 反向代理（旧 `/story` 为 302 兼容别名）；先过 DSH 登录闸门；`/api/**`、`/health/**` → 8001 并附加可信头，其余 → 8810 静态站 |
+| `lib/index.js` | host 半：注册 `prefix /tavern` 反向代理（旧 `/story` 为 302 兼容别名）；先过 DSH 登录闸门；`/api/**`、`/health/**` → 8001 并附加可信头，其余 → 8810 静态站。另外注册 `prefix /tavern-agent` 模型网关，给应用 worker 调 DSH 真生成 |
 | `client.js` | client 半：注册侧栏行（`sidebar.panellist` 座位）+ 主面板（`main` 座位，`key=tavern`）；工具条 + 同源 iframe + P2 `postMessage` 桥 |
 | `app/` | 写作应用本体（Vue 前端 + FastAPI 后端）。应用侧为插件做的改动（可信登录、P2 桥）也在这个目录里，随本仓库 git 管理 |
 | `docs/contract.md` | 与应用侧的集成契约（路由分流、可信头、P2 协议、UI 座位）——**先读它再改代码** |
@@ -77,14 +77,45 @@ DSH 会话，并尝试把 prompt 预填进新会话编辑器（写不进去就�
 重新挂载面板时把 iframe 恢复到那里；点「刷新」清空记忆并回应用首页，
 用于恢复失败时兜底。详见 [docs/architecture.md](docs/architecture.md)。
 
+## DSH 模型网关：应用 worker 怎么用真生成
+
+应用的生成 worker 是服务端进程，没有浏览器会话。插件在 `/tavern` 旁边开了一个
+平级前缀 `/tavern-agent`，用共享 secret 做服务端到服务端鉴权，复用 DSH 已经
+跑着的模型通道（`ctx.llm.stream`）：
+
+| 端点 | 方法 | 用途 |
+| --- | --- | --- |
+| `/tavern-agent/v1/health` | `GET` | 探活 + 返回当前默认模型 |
+| `/tavern-agent/v1/complete` | `POST` | 一次性返回整段文本 |
+| `/tavern-agent/v1/stream` | `POST` | SSE 增量返回（每段文本一帧，末尾 `data: [DONE]`） |
+
+- 鉴权：`Authorization: Bearer <secret>`；secret 读 `app/.env` 的
+  `DSH_TAVERN_AGENT_SECRET`，缺省回退 `DSH_TRUSTED_SECRET`，**没配则一律 401**；
+- 模型：请求可用 `model:{provider,model}` 指定，否则用 DSH 当前默认模型
+  （`agentDefaultModel`）；可选 `sessionId`（应用按会话传稳定值，缺省每次随机
+  UUID，opencode-go 等 provider 靠它做上游会话）；`reasoningEffort` 默认
+  `low`（覆盖 profile 的 high，避免把 maxTokens 烧在思考里；当前聊天模型只支持
+  `low`/`high`）；
+- 失败：401 `AGENT_UNAUTHORIZED`、400 `AGENT_BAD_REQUEST`、
+  502 `AGENT_UPSTREAM_FAILED`；SSE 开始后失败走 `{"type":"error"}` 帧；
+- 超时 120s，客户端断开/超时会中断上游；日志只记模型名、字数、耗时、错误码，
+  **不记 prompt、消息内容和 secret**。
+
+应用侧在 `AI_MODE=dsh` 时使用它（`DSH_AGENT_URL=http://127.0.0.1:3080/tavern-agent/v1`，
+`DSH_AGENT_SECRET` 与 `DSH_TAVERN_AGENT_SECRET` 同值）；回滚改 `AI_MODE=mock`。
+详见 [docs/architecture.md](docs/architecture.md)。
+
 ## 配置
 
 | 位置 | 键 | 说明 |
 | --- | --- | --- |
 | `app/.env` | `DSH_TRUSTED_SECRET` | 应用侧校验可信登录头的 secret，插件转发 API 请求时附加 |
-| 宿主环境 | `DSH_TAVERN_TRUSTED_SECRET` | 覆盖上面的 secret（隔离测试 / 应急时用） |
+| `app/.env` 或宿主环境 | `DSH_TAVERN_AGENT_SECRET` | 模型网关 Bearer secret；缺省回退 `DSH_TRUSTED_SECRET`，都没有则网关一律 401 |
+| 宿主环境 | `DSH_TAVERN_TRUSTED_SECRET` | 覆盖可信登录 secret（隔离测试 / 应急时用） |
 | 宿主环境 | `DSH_TAVERN_API_PORT` | 覆盖 API 上游端口（默认 8001） |
 | 宿主环境 | `DSH_TAVERN_STATIC_PORT` | 覆盖静态上游端口（默认 8810） |
+| 宿主环境 | `DSH_TAVERN_ENV_FILE` | 覆盖读取的 `.env` 路径（隔离测试用，生产不设） |
+| 宿主环境 | `DSH_TAVERN_AGENT_TIMEOUT_MS` | 覆盖模型网关超时（默认 120000；仅测试用） |
 
 secret 在插件启动（`apply`）时读入；读不到会打印告警，但不会让宿主崩溃，
 此时 API 请求不带可信头，应用侧按未登录处理（401）。
@@ -117,6 +148,10 @@ npm run check
 - **位置记忆只记「页面路由」**：恢复的是应用路由（如 `/worlds/w1/play`），
   应用内部未写进路由的临时状态（滚动位置、未保存草稿等）仍以应用自身为准；
   恢复的地址若失效，应用会回落 `/explore`，点「刷新」即可回首页。
+- **模型网关依赖应用侧 adapter**：网关只负责转发一次模型调用；`AI_MODE=dsh` 下
+  应用 worker 的 `DshAgentAdapter` 必须按契约调它，否则应用仍走 mock 生成。
+  网关 secret 在插件启动时读入，轮换后需要重启 DSH Web；没配 secret 时连
+  `/v1/health` 都 401，这是「配置错就明确失败」的预期行为。
 
 ## 文档
 
