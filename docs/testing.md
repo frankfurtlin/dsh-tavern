@@ -21,7 +21,8 @@ scripts/check.sh --instance       # 只跑隔离实例 + E2E
 scripts/check.sh --with-app-tests # 额外跑应用前端 typecheck + 单测（慢）
 scripts/check.sh --no-bridge      # 跳过「交给 Agent」的端到端点击
 scripts/check.sh --open-story     # 先在应用内打开一部作品再点续写（会写阅读进度，验证提示词模板全链路）
-scripts/check.sh --cards          # 额外跑角色卡导入 + 单卡聊天（生成 fixture，会向测试库写/删测试卡）
+scripts/check.sh --open-story --cards   # 全链路：打开作品 + 角色卡导入 + 单卡聊天（会写测试库）
+scripts/check.sh --open-story --cards --real  # 真生成验收（--real 隐含 --cards）：回复必须是真模型生成、刷新后仍在（需应用 AI_MODE=dsh）
 scripts/check.sh --keep-home      # 保留 /tmp/dsh-tavern-check 供排查
 scripts/check.sh --port 3199      # 3099 被占用时换端口
 ```
@@ -51,6 +52,10 @@ scripts/check.sh --port 3199      # 3099 被占用时换端口
 `06-restore-panel.png`、`07-reload-restore.png`、`08-refresh-home.png`；
 `--cards` 时另有 `09-cards-page.png`、`10-cards-imported.png`、`11-chat-open.png`、
 `12-chat-reply.png`、`13-chat-after-reload.png`、`14-cards-deleted.png`。
+
+`--real` 不新增截图，但 `report.real` 会记录：首句前 60 字、字数、耗时（ms）、模型名
+（聊天消息 `<small>` 里的 `模型名 · 已保存`）、是否含角色名（仅信息，不作硬断言）、刷新后是否同一条、
+console 是否干净；不记录 prompt / 回复全文。
 
 | 组 | 检查项 | 期望 | 失败归属 |
 | --- | --- | --- | --- |
@@ -84,6 +89,11 @@ scripts/check.sh --port 3199      # 3099 被占用时换端口
 | H6 | 回角色卡库点「删除」 | 卡名数量回落到导入前基线（应用无确认弹层，点击即删；断言 `DELETE /character-cards/<id>` 返回 204 且列表刷新） | cards-client |
 | H6 | 删除只删一张 | 其余 fixture 卡仍在列表 | cards-client |
 | H7 | 页面无控制台 JS 报错 | 0 条（资源加载失败不算） | plugin-core |
+| R1 | `--real`：回复不含 mock 特征句「我们可以聊聊此刻的想法」 | 不出现（出现 = 应用仍在 `AI_MODE=mock`） | app-auth（环境/worker） |
+| R2 | `--real`：回复长度 ≥ 20 字且不是用户消息本身 | 真模型回复（`字数`、`首句` 写进 `report.real.reply`） | app-auth / plugin-core |
+| R3 | `--real`：完整刷新 iframe 后同一条回复仍在 | `report.cards.reload.replyMatched === true`（按文本前 20 字比对，不只看条数） | app-auth 持久化 + cards-client |
+| R4 | `--real`：console 无 JS 报错 | 0 条 | plugin-core |
+| R5 | `--real-negative`：网关不可用时 UI 显示失败而不是假回复 | 默认 SKIP（需手动把网关弄坏）；显式演练时要求 `[role=alert]/[role=status]` 有失败文案、且没有 assistant 假回复 | app-auth / plugin-core |
 
 ### 自动化锚点（契约约定）
 
@@ -155,6 +165,53 @@ scripts/check.sh --port 3199      # 3099 被占用时换端口
 - **P2 命名空间是 `dsh-tavern:*`**（不是 `dsh-story:*`）；脚本注入的 `message` 监听和
   `report.bridge.protocol` 都按这个断言，用错命名空间会表现为「应用没有响应」超时。
 
+## `--real` 真生成验收（task-12 / step2）
+
+```bash
+scripts/check.sh --instance --cards --real
+# 完整全链路：scripts/check.sh --instance --open-story --cards --real
+```
+
+前置（缺一项就会在 H9/R 组暴露，不会静默通过）：
+
+1. 应用 `app/.env`：`AI_MODE=dsh`、`DSH_AGENT_URL=http://127.0.0.1:3080/tavern-agent/v1`、
+   `DSH_AGENT_SECRET=<secret>`（插件侧 `DSH_TAVERN_AGENT_SECRET` 同一值）。
+2. 生产 DSH（3080）已加载新插件，`/tavern-agent/v1/health` 带 Bearer 返回 `{"ok":true}`。
+   注意：隔离 E2E 的 UI 在 3099，但应用 worker 调的是 **3080** 的网关（`DSH_AGENT_URL`），
+   所以 3080 没重启时 `--real` 会表现为回复超时/UI 失败，而不是 verify 脚本自身崩。
+3. `dsh-tavern-api` + `dsh-tavern-worker` 重启过（`AI_MODE=dsh` 才会走 `DshAgentAdapter`）。
+
+`check.sh --real` 的前置检查只做只读探测（读 `app/.env` + 带 secret 调 health），
+不可用时记 SKIP 并说明 owner；真正断言的还是浏览器里的 H9 + R1–R4。
+
+通过标准：
+
+- 原有 A–H 43/55 项仍全绿；
+- R1 不出现 mock 特征句；R2 回复 ≥20 字；R3 刷新后同一条回复仍在；R4 console 干净；
+- R5 默认 SKIP（原因：需要临时把 `DSH_AGENT_URL` 指向坏端口并重启 api/worker，属侵入式环境改动）。
+
+`--real` 的等待时间放宽：发送后最多等 **180s** 拿到「已保存」标记（真生成 10–60s 属常态，
+含网关排队）；「刷新后仍在」轮询也放宽到 45s。mock 模式仍是 120s/30s，不受影响。
+
+实测（2026-11-04，隔离实例 3099 + 生产 app 8001，app/.env 指向 3099 网关）：
+`--open-story --cards --real` → 59 PASS / 0 FAIL / 1 SKIP，回复 130 字、耗时约 30.7s、
+模型名 `DSH 模型`（网关侧为 `opencode-go/deepseek-v4.1-flash`），刷新后同一条回复仍在。
+
+### `--real-negative`（可选，负向演练）
+
+用于验收「诚实失败」：网关不可用时 UI 必须显示失败/未收到回复，**不能**伪造一条回复。
+脚本不会自己去改环境，需要手动制造故障后显式加参数：
+
+```bash
+# 1) 临时把 app/.env 的 DSH_AGENT_URL 指向坏端口（例如 http://127.0.0.1:9/tavern-agent/v1）
+# 2) systemctl restart dsh-tavern-api dsh-tavern-worker
+scripts/check.sh --instance --cards --real-negative
+# 3) 恢复 app/.env 的 URL 并重启 api/worker，清理测试卡
+```
+
+期望：R5 PASS（`[role=alert]/[role=status]` 有失败文案、没有 assistant 假回复），
+H9 记为「网关不可用场景：UI 已显示失败」。演练结束后务必恢复环境。
+
 ## 手工探针（不启浏览器）
 
 ```bash
@@ -197,7 +254,8 @@ curl -s -o /dev/null -w 'trusted refresh=%{http_code}\n' \
 
 - [x] **app-auth**：trusted 登录 + P2 桥（`dsh-tavern:ping/pong/state/context`）已部署；
   隔离实例 E2E **43 PASS / 0 FAIL / 0 SKIP**（`--open-story`，含位置记忆 G1–G3）；
-  加 `--cards` 后 **55 PASS / 0 FAIL / 0 SKIP**（含 H 组角色卡导入 + 单卡聊天）。
+  加 `--open-story --cards` 后 **55 PASS / 0 FAIL / 0 SKIP**（含 H 组角色卡导入 + 单卡聊天）；
+  只加 `--cards` 不加 `--open-story` 时，D/E/F 上下文类检查与位置记忆项按预期 SKIP（不 FAIL）。
 - [x] **应用内要有「当前故事」**：`--open-story` 会在 explore 点「继续游玩」进入
   `/worlds/:id/play`；context 实测 `mode=world-play world=蓝宝石案 line=福尔摩斯的故事
   chars=12 recent=286字`。应用里当前有 4 部 published/live 作品（DB `product_publications`）。
@@ -220,8 +278,17 @@ curl -s -o /dev/null -w 'trusted refresh=%{http_code}\n' \
   里 `chat/reload/deleted/deleteDiagnostics` 全部留证）。fixture 的 DB 写入是预期的，结束后由
   Lead 清理测试卡（多轮调试会累积同名卡；脚本已用「基线计数」而非绝对数量断言）。
 - [ ] 默认 `check.sh` 会 SKIP「应用前端 typecheck/单测」（`--with-app-tests` 才跑）；本轮静态
-  阶段 SKIP 1 项即此项，浏览器 E2E 0 SKIP；`--cards` 时新增 1 项 fixture 生成 + 12 项 H 组。
+  阶段 SKIP 1 项即此项，浏览器 E2E 0 SKIP；`--cards` 时新增 1 项 fixture 生成 + 12 项 H 组；
+  `--real` 时再加 5 项 R 组（R1–R4 断言 + R5 负向演练默认 SKIP），预期 **59 PASS / 0 FAIL / 1 SKIP**。
 - [ ] **生产冒烟**：等生产 3080 重启加载新插件后，用带 token 的 URL 跑
   `node verify.mjs --url ... --open-story`（生产默认不加 `--cards`，避免往生产库写卡）。
+- [x] **真生成（step2 / task-12，隔离环境）**：2026-11-04 实测 `scripts/check.sh --instance
+  --open-story --cards --real` → **59 PASS / 0 FAIL / 1 SKIP**（R5 负向演练默认 SKIP）。
+  `report.real.reply`：`modelName=DSH 模型`、`length=130`、`elapsedMs≈30.7s`、`completed=true`；
+  刷新后 `replyMatched=true`；console clean；回复为中文角色化文本，不含 mock 特征句。
+  遗留：每轮会向共享库导入 3 张 fixture 卡（只删除本轮 PNG 卡），测试库会累积；生产 3080 尚未重启。
+- [ ] **真生成（生产 3080）**：等 Lead 重启生产 DSH / 切换生产 `AI_MODE=dsh` 后，用
+  `node verify.mjs --url "http://127.0.0.1:3080/?token=…" --open-story --cards --real` 或
+  `scripts/check.sh --real`（指向生产实例）再验一次；当前不能引用任何生产真生成结论。
 - [ ] **`--with-app-tests`**：应用侧 typecheck/单测归 app-auth/cards-client 自己跑，验收脚本
   默认不跑；需要时可 `scripts/check.sh --static --with-app-tests`。

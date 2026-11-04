@@ -92,6 +92,105 @@
   - 静态上游超时 → `504 酒馆应用响应超时，请稍后重试。`
 - 客户端断开（`req` aborted / `res` close）时销毁上游请求，避免泄漏。
 
+## DSH 模型网关 `/tavern-agent/v1/**`（host 半）
+
+应用 worker 是**服务端进程**：它没有浏览器会话，也不该让 API 进程为了调模型
+去拿 DSH 登录 cookie。所以插件另开一个平级前缀 `/tavern-agent`，给应用
+worker 做服务端到服务端调用，复用 DSH 已经在跑的模型通道。
+
+| 端点 | 方法 | 用途 |
+| --- | --- | --- |
+| `/tavern-agent/v1/health` | `GET` | 探活 + 返回 DSH 当前默认模型 |
+| `/tavern-agent/v1/complete` | `POST` | 一次性返回整段文本 |
+| `/tavern-agent/v1/stream` | `POST` | SSE 增量返回（聊天面板用） |
+
+### 鉴权
+
+- 只认 `Authorization: Bearer <secret>`，用 `timingSafeEqual` 做常量时间比较；
+- secret 读取顺序：环境变量 `DSH_TAVERN_AGENT_SECRET` → `app/.env` 的
+  `DSH_TAVERN_AGENT_SECRET` → `DSH_TRUSTED_SECRET`（应用侧一般配成同一个值）；
+- **没配 secret 时一律 401**（`AGENT_UNAUTHORIZED`），不静默放行；
+- 网关**不过** `requestRejection`：它服务的是 worker 而不是浏览器；
+  `/tavern`、`/story` 的闸门行为不受影响。
+
+### 请求 / 响应
+
+```http
+POST /tavern-agent/v1/complete
+Authorization: Bearer <secret>
+Content-Type: application/json
+
+{
+  "system": "你在写一部仙侠小说……",
+  "messages": [{ "role": "user", "content": "请续写下一段" }],
+  "maxTokens": 1024,
+  "temperature": 0.8,
+  "sessionId": "a7f1c0d2e3b4",
+  "reasoningEffort": "low",
+  "model": { "provider": "opencode-go", "model": "deepseek-v4.1-flash" }
+}
+```
+
+- `messages` 的 `content` 可以是字符串，也可以是 `[{ "type": "text", "text": "..." }]`
+  （插件统一归一成 DSH 的 `ContentBlock[]`；裸字符串直接丢给 `ctx.llm.stream` 不合法）；
+  目前只接受 `role: "user"`，多轮上下文由应用自己拼进 content；
+- `model` 可选；不传时用 `ctx.agentDefaultModel.currentSelection()`，
+  两者都没有则 502；
+- `sessionId` 可选：应用按会话传稳定值（≤200 字符）能提高上游缓存命中；不传时
+  网关每次生成一个 UUID——opencode-go 要求 `x-opencode-session`，缺了会
+  `400 MissingSessionID`；
+- `reasoningEffort` 可选，白名单 `off|minimal|low|medium|high|xhigh|max`，
+  **默认 `low`**：profile 默认是 `high`，省略会继承 high 把 maxTokens 烧在思考里；
+  当前聊天模型（deepseek-v4.1-flash）实测只支持 `low`/`high`，传
+  `off`/`minimal`/`medium` 会被上游拒（`UNSUPPORTED_REASONING_EFFORT`）；
+- `complete` 响应：
+
+```json
+{
+  "text": "……",
+  "model": { "provider": "opencode-go", "model": "deepseek-v4.1-flash" },
+  "usage": { "state": "known", "inputTokens": 812, "outputTokens": 486 },
+  "finishReason": "stop"
+}
+```
+
+### SSE 帧
+
+`/v1/stream` 先回 `200 text/event-stream` 并 `flushHeaders()`，之后每段文本一帧：
+
+```
+data: {"type":"delta","text":"……"}
+
+data: {"type":"usage","usage":{"state":"known","inputTokens":812,"outputTokens":486}}
+
+data: {"type":"finish","reason":"stop"}
+
+data: [DONE]
+```
+
+- 只转发 `text-delta`；`reasoning-delta` 丢弃（不把思维链塞给应用）；
+- `usage` 有精确值用 `state: "known"`，否则按字符数粗估并标 `state: "estimated"`；
+- 上游失败时发 `data: {"type":"error","error":{"code":"AGENT_UPSTREAM_FAILED","message":"…"}}`
+  然后结束；此时 HTTP 状态已经是 200，错误只能走帧。
+
+### 失败语义
+
+| 场景 | HTTP | code |
+| --- | --- | --- |
+| 缺/错 secret | 401 | `AGENT_UNAUTHORIZED` |
+| 坏 JSON、空 `messages`、超大 body（>4 MiB）、非 user 角色 | 400 | `AGENT_BAD_REQUEST` |
+| 上游报错 / 没有可用默认模型 / 无完成信号 | 502 | `AGENT_UPSTREAM_FAILED` |
+| 方法不对 / 未知路径 | 405 / 404 | `AGENT_METHOD_NOT_ALLOWED` / `AGENT_NOT_FOUND` |
+| 超过 120s（`AGENT_TIMEOUT_MS`） | 502 | `AGENT_UPSTREAM_FAILED`（文案含「超时」） |
+
+超时会 `AbortController.abort()` 中断上游；客户端断开同样中断，避免孤儿请求。
+**日志里只有模型名、字数、耗时和错误码**，不含 prompt、消息内容或 secret；
+provider 的原始报错文本只取 `code`/`name` 进日志，不会回显给调用方。
+
+应用侧对应配置见 `docs/step2-dsh-generation.md` §4：`AI_MODE=dsh` 时
+`DSH_AGENT_URL=http://127.0.0.1:3080/tavern-agent/v1`，`DSH_AGENT_SECRET` 与
+`DSH_TAVERN_AGENT_SECRET` 配同一个值；回滚时把 `AI_MODE` 改回 `mock`。
+
 ## 前端面板结构（client 半）
 
 ### 座位注册
@@ -291,8 +390,11 @@ iframe → 父：
 | --- | --- | --- |
 | `DSH_TRUSTED_SECRET` | `app/.env` | 应用侧校验可信头的 secret；插件启动时读入 |
 | `DSH_TAVERN_TRUSTED_SECRET` | 宿主环境 | 覆盖上面的 secret（隔离测试/应急） |
+| `DSH_TAVERN_AGENT_SECRET` | `app/.env` 或宿主环境 | 模型网关 Bearer secret；缺省回退 `DSH_TRUSTED_SECRET`，都没有则网关一律 401 |
 | `DSH_TAVERN_API_PORT` | 宿主环境 | 覆盖 API 上游端口（默认 8001） |
 | `DSH_TAVERN_STATIC_PORT` | 宿主环境 | 覆盖静态上游端口（默认 8810） |
+| `DSH_TAVERN_ENV_FILE` | 宿主环境 | 覆盖读取的 `.env` 路径（隔离测试/自测用，生产不设） |
+| `DSH_TAVERN_AGENT_TIMEOUT_MS` | 宿主环境 | 覆盖模型网关超时（默认 120000；只用于测试，生产不设） |
 
 secret 读不到时：打印告警、继续转发但**不带**可信头，应用侧按未登录处理；
 不要让宿主崩溃。日志前缀统一 `[dsh-tavern]`。
@@ -327,6 +429,11 @@ secret 读不到时：打印告警、继续转发但**不带**可信头，应用
    需要应用侧优化读取或调整 `CONTEXT_TIMEOUT_MS`（改之前先确认契约是否接受）。
 5. **父页面只认自己的 iframe**：`event.source` 校验 + origin 校验；
    应用若在 iframe 里再嵌第三方页面并转发消息，需要显式处理，当前不支持。
+6. **模型网关依赖应用侧 adapter**：网关只负责「把一次模型调用转发给
+   `ctx.llm.stream`」；`AI_MODE=dsh` 下应用 worker 需要 `DshAgentAdapter`
+   按契约 URL 调本插件，否则应用仍走 mock 生成。网关 secret 在 `apply` 时
+   读入，轮换 secret 后需要重启 DSH Web 才生效；没配 secret 时健康检查也会 401，
+   这是有意的「配置错就明确失败」，不是故障。
 
 ## 验收锚点一览（给测试用）
 

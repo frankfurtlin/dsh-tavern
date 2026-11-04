@@ -9,6 +9,8 @@
 #   scripts/check.sh --no-bridge     # E2E 跳过「交给 Agent」的端到端点击
 #   scripts/check.sh --open-story   # E2E 先在应用内打开一部作品（会写阅读进度，全链路验证用）
 #   scripts/check.sh --cards         # E2E 额外跑角色卡导入 + 单卡聊天（会写入/删除测试卡）
+#   scripts/check.sh --real          # 真生成验收：隐含 --cards，断言回复不是 mock、刷新后仍在（需应用 AI_MODE=dsh + DSH 网关）
+#   scripts/check.sh --real-negative # 负向演练：假定网关已被弄坏，断言 UI 显示失败而不是假回复（侵入环境，手动用）
 #   scripts/check.sh --keep-home     # 保留 /tmp/dsh-tavern-check（排查用）
 #   scripts/check.sh --port 3199     # 换端口
 #
@@ -19,6 +21,7 @@
 #   截图 01-sidebar.png … 08-refresh-home.png（含 03b-tavern-open / 06-restore-panel / 07-reload-restore）
 #        --cards 时另有 09-cards-page.png … 14-cards-deleted.png
 #   角色卡 fixture：/tmp/tavern-verify/cards/{v2-png.png,v2-json.json,v1-json.json,manifest.json}
+#   --real 时 report.real 记录首句前 60 字/字数/耗时/模型名（不写 prompt 全文）。
 #
 # 设计（参考同级插件 dsh-ziwei/scripts/check.sh）：
 #   - 在 /tmp/dsh-tavern-check 起一个完全隔离的 DSH_HOME，profile=check，端口默认 3099，
@@ -47,6 +50,8 @@ WITH_APP_TESTS=0
 NO_BRIDGE=0
 OPEN_STORY=0
 CARDS=0
+REAL=0
+REAL_NEGATIVE=0
 KEEP_HOME=0
 PASS=0
 FAIL=0
@@ -61,6 +66,8 @@ while [[ $# -gt 0 ]]; do
     --no-bridge) NO_BRIDGE=1 ;;
     --open-story) OPEN_STORY=1 ;;
     --cards) CARDS=1 ;;
+    --real) REAL=1; CARDS=1 ;;
+    --real-negative) REAL_NEGATIVE=1; REAL=1; CARDS=1 ;;
     --keep-home) KEEP_HOME=1 ;;
     --port) PORT="${2:?--port 需要端口号}"; shift ;;
     --help|-h) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -254,6 +261,41 @@ NODE
   fi
 }
 
+# ── 真生成前置检查（--real）─────────────────────────────────────────────────
+# 只做「只读」探测，不改任何环境：读 app/.env 的 AI_MODE / DSH_AGENT_URL / DSH_AGENT_SECRET，
+# 再带 secret 调一次网关 health。不可用时记 SKIP（由 Lead 决定是否重启/切换），
+# 真正失败会由 verify.mjs 的 H9/R 组以「没有回复」体现，不在这里误判。
+real_preflight() {
+  say "真生成前置检查（--real）"
+  local env_file="$ROOT/app/.env"
+  local ai_mode="" agent_url="" agent_secret=""
+  if [[ -f "$env_file" ]]; then
+    ai_mode="$(sed -n 's/^AI_MODE=//p' "$env_file" | tail -1 | tr -d '\r' | tr -d '"')"
+    agent_url="$(sed -n 's/^DSH_AGENT_URL=//p' "$env_file" | tail -1 | tr -d '\r' | tr -d '"')"
+    agent_secret="$(sed -n 's/^DSH_AGENT_SECRET=//p' "$env_file" | tail -1 | tr -d '\r' | tr -d '"')"
+  fi
+  if [[ "$ai_mode" == "dsh" ]]; then
+    ok "app/.env AI_MODE=dsh（真生成）"
+  else
+    skip "app/.env AI_MODE=${ai_mode:-未设置}：--real 需要 dsh；当前会得到 mock 回复（等 Lead/app-auth 切换后重跑）"
+  fi
+  [[ -n "$agent_url" ]] || agent_url="http://127.0.0.1:3080/tavern-agent/v1"
+  agent_url="${agent_url%/}"
+  if [[ -z "$agent_secret" ]]; then
+    skip "DSH 模型网关 health（app/.env 里没有 DSH_AGENT_SECRET，无法鉴权探测）"
+    return
+  fi
+  local health
+  health="$(curl -s -m 5 -H "Authorization: Bearer $agent_secret" "$agent_url/health" 2>/dev/null || true)"
+  if grep -q '"ok"[[:space:]]*:[[:space:]]*true' <<<"$health"; then
+    local model
+    model="$(node -e 'try{const j=JSON.parse(process.argv[1]);const m=j.model||{};process.stdout.write([m.provider,m.model].filter(Boolean).join("/")||"unknown")}catch{process.stdout.write("unknown")}' "$health" 2>/dev/null || echo unknown)"
+    ok "DSH 模型网关 health ok（模型 ${model}）"
+  else
+    skip "DSH 模型网关 health 不可用（${agent_url}；3080 是否已重启加载 /tavern-agent？owner: plugin-core/Lead）—— --real 会体现为回复超时/UI 失败"
+  fi
+}
+
 instance_checks() {
   say "隔离 DSH 实例（$CHECK_HOME，profile=$PROFILE，端口 $PORT）"
   if [[ -z "$DSH_BIN" ]]; then
@@ -336,6 +378,10 @@ instance_checks() {
     *) bad "旧 /story/ 期望 302/401，实际 HTTP ${legacy_code:-无响应}" ;;
   esac
 
+  if [[ "$REAL" -eq 1 ]]; then
+    real_preflight
+  fi
+
   if [[ "$CARDS" -eq 1 ]]; then
     say "角色卡 fixture（make-cards.py）"
     local fixture_args=(--out /tmp/tavern-verify/cards)
@@ -347,6 +393,8 @@ instance_checks() {
   [[ "$NO_BRIDGE" -eq 1 ]] && verify_args+=(--no-bridge)
   [[ "$OPEN_STORY" -eq 1 ]] && verify_args+=(--open-story)
   [[ "$CARDS" -eq 1 ]] && verify_args+=(--cards --cards-dir /tmp/tavern-verify/cards)
+  [[ "$REAL" -eq 1 ]] && verify_args+=(--real)
+  [[ "$REAL_NEGATIVE" -eq 1 ]] && verify_args+=(--real-negative)
   if node "$ROOT/verify.mjs" "${verify_args[@]}"; then
     ok "verify.mjs 全部检查通过"
   else

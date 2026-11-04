@@ -2,7 +2,7 @@
  * dsh-tavern 端到端验收脚本（真实浏览器行为，不是静态代码检查）。
  *
  * 用法：
- *   node verify.mjs --url "http://127.0.0.1:3080/?token=..." [--out dir] [--no-bridge] [--open-story] [--cards]
+ *   node verify.mjs --url "http://127.0.0.1:3080/?token=..." [--out dir] [--no-bridge] [--open-story] [--cards] [--real]
  *
  * 检查分组（与 docs/contract.md v1 对应）：
  *   A. 鉴权与入口：未登录 GET /tavern/ 必须被 DSH 闸门挡住（401）；登录态 200。
@@ -18,6 +18,10 @@
  *   H. --cards：角色卡库 → 导入 fixture 卡（PNG/v2 JSON/v1 JSON）→ 开聊 →
  *      发「你好」→ mock 回复 → 刷新后消息仍在 → 删除卡后列表消失。
  *      会向应用写测试卡（软删除后仍留 world，仅测试库使用）。
+ *   H2. --real：在上面聊天链路上额外断言「真生成」：回复不含 mock 特征句
+ *      「我们可以聊聊此刻的想法」、长度 ≥20 字且不是用户消息本身、完整刷新后仍在、
+ *      console 无报错；证据（首句前 60 字/字数/耗时/模型名）写入 report.real。
+ *      隐含 --cards；需要应用 AI_MODE=dsh 且 DSH 模型网关可用。
  *   I. 截图 + 输出目录下 report.json；无控制台 JS 报错。
  *
  * 设计原则：
@@ -57,6 +61,8 @@ const report = {
   startedAt: new Date().toISOString(),
   checks: [],
   bridge: { protocol: null, continue: null, roleplay: null },
+  cards: null,
+  real: null,
   screenshots: [],
 }
 
@@ -363,8 +369,13 @@ try {
     const deadline = Date.now() + 35000
     while (Date.now() < deadline) {
       appState = await readAppState()
-      if (appState && (appState.hasShell || appState.hasEntryPage)) break
+      // 登录页出现即可判定；shell 出现后还要等正文渲染（Vue 首屏文本晚于 .app-shell 挂载，
+      // 否则 bodyLength 断言会在首屏仍为骨架时误报空白）。
+      if (appState && (appState.hasEntryPage || (appState.hasShell && appState.bodyLength > 200))) break
       await page.waitForTimeout(500)
+    }
+    if (appState && appState.hasShell && appState.bodyLength <= 200) {
+      appState = (await readAppState()) || appState
     }
     const onLogin = Boolean(appState && (appState.hasEntryPage || /\/login/.test(frameUrl)))
     check(
@@ -545,7 +556,11 @@ try {
       )
       contextOk = shapeOk
     } else if (arrived) {
-      check('P2 context 字段齐全（appPath/worldTitle/lineTitle/mode/characters/recentText）', false, `应用返回 ok:false：${clip(contextData.error, 160)}（owner: app-auth 的 P2 上下文桥）`)
+      if (!openStory && /没有可用的故事上下文/.test(String(contextData.error || ''))) {
+        skip('P2 context 字段齐全（appPath/worldTitle/lineTitle/mode/characters/recentText）', '当前没有打开故事（未加 --open-story），P2 上下文为空属预期；全链路验收请加 --open-story')
+      } else {
+        check('P2 context 字段齐全（appPath/worldTitle/lineTitle/mode/characters/recentText）', false, `应用返回 ok:false：${clip(contextData.error, 160)}（owner: app-auth 的 P2 上下文桥）`)
+      }
     } else {
       skip('P2 context 字段齐全（appPath/worldTitle/lineTitle/mode/characters/recentText）', '没有收到 context 回复')
     }
@@ -888,7 +903,9 @@ try {
   // ── H. 角色卡导入 + 单卡聊天（--cards）────────────────────────────────────
   // 依赖 cards-client 的 /characters 页面 + app-auth 的 /character-cards API。
   // 选择器原则：能用稳定文本（导航「角色卡库」、按钮「导入角色卡」「开聊」「删除」）就不猜 class。
-  const runCards = args.includes('--cards')
+  const real = args.includes('--real')
+  const realNegative = args.includes('--real-negative')
+  const runCards = args.includes('--cards') || real
   const cardsEvidence = { fixturesDir: null, imported: [], avatar: null, chat: null, reload: null, deleted: null }
   if (runCards) {
     const fixtureDir = arg('cards-dir', '/tmp/tavern-verify/cards')
@@ -1089,9 +1106,25 @@ try {
               const composer = frame.locator('#world-chat-message')
               const sendButton = frame.locator('form.world-chat-compose button[type="submit"]').first()
               let reply = null
+              let replyMeta = null
+              let completed = false
+              let elapsedMs = null
+              let sendStartedAt = 0
               let sendError = ''
+              let noticeText = null
               let submitEnabled = false
               let composeHint = null
+              // 应用把每条已保存的 assistant 消息渲染成 <small>模型名 · 已保存|收到的部分回复</small>；
+              // streaming 期间只有临时的 running article、没有这个 small。真生成时用它判断「写完了」，
+              // 避免抓到流式半截文本。必须看「最后一个 assistant article 自己的 small + 它的 p」，
+              // 不能只取所有 small 的最后一个（会把上一条历史回复的「已保存」当成新回复已完成）。
+              const assistantTail = async () => {
+                const last = frame.locator('.world-chat-message.assistant').last()
+                if (!(await last.count().catch(() => 0))) return { meta: '', text: '' }
+                const meta = (await last.locator('small').first().textContent().catch(() => null)) || ''
+                const text = (await last.locator('p').last().textContent().catch(() => null)) || ''
+                return { meta: meta.trim(), text: text.trim() }
+              }
               if (!(await composer.count().catch(() => 0))) {
                 sendError = '聊天输入框 #world-chat-message 不存在（owner: cards-client）'
               } else {
@@ -1111,40 +1144,65 @@ try {
                   .first()
                   .textContent()
                   .catch(() => null)
+                sendStartedAt = Date.now()
                 if (submitEnabled) {
                   await sendButton.click().catch(() => {})
                 } else {
                   // 兜底：组件支持 Ctrl/Cmd+Enter 发送
                   await composer.press('Control+Enter').catch(() => {})
                 }
-                const deadline = Date.now() + 120000
+                // 真生成 10–60s 是常态（网关排队 + 模型），给 180s；mock 沿用 120s。
+                const replyWaitMs = real ? 180000 : 120000
+                const deadline = Date.now() + replyWaitMs
                 while (Date.now() < deadline) {
                   const userOk = (await frame.locator('.world-chat-message.user p').filter({ hasText: '你好' }).count().catch(() => 0)) > 0
                   const replies = await frame.locator('.world-chat-message.assistant p').allTextContents().catch(() => [])
                   const candidate = replies.map((text) => text.trim()).filter(Boolean).pop()
-                  if (userOk && candidate) {
+                  const tail = candidate ? await assistantTail() : { meta: '', text: '' }
+                  const meta = tail.meta
+                  // 已完成 = 最后一个 assistant article 带「已保存」标记，且它的正文就是候选文本
+                  // （span/流式临时节点无 small，或 small 属于历史消息 → 不算完成）。
+                  const finished = /已保存|收到的部分回复/.test(meta) && (!tail.text || tail.text === candidate)
+                  // mock 模式沿用原判据（只看文本出现）；真生成必须等到「已保存」标记，防止抓到半截流式文本。
+                  if (userOk && candidate && (!real || finished)) {
                     reply = candidate
+                    replyMeta = meta || null
+                    completed = true
                     break
                   }
                   const alertText = await frame.locator('[role="alert"]').first().textContent().catch(() => null)
                   if (alertText) sendError = alertText
+                  const statusText = await frame.locator('[role="status"]').first().textContent().catch(() => null)
+                  if (statusText && /没有完整完成|失败|不可用|未收到|重试/.test(statusText)) noticeText = statusText.trim()
                   await page.waitForTimeout(600)
                 }
+                elapsedMs = sendStartedAt ? Date.now() - sendStartedAt : null
               }
+              const modelName = replyMeta ? (replyMeta.split(' · ')[0].trim() || null) : null
               cardsEvidence.chat = {
                 url: frame.url(),
                 sessionId,
                 character: pngCard.name,
                 userMessage: '你好',
                 reply,
+                replyMeta,
+                modelName: modelName && !/已保存|收到的部分回复/.test(modelName) ? modelName : null,
+                completed,
+                elapsedMs,
                 error: sendError || null,
+                notice: noticeText || null,
                 submitEnabled,
                 composeHint: composeHint ? composeHint.trim() : null,
               }
+              const negativeExpectedFailure = realNegative && !reply && Boolean(sendError || noticeText)
               check(
-                cardsCheckNames[8],
-                Boolean(reply),
-                reply ? `mock 回复：${clip(reply, 100)}` : `120s 内没等到回复${sendError ? `（提示=${clip(sendError, 100)}）` : ''}（owner: app-auth mock 任务 / cards-client）`,
+                real ? '发送「你好」后出现真实模型回复' : cardsCheckNames[8],
+                Boolean(reply) || negativeExpectedFailure,
+                reply
+                  ? `${real ? '真生成' : 'mock'} 回复：${clip(reply, 100)}`
+                  : negativeExpectedFailure
+                    ? `网关不可用场景：UI 已显示失败（${clip(sendError || noticeText, 100)}），未出现假回复`
+                    : `${real ? 180 : 120}s 内没等到回复${sendError ? `（提示=${clip(sendError, 100)}）` : ''}（owner: app-auth 任务/模型网关 或 plugin-core /tavern-agent）`,
               )
               if (reply) await shot(page, '12-chat-reply.png')
 
@@ -1153,15 +1211,29 @@ try {
               const reloaded = await waitFrameUrl(/\/conversations\/world\//, 25000)
               let persisted = null
               if (reloaded) {
-                await waitChatReady(reloaded, 30000)
-                const deadline = Date.now() + 30000
+                await waitChatReady(reloaded, real ? 45000 : 30000)
+                const deadline = Date.now() + (real ? 45000 : 30000)
                 while (Date.now() < deadline) {
                   const userTexts = await reloaded.locator('.world-chat-message.user p').allTextContents().catch(() => [])
                   const replyTexts = await reloaded.locator('.world-chat-message.assistant p').allTextContents().catch(() => [])
                   const userKept = userTexts.some((text) => text.includes('你好'))
                   const replyKept = replyTexts.some((text) => text.trim().length > 0)
                   if (userKept && replyKept) {
-                    persisted = { userMessages: userTexts.length, assistantMessages: replyTexts.length }
+                    // 真生成还要确认「刷新后看到的就是同一条回复」，不能只是任意一条 assistant 文本。
+                    const expected = (reply || '').trim()
+                    const replyMatched = expected
+                      ? replyTexts.some((text) => {
+                          const actual = text.trim()
+                          return actual === expected || (expected.length >= 20 && actual.includes(expected.slice(0, 20)))
+                        })
+                      : false
+                    persisted = {
+                      userMessages: userTexts.length,
+                      assistantMessages: replyTexts.length,
+                      replyMatched,
+                      replyFirst60: expected ? clip(expected, 60) : null,
+                      assistantTexts: replyTexts.slice(-2).map((text) => clip(text, 80)),
+                    }
                     break
                   }
                   await page.waitForTimeout(500)
@@ -1264,6 +1336,109 @@ try {
   // ── G. 控制台报错 ──────────────────────────────────────────────────────────
   const fatalErrors = consoleErrors.filter((text) => !/Failed to load resource/.test(text))
   check('无控制台 JS 报错', fatalErrors.length === 0, fatalErrors.slice(0, 3).join(' | ') || 'clean')
+
+  // ── R. 真生成（--real）────────────────────────────────────────────────────
+  // 复用 H 组已经跑出来的聊天证据，断言「不是 mock、像真回复、刷新后还在、console 干净」。
+  // 默认（不加 --real）不产生任何额外检查项，保持 --cards 的 55 PASS 基线不变。
+  const realEvidence = { enabled: real, negativeMode: realNegative, steps: [], reply: null, reload: null, console: null, negative: null }
+  if (real) {
+    const realCheck = (name, ok, detail) => {
+      check(name, ok, detail)
+      realEvidence.steps.push({ name, ok: !!ok, skipped: false, detail: detail === undefined ? null : String(detail) })
+    }
+    const realSkip = (name, detail) => {
+      skip(name, detail)
+      realEvidence.steps.push({ name, ok: true, skipped: true, detail: detail === undefined ? null : String(detail) })
+    }
+    const chat = cardsEvidence.chat
+    const reply = chat && chat.reply ? String(chat.reply).trim() : ''
+    // pngCard 只在 --cards 的导入分支内可见；R 组在分支外，用证据里记录的角色名。
+    const replyCardName = (chat && chat.character) || ((cardsEvidence.imported.find((item) => item.format === 'png-v2') || {}).name || '')
+    const mockPhrase = '我们可以聊聊此刻的想法'
+    const chatReady = Boolean(reply && chat && chat.completed)
+    realEvidence.reload = cardsEvidence.reload || null
+    realEvidence.reply = chat
+      ? {
+          first60: reply ? clip(reply, 60) : null,
+          length: reply ? [...reply].length : 0,
+          elapsedMs: chat.elapsedMs ?? null,
+          modelName: chat.modelName ?? null,
+          completed: Boolean(chat.completed),
+          containsCharacterName: reply && replyCardName ? reply.includes(replyCardName) : false,
+          error: chat.error || null,
+          notice: chat.notice || null,
+        }
+      : null
+
+    if (realNegative) {
+      // 负向演练时本来就期望「没有回复」：R1–R3 是正常链路断言，跳过而不是记 FAIL。
+      for (const name of [
+        '真生成：回复不含 mock 特征句「我们可以聊聊此刻的想法」',
+        '真生成：回复长度 ≥20 字且不是用户消息本身',
+        '真生成：完整刷新 iframe 后同一条回复仍在',
+      ]) {
+        realSkip(name, '负向演练（--real-negative）：预期没有正常回复，本项不适用')
+      }
+    } else {
+      realCheck(
+        '真生成：回复不含 mock 特征句「我们可以聊聊此刻的想法」',
+        chatReady && !reply.includes(mockPhrase),
+        chatReady
+          ? reply.includes(mockPhrase)
+            ? '回复里出现 mock 特征句，应用仍是 AI_MODE=mock（owner: app-auth 环境/worker）'
+            : `未出现 mock 特征句；首句=${clip(reply, 60)}`
+          : '没拿到完整回复，无法判断（见 H9；owner: app-auth / plugin-core /tavern-agent）',
+      )
+      realCheck(
+        '真生成：回复长度 ≥20 字且不是用户消息本身',
+        chatReady && [...reply].length >= 20 && reply !== (chat.userMessage || '你好'),
+        chatReady
+          ? `字数=${[...reply].length}；含角色名=${replyCardName ? reply.includes(replyCardName) : 'n/a'}；首句=${clip(reply, 60)}`
+          : '没有拿到完整回复',
+      )
+      realCheck(
+        '真生成：完整刷新 iframe 后同一条回复仍在',
+        Boolean(cardsEvidence.reload && cardsEvidence.reload.replyMatched),
+        cardsEvidence.reload
+          ? `replyMatched=${Boolean(cardsEvidence.reload.replyMatched)} user=${cardsEvidence.reload.userMessages} assistant=${cardsEvidence.reload.assistantMessages}`
+          : '刷新后没读到聊天记录（owner: app-auth 持久化 / cards-client 读取）',
+      )
+    }
+    const realConsoleClean = fatalErrors.length === 0
+    realEvidence.console = { clean: realConsoleClean, errors: fatalErrors.slice(0, 3) }
+    realCheck('真生成：console 无 JS 报错', realConsoleClean, fatalErrors.slice(0, 3).join(' | ') || 'clean')
+
+    // 负向断言：网关不可用时 UI 应显示失败而不是假回复。
+    // 触发它需要把应用的 DSH_AGENT_URL 指向坏端口并重启 api/worker（侵入环境、会打断生产），
+    // 所以默认 SKIP，只在调用方显式 --real-negative（并已自行弄坏网关）时执行。
+    const negativeExpected = 'UI 显示失败/未收到回复，且不出现 mock 特征句'
+    if (!realNegative) {
+      realSkip(
+        '真生成负向：网关不可用时显示失败而不是假回复（--real-negative 手动演练）',
+        '为避免改生产/隔离环境变量，默认 SKIP；演练方法见 docs/testing.md「--real-negative」',
+      )
+      realEvidence.negative = { mode: 'skipped', skipped: true, expected: negativeExpected, reason: 'intrusive to break DSH_AGENT_URL; manual opt-in via --real-negative' }
+    } else {
+      const uiText = chat ? chat.notice || chat.error || null : null
+      const honestFailure = !reply && Boolean(uiText)
+      realCheck(
+        '真生成负向：网关不可用时显示失败而不是假回复',
+        honestFailure,
+        honestFailure
+          ? `UI 提示=${clip(uiText, 120)}`
+          : `期望失败提示但没有：reply=${reply ? clip(reply, 40) : 'null'}，uiText=${clip(uiText, 80) || '无'}（owner: app-auth 错误映射 / plugin-core 网关 502）`,
+      )
+      realEvidence.negative = {
+        mode: 'explicit',
+        skipped: false,
+        expected: negativeExpected,
+        ok: honestFailure,
+        uiText: uiText ? clip(uiText, 200) : null,
+        reply: reply ? clip(reply, 60) : null,
+      }
+    }
+  }
+  report.real = realEvidence
 
   report.summary = {
     pass: report.checks.filter((item) => item.ok && !item.skipped).length,

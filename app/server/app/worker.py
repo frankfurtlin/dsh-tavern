@@ -18,7 +18,7 @@ from .config import settings
 from .models import Task, TaskEvent, ModelProfile, Consent, UsageRecord, Candidate, KnowledgeSnapshot, AnalysisChunk, RoleSession, RoleMessage, User, Outbox, uid, now
 from .domain import owned, digest, canonical, validate_anchor, prefix_blocks
 from .errors import Problem
-from .providers import ChatCompletionsAdapter, MockAdapter
+from .providers import ChatCompletionsAdapter, DshAgentAdapter, MockAdapter
 from .context_wire import wire_json
 from .completion_policy import completion_policy, completion_limit, input_ceiling
 from .provider_transport import NOT_SENT_CODES
@@ -310,6 +310,16 @@ def record_received_result(owner, task_id, call_id, result, *, book_receipt=Fals
     settle_usage(task_id, call_id, result)
 
 
+def adapter_for(mode=None):
+    """Pick the completion adapter for the configured AI mode."""
+    mode = settings.ai_mode if mode is None else mode
+    if mode == "mock":
+        return MockAdapter()
+    if mode == "dsh":
+        return DshAgentAdapter()
+    return ChatCompletionsAdapter()
+
+
 def call_provider(task_id, stage, prompt_name, data, output_limit):
     check_cancel(task_id, received_only=True)
     with SessionLocal() as db:
@@ -424,7 +434,7 @@ def call_provider(task_id, stage, prompt_name, data, output_limit):
             from .play_controls.attribution import requests_participation
             if requests_participation(task.payload.get('message','')):stream_world=False
         stream_script = task.task_type == "world_script_breakdown"
-    adapter = MockAdapter() if settings.ai_mode == "mock" else ChatCompletionsAdapter()
+    adapter = adapter_for()
     def publish(content):
         if stream_world or stream_prose or stream_script:
             check_cancel(task_id)
