@@ -44,7 +44,7 @@ export const router=createRouter({history:createWebHistory(APP_BASE),scrollBehav
   {path:'/welcome',redirect:'/login'},
   {path:'/help',redirect:'/explore'},
   {path:'/cases/blue-carbuncle',component:()=>import('./foundation/PublicPage.vue'),meta:{public:true,title:'蓝宝石案'}},
-  {path:'/product/account',component:()=>import('./foundation/AccountPage.vue')},
+  {path:'/product/account',redirect:'/explore'},
   {path:'/product/wallet',component:()=>import('./foundation/WalletPage.vue')},
   {path:'/product/knowledge',component:()=>import('./foundation/KnowledgePage.vue')},
   {path:'/product/admin',component:()=>import('./foundation/AdminPage.vue')},

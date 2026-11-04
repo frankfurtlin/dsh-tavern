@@ -11,7 +11,6 @@ import {resumeDeletedBookCleanup} from './platform/book-cache'
 import AppShell from './presentation/AppShell.vue'
 import './presentation/aligned.css'
 import './presentation/workspace.css'
-import AccountPanel from './foundation/AccountPanel.vue'
 import RecoveryNotice from './foundation/RecoveryNotice.vue'
 import StartupPlaceholder from './components/StartupPlaceholder.vue'
 import {workspaceNavigation,workspaceGroups} from './workspace/navigation'
@@ -46,7 +45,6 @@ onMounted(async()=>{cleanup=await lifecycle(async()=>{if(await refreshAuth()){st
 <template>
  <StartupPlaceholder v-if="!store.booted"/>
  <AppShell v-else-if="store.user&&!['/login','/register','/recover'].includes(route.path)" :navigation="workspaceNavigation" :groups="workspaceGroups" :immersive="!!reading" :work-entry="route.path.startsWith('/stories/')" main-id="main" scope-label="酒馆">
-  <template #sidebar-footer><AccountPanel/></template>
   <template #header-actions><HeaderActions/></template>
   <div v-if="!store.online" class="offline"><WifiOff :size="16"/>离线阅读 · 仅显示此账号已缓存内容</div>
   <div v-if="store.user?.aiMode==='mock'" class="mock-banner">测试模式 · AI 使用确定性 mock，不能作为真实模型验收</div>
