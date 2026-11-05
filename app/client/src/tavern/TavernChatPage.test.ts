@@ -10,8 +10,11 @@ const harness=vi.hoisted(()=>({route:{params:{id:'chat-1'}},push:vi.fn()}))
 vi.mock('vue-router',()=>({useRoute:()=>harness.route,useRouter:()=>({push:harness.push})}))
 vi.mock('../stores/app',()=>({useApp:()=>({online:true,message:vi.fn()})}))
 vi.mock('../platform/request-scope',()=>({useRequestScope:()=>{let disposed=false;onUnmounted(()=>{disposed=true});return()=>({valid:()=>!disposed})}}))
+vi.mock('../api',()=>({authorizationHeaders:()=>({})}))
 vi.mock('./api',()=>({
   getChat:vi.fn(),
+  getCharacter:vi.fn(),
+  tavernAvatarUrl:(cardId:string)=>'/avatar/'+cardId,
   editMessage:vi.fn(),
   deleteMessage:vi.fn(),
   selectSwipe:vi.fn(),
@@ -193,5 +196,14 @@ describe('TavernChatPage',()=>{
     samplingForm.props.onSubmit?.({preventDefault(){}})
     await flush()
     expect(updateChatSampling).toHaveBeenCalledWith('chat-1',{temperature:0.5,topP:0.85,maxTokens:640,stop:['END','STOP']})
+  })
+
+  it('renders group speakers, the member stack and the next speaker',async()=>{
+    vi.mocked(getChat).mockResolvedValue({chat:{id:'chat-1',cardId:'',title:'群聊',mode:'group',members:[{cardId:'c1',name:'林渡',order:0},{cardId:'c2',name:'阿青',order:1}]},messages:[userMessage,{...assistantMessage,speakerCardId:'c1',speakerName:'林渡'}]} as never)
+    mount();await flush()
+    const speakers=descendants(host,item=>String(item.props.class??'').includes('bubble-speaker-name'))
+    expect(speakers.length).toBe(1)
+    expect(text(speakers[0]!)).toContain('林渡')
+    expect(descendants(host,item=>String(item.props.class??'')==='chat-member-avatar').length).toBe(2)
   })
 })

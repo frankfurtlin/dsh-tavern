@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import {computed,onMounted,onUnmounted,ref,watch} from 'vue'
 import {useRouter} from 'vue-router'
-import {Search,Upload} from 'lucide-vue-next'
+import {Check,History,MessagesSquare,Search,Upload} from 'lucide-vue-next'
 import {useApp} from '../stores/app'
 import {useRequestScope} from '../platform/request-scope'
-import {importCharacter,listCharacters,characterAvatarBlob,listCharacterChats,createCharacterChat,type TavernCharacter} from './api'
+import {importCharacter,listCharacters,characterAvatarBlob,listCharacterChats,createCharacterChat,createGroupChat,type TavernCharacter} from './api'
 
 const router=useRouter()
 const store=useApp()
@@ -17,6 +17,9 @@ const searching=ref(false)
 const importing=ref(false)
 const opening=ref('')
 const importError=ref('')
+const selected=ref<string[]>([])
+const grouping=ref(false)
+const groupError=ref('')
 const avatars=ref<Record<string,string>>({})
 let epoch=0
 let debounce:ReturnType<typeof setTimeout>|undefined
@@ -40,6 +43,7 @@ async function load(){
     const list=await listCharacters(query.value.trim())
     if(ticket!==epoch||!scope().valid())return
     cards.value=list
+    selected.value=selected.value.filter(id=>list.some(card=>card.id===id))
     void loadAvatars(list)
   }catch(e){
     if(ticket===epoch&&scope().valid())error.value=(e as Error).message||'角色卡加载失败，请稍后重试。'
@@ -84,6 +88,29 @@ async function openChat(card:TavernCharacter){
 }
 
 const empty=computed(()=>!loading.value&&!error.value&&!cards.value.length)
+const selectedCards=computed(()=>selected.value.map(id=>cards.value.find(card=>card.id===id)).filter((card):card is TavernCharacter=>!!card))
+const canGroup=computed(()=>selected.value.length>=2)
+
+function toggleSelect(card:TavernCharacter){
+  const index=selected.value.indexOf(card.id)
+  if(index>=0){selected.value=selected.value.filter(id=>id!==card.id);return}
+  if(selected.value.length>=5){store.message('群聊最多选择 5 张角色卡。');return}
+  selected.value=[...selected.value,card.id]
+}
+
+function clearSelection(){selected.value=[]}
+
+async function startGroup(){
+  if(!canGroup.value||grouping.value)return
+  grouping.value=true;groupError.value=''
+  try{
+    const chat=await createGroupChat(selected.value)
+    selected.value=[]
+    await router.push('/chats/'+encodeURIComponent(chat.id))
+  }catch(e){
+    groupError.value=(e as Error).message||'发起群聊失败，请稍后重试。'
+  }finally{grouping.value=false}
+}
 onMounted(()=>void load())
 onUnmounted(()=>{clearTimeout(debounce);for(const url of Object.values(avatars.value))URL.revokeObjectURL(url)})
 </script>
@@ -96,11 +123,23 @@ onUnmounted(()=>{clearTimeout(debounce);for(const url of Object.values(avatars.v
     <input v-model="query" type="search" placeholder="搜索角色名或简介" aria-label="搜索角色卡" autocomplete="off">
     <span v-if="searching" class="tavern-searching" aria-hidden="true">…</span>
    </label>
+   <button type="button" class="tavern-history" aria-label="聊天历史" @click="router.push('/chats')"><History :size="17" aria-hidden="true"/><span>聊天历史</span></button>
    <label class="tavern-import" :class="{busy:importing}">
     <Upload :size="17" aria-hidden="true"/>
     <span>{{importing?'正在导入…':'导入卡'}}</span>
     <input type="file" accept=".png,.json" :disabled="importing" aria-label="导入角色卡文件" @change="onImport">
    </label>
+  </div>
+
+  <p v-if="groupError" class="error" role="alert">{{groupError}}<button class="inline-link" type="button" @click="groupError=''">知道了</button></p>
+
+  <div v-if="selected.length" class="tavern-select-bar" role="status">
+   <span class="tavern-select-count">已选 {{selected.length}} 张</span>
+   <span class="tavern-select-names">{{selectedCards.map(card=>card.name).join('、')}}</span>
+   <button type="button" class="tavern-select-clear" @click="clearSelection">清空</button>
+   <button type="button" class="tavern-select-group" :disabled="!canGroup||grouping" @click="startGroup">
+    <MessagesSquare :size="16" aria-hidden="true"/>{{grouping?'正在创建…':'发起群聊（'+selected.length+'）'}}
+   </button>
   </div>
 
   <p v-if="importError" class="error" role="alert">{{importError}}</p>
@@ -117,7 +156,8 @@ onUnmounted(()=>{clearTimeout(debounce);for(const url of Object.values(avatars.v
   </div>
 
   <div v-else class="tavern-grid tavern-card-grid">
-   <div v-for="card in cards" :key="card.id" class="tavern-card">
+   <div v-for="card in cards" :key="card.id" class="tavern-card" :class="{selected:selected.includes(card.id)}">
+    <button type="button" class="tavern-select" :class="{on:selected.includes(card.id)}" :aria-pressed="selected.includes(card.id)" :aria-label="'选择 '+card.name+' 加入群聊'" @click="toggleSelect(card)"><Check :size="15"/></button>
     <button type="button" class="tavern-card-open" :disabled="opening===card.id" :aria-label="'和 '+card.name+' 聊天'" @click="openChat(card)">
      <span class="tavern-avatar" aria-hidden="true">
       <img v-if="avatars[card.id]" :src="avatars[card.id]" alt="">
@@ -145,6 +185,17 @@ onUnmounted(()=>{clearTimeout(debounce);for(const url of Object.values(avatars.v
 .tavern-search{flex:1;display:flex;align-items:center;gap:8px;padding:0 12px;min-height:46px;border:1px solid var(--edge);border-radius:12px;background:var(--canvas);color:var(--quiet)}
 .tavern-search input{flex:1;min-width:0;border:0;background:transparent;min-height:44px;font-size:15px;color:var(--ink);outline:none}
 .tavern-searching{font-size:13px}
+.tavern-history{display:flex;align-items:center;gap:6px;min-height:46px;padding:0 14px;border:1px solid var(--edge);border-radius:12px;background:var(--canvas);color:var(--quiet);font-size:14px;cursor:pointer;white-space:nowrap}
+.tavern-history:hover{color:var(--accent);border-color:var(--accent)}
+.tavern-select-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;padding:10px 12px;border:1px solid var(--accent);border-radius:14px;background:rgba(120,90,60,.06)}
+.tavern-select-count{font-size:14px;color:var(--ink)}
+.tavern-select-names{flex:1;min-width:0;font-size:13px;color:var(--quiet);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tavern-select-clear,.tavern-select-group{min-height:40px;padding:0 14px;border-radius:10px;border:1px solid var(--edge);background:var(--canvas);color:var(--quiet);font-size:13px;cursor:pointer}
+.tavern-select-group{display:flex;align-items:center;gap:6px;border-color:var(--accent);background:var(--accent);color:#fff}
+.tavern-select-group:disabled{opacity:.45;cursor:not-allowed}
+.tavern-select{position:absolute;top:6px;left:6px;z-index:2;display:flex;align-items:center;justify-content:center;width:26px;height:26px;min-height:0;padding:0;border:1px solid var(--edge);border-radius:8px;background:rgba(255,255,255,.82);color:transparent;cursor:pointer}
+.tavern-select.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.tavern-card.selected{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
 .tavern-import,.tavern-empty-import{position:relative;display:flex;align-items:center;gap:8px;min-height:46px;padding:0 16px;border:1px solid var(--accent);border-radius:12px;background:var(--accent);color:#fff;font-size:14px;cursor:pointer;white-space:nowrap}
 .tavern-import.busy{opacity:.6;pointer-events:none}
 .tavern-import input,.tavern-empty-import input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}

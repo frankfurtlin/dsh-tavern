@@ -1,5 +1,5 @@
 /**
- * Story context bridge between the embedded app and the DSH panel (contract §3).
+ * Chat context bridge between the embedded app and the DSH panel (contract §3).
  *
  * The app runs inside an iframe owned by the DSH plugin host, which relays a
  * small postMessage protocol. Every message from the parent is validated on
@@ -8,26 +8,33 @@
  */
 import type {Router} from 'vue-router'
 
-export interface StoryCharacter{name:string;identity:string;speech:string}
-export interface StoryContext{
+export type TavernMessageRole='user'|'assistant'
+
+export interface TavernRecentMessage{role:TavernMessageRole;text:string}
+
+/** Context for one native tavern chat, sent to the DSH panel. */
+export interface TavernChatContext{
   appPath:string
-  worldTitle:string
-  lineTitle:string
-  mode:string
-  characters:StoryCharacter[]
+  chatId:string
+  cardId:string
+  characterName:string
+  characterDescription:string
+  personality:string
+  scenario:string
+  firstMessage:string
+  recentMessages:TavernRecentMessage[]
   activeCharacter:string
-  recentText:string
 }
-export type StoryContextKind='continue'|'roleplay'
+export type TavernContextKind='continue'|'roleplay'
 
 export interface DshBridgeEnv{
   parent:Pick<Window,'postMessage'>
   origin:string
   appPath():string
   hasContext():boolean
-  /** Whether the current page is a story page that will be able to answer once loaded. */
+  /** Whether the current page is a chat page that will be able to answer once loaded. */
   expectContext?():boolean
-  readContext(kind:StoryContextKind,target?:string):Promise<StoryContext|null>
+  readContext(kind:TavernContextKind,target?:string):Promise<TavernChatContext|null>
   subscribe(listener:()=>void):()=>void
   /** Test seam; defaults to window.addEventListener('message', ...). */
   listen?(handler:(event:MessageEvent)=>void):()=>void
@@ -41,7 +48,7 @@ export interface DshBridge{
 
 export const BRIDGE_STATE_DELAY_MS=400
 /**
- * When a story page has just been opened (or restored) its world/reader data is
+ * When a chat page has just been opened (or restored) its chat/messages are
  * still loading, while the panel may ask for the context immediately. Keep
  * retrying for this long instead of answering "no context" too early.
  */
@@ -58,7 +65,7 @@ export function createDshBridge(env:DshBridgeEnv):DshBridge{
   let stateTimer:ReturnType<typeof setTimeout>|undefined
   let removeListener:(()=>void)|undefined
   let unsubscribe:(()=>void)|undefined
-  // A successful context read proves the story page is ready even if the route
+  // A successful context read proves the chat page is ready even if the route
   // store has not published yet; keep the panel's state in sync with it.
   let contextReady=false
 
@@ -74,8 +81,8 @@ export function createDshBridge(env:DshBridgeEnv):DshBridge{
     stateTimer=setTimeout(()=>{stateTimer=undefined;if(installed)sendState()},env.stateDelayMs??BRIDGE_STATE_DELAY_MS)
   }
 
-  /** Reads the context now, retrying briefly while a freshly opened story page is still loading. */
-  async function readContextWithRetry(kind:StoryContextKind,target?:string):Promise<StoryContext|null>{
+  /** Reads the context now, retrying briefly while a freshly opened chat page is still loading. */
+  async function readContextWithRetry(kind:TavernContextKind,target?:string):Promise<TavernChatContext|null>{
     const deadline=Date.now()+(env.expectContext?.()?CONTEXT_READY_TIMEOUT_MS:0)
     for(;;){
       const context=await env.readContext(kind,target)
@@ -88,14 +95,14 @@ export function createDshBridge(env:DshBridgeEnv):DshBridge{
   function answerContext(id:string|number,data:Record<string,unknown>){
     const kind=data.kind
     if(kind!=='continue'&&kind!=='roleplay'){
-      send({type:'dsh-tavern:context',id,ok:false,error:'不支持的故事上下文类型'})
+      send({type:'dsh-tavern:context',id,ok:false,error:'不支持的上下文类型'})
       return
     }
     const target=typeof data.target==='string'&&data.target.trim()?data.target.trim():undefined
     void readContextWithRetry(kind,target).then(context=>{
       if(!installed)return
       if(!context){
-        send({type:'dsh-tavern:context',id,ok:false,error:'当前页面没有可用的故事上下文'})
+        send({type:'dsh-tavern:context',id,ok:false,error:'当前页面没有可用的聊天上下文'})
         return
       }
       send({type:'dsh-tavern:context',id,ok:true,context:{...context,appPath:env.appPath()}})
@@ -103,7 +110,7 @@ export function createDshBridge(env:DshBridgeEnv):DshBridge{
       scheduleState()
     }).catch((error:unknown)=>{
       if(!installed)return
-      const message=error instanceof Error&&error.message?error.message:'读取故事上下文失败'
+      const message=error instanceof Error&&error.message?error.message:'读取聊天上下文失败'
       send({type:'dsh-tavern:context',id,ok:false,error:message})
     })
   }
@@ -174,20 +181,16 @@ export function installDshBridge(options:InstallDshBridgeOptions):(()=>void)|und
     parent:window.parent,
     origin,
     appPath:()=>router.currentRoute.value.path,
-    hasContext:()=>contextModule?contextModule.hasStoryContext(router):false,
-    expectContext:()=>/^\/worlds\/[^/]+\/(play|explore|read)$/.test(router.currentRoute.value.path)
-      ||/^\/books\/[^/]+\/read$/.test(router.currentRoute.value.path),
-    readContext:(kind,target)=>loadContextModule().then(module=>module.readStoryContext(router,kind,target)),
+    hasContext:()=>contextModule?contextModule.hasChatContext(router):false,
+    expectContext:()=>/^\/chats\/[^/]+$/.test(router.currentRoute.value.path),
+    readContext:(kind,target)=>loadContextModule().then(module=>module.readChatContext(router,kind,target)),
     subscribe:(listener)=>{
       notifyState=listener
       const offRouter=router.afterEach(()=>listener())
-      // World state (line head, history, loaded characters) changes without a
-      // route change; observe the store once it is available.
-      void import('./world/store').then(({useWorld})=>{
+      void loadContextModule().then(module=>{
         if(disposed)return
-        const offStore=useWorld().$subscribe(()=>listener())
-        cleanups.push(offStore)
-        listener()
+        const offSnapshot=module.subscribeChatContext(()=>listener())
+        cleanups.push(offSnapshot)
       }).catch(()=>{})
       return ()=>{notifyState=undefined;offRouter()}
     },

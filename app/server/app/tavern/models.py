@@ -18,7 +18,10 @@ class TavernChat(WorldOwned, WorldBase):
     __tablename__ = "tavern_chats"
     __table_args__ = {"schema": "world"}
 
-    card_id: Mapped[str] = mapped_column(String(32), index=True)
+    card_id: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
+    mode: Mapped[str] = mapped_column(String(8), default="single",
+                                      server_default=text("'single'"))
+    members: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
     preset_id: Mapped[str | None] = mapped_column(String(32), index=True)
     sampling: Mapped[dict | None] = mapped_column(JSONB)
     title: Mapped[str] = mapped_column(String(160), default="")
@@ -36,6 +39,7 @@ class TavernMessage(WorldOwned, WorldBase):
 
     chat_id: Mapped[str] = mapped_column(String(32), index=True)
     role: Mapped[str] = mapped_column(String(12))
+    speaker_card_id: Mapped[str | None] = mapped_column(String(32))
     sequence: Mapped[int] = mapped_column(Integer)
     swipes: Mapped[list] = mapped_column(JSONB, default=list)
     active_swipe: Mapped[int] = mapped_column(Integer, default=0)

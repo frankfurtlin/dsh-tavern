@@ -17,35 +17,18 @@ router = APIRouter()
 def register(data: Credentials, request: Request, db=Depends(get_db)):
     if not settings.registration_enabled:
         raise Problem("REGISTRATION_DISABLED", "注册暂未开放", 403)
-    # A quota-bound, valid invitation admits a small beta cohort behind one NAT.
-    # Keep the public registration limit; quota is locked again below after the
-    # rate-limit transaction commits, so concurrency cannot reuse a stale row.
-    invited = None
-    if data.inviteCode:
-        from .foundation.models import Invite
-        from .foundation.core import hash_code
-        invited = db.scalar(select(Invite.id).where(Invite.code_hash == hash_code(data.inviteCode),
-            Invite.disabled.is_(False), Invite.admission.is_(True), Invite.expires_at > now(), Invite.uses < Invite.max_uses))
-    rate_limit(db, "register:" + request.client.host, 50 if invited else 5, 3600)
+    rate_limit(db, "register:" + request.client.host, 5, 3600)
     username = username_format(data.username)
     password_format(data.password)
     if db.scalar(select(User).where(User.username == username)):
         raise Problem("REGISTRATION_FAILED", "无法使用此用户名注册")
-    from .foundation.growth import admission, claim_invite
-    from .foundation.events import emit
-    invite = admission(db, data.inviteCode)
     user = User(username=username, password_hash=password_hasher.hash(data.password))
     db.add(user)
     db.flush()
     db.add(UserSettings(owner_id=user.id))
     db.flush()
-    from .foundation.default_models import provision
     from .account_recovery import create_code
-    provision(db, user.id)
     recovery_code = create_code(db, user.id)
-    if invite:
-        claim_invite(db, user.id, invite)
-    emit(db, user.id, "registered:" + user.id, "fact.account.registered")
     db.commit()
     return {"id": user.id, "username": user.username, "recoveryCode": recovery_code}
 
@@ -63,9 +46,6 @@ def login(data: Credentials, request: Request, response: Response, db=Depends(ge
         rate_limit(db, "login-ip:" + request.client.host, 10, 900)
         rate_limit(db, "login-user:" + username + request.client.host, 10, 900)
         raise Problem("LOGIN_FAILED", "用户名或密码不正确", 401)
-    from .foundation.events import emit
-    from .models import uid
-    emit(db, user.id, "login:" + uid(), "fact.account.login")
     return issue_session(db, user, data.clientType, data.deviceName, response)
 
 
@@ -135,9 +115,6 @@ def settings_result(row):
 
 @router.get("/auth/me")
 def me(request: Request, user=Depends(current_user), db=Depends(get_db)):
-    from .foundation.default_models import provision
-    if provision(db, user.id):
-        db.commit()
     return {"id": user.id, "username": user.username, "sessionId": request.state.session.id, "settings": settings_result(db.get(UserSettings, user.id)), "aiMode": settings.ai_mode}
 
 

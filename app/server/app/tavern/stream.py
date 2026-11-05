@@ -83,7 +83,7 @@ def sampling_for(settings, preset, chat_sampling=None):
     }
 
 
-def _persist(*, owner, chat_id, mode, text, model, target_id):
+def _persist(*, owner, chat_id, mode, text, model, target_id, speaker_card_id=None):
     with SessionLocal() as db:
         chat = db.get(service.TavernChat, chat_id)
         if chat is None or chat.owner_id != owner:
@@ -103,6 +103,7 @@ def _persist(*, owner, chat_id, mode, text, model, target_id):
             row.updated_at = now()
         else:
             row = TavernMessage(id=uid(), owner_id=owner, chat_id=chat.id, role="assistant",
+                                speaker_card_id=speaker_card_id,
                                 sequence=service.next_sequence(db, chat), swipes=[swipe],
                                 active_swipe=0, updated_at=now())
             db.add(row)
@@ -112,7 +113,8 @@ def _persist(*, owner, chat_id, mode, text, model, target_id):
 
 
 def reply_events(*, owner, chat_id, mode, system_prompt, data, output_limit,
-                 profile, model_name, target_id=None, initial=None, sampling=None):
+                 profile, model_name, target_id=None, initial=None, sampling=None,
+                 speaker_card_id=None, speaker_names=None):
     """Return a generator of SSE frames for one assistant reply."""
     def stream():
         cancel = threading.Event()
@@ -174,7 +176,8 @@ def reply_events(*, owner, chat_id, mode, system_prompt, data, output_limit,
             return
         try:
             row = _persist(owner=owner, chat_id=chat_id, mode=mode, text=text,
-                           model=model_name, target_id=target_id)
+                           model=model_name, target_id=target_id,
+                           speaker_card_id=speaker_card_id)
         except Exception as failure:  # persistence is reported, stream stays well-formed
             logger.error("tavern persist failed chat=%s error=%s", chat_id, type(failure).__name__)
             yield sse({"type": "error", "code": "PERSISTENCE_UNAVAILABLE",
@@ -183,7 +186,11 @@ def reply_events(*, owner, chat_id, mode, system_prompt, data, output_limit,
         if row is None:
             yield sse({"type": "error", "code": "RESOURCE_NOT_FOUND", "message": "对话或消息已被删除"})
             return
-        yield sse({"type": "done", "message": row})
+        message = dict(row) if isinstance(row, dict) else service.message_out(row, speaker_names)
+        resolved_speaker_id = message.get("speakerCardId")
+        if resolved_speaker_id and speaker_names:
+            message["speakerName"] = speaker_names.get(resolved_speaker_id, "")
+        yield sse({"type": "done", "message": message})
 
     return stream()
 

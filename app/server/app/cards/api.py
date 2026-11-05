@@ -12,12 +12,11 @@ from ..models import now
 from ..errors import Problem
 from ..schemas import Strict
 from ..security import current_user
-from ..world.api import available
-from . import assist, exporting, memory, parse, personas, service, space
+from . import assist, exporting, parse, personas, service, space
 
-router = APIRouter(prefix="/character-cards", dependencies=[Depends(available)])
-presets = APIRouter(prefix="/presets", dependencies=[Depends(available)])
-regex_scripts = APIRouter(prefix="/regex-scripts", dependencies=[Depends(available)])
+router = APIRouter(prefix="/character-cards")
+presets = APIRouter(prefix="/presets")
+regex_scripts = APIRouter(prefix="/regex-scripts")
 
 
 class CardUpdate(Strict):
@@ -202,18 +201,6 @@ def context_preview(card_id: str, payload: PreviewInput, user=Depends(current_us
     return space.preview(db, user.id, card, payload.message, persona)
 
 
-@router.post("/{card_id}/chats", status_code=201)
-def create_card_chat(card_id: str, user=Depends(current_user), db=Depends(get_db)):
-    card = service.get_card(db, user.id, card_id)
-    try:
-        session = service.open_chat(db, user.id, card)
-        db.commit()
-    except Problem:
-        db.rollback()
-        raise
-    return {"sessionId": session.id, "cardId": card.id}
-
-
 @presets.get("")
 def list_presets(user=Depends(current_user), db=Depends(get_db)):
     return {"items": [space.preset_out(row) for row in space.list_presets(db, user.id)]}
@@ -259,61 +246,8 @@ def delete_regex(script_id: str, user=Depends(current_user), db=Depends(get_db))
 
 
 
-class MemoryInput(Strict):
-    kind: str = Field(default="fact", pattern="^(fact|preference|relationship|event)$")
-    title: str = Field(min_length=1, max_length=120)
-    content: str = Field(min_length=1, max_length=2000)
-    salience: int = Field(default=50, ge=1, le=100)
-    enabled: bool = True
-
-
-class MemoryUpdate(Strict):
-    kind: str | None = Field(default=None, pattern="^(fact|preference|relationship|event)$")
-    title: str | None = Field(default=None, min_length=1, max_length=120)
-    content: str | None = Field(default=None, min_length=1, max_length=2000)
-    salience: int | None = Field(default=None, ge=1, le=100)
-    enabled: bool | None = None
-
-
 class CompanionInput(Strict):
     companion: bool
-
-
-@router.get("/{card_id}/memories")
-def list_card_memories(card_id: str, user=Depends(current_user), db=Depends(get_db)):
-    card = service.get_card(db, user.id, card_id)
-    return {"items": [memory.memory_out(row) for row in memory.list_memories(db, user.id, card.id)]}
-
-
-@router.post("/{card_id}/memories", status_code=201)
-def create_card_memory(card_id: str, payload: MemoryInput, user=Depends(current_user), db=Depends(get_db)):
-    card = service.get_card(db, user.id, card_id)
-    row = memory.create_memory(db, user.id, card.id, payload.model_dump())
-    return {"memory": memory.memory_out(row)}
-
-
-@router.patch("/{card_id}/memories/{memory_id}")
-def patch_card_memory(card_id: str, memory_id: str, payload: MemoryUpdate,
-                      user=Depends(current_user), db=Depends(get_db)):
-    card = service.get_card(db, user.id, card_id)
-    row = memory.update_memory(db, user.id, card.id, memory_id, payload.model_dump(exclude_unset=True))
-    return {"memory": memory.memory_out(row)}
-
-
-@router.delete("/{card_id}/memories/{memory_id}", status_code=204)
-def delete_card_memory(card_id: str, memory_id: str, user=Depends(current_user), db=Depends(get_db)):
-    card = service.get_card(db, user.id, card_id)
-    memory.delete_memory(db, user.id, card.id, memory_id)
-    return Response(status_code=204)
-
-
-@router.post("/{card_id}/memories/extract")
-def extract_card_memories(card_id: str, user=Depends(current_user), db=Depends(get_db)):
-    from ..story_flow import default_profile
-    card = service.get_card(db, user.id, card_id)
-    profile = default_profile(db, user.id)
-    rows, skipped = memory.extract(db, user.id, card, profile)
-    return {"added": [memory.memory_out(row) for row in rows], "skipped": skipped}
 
 
 @router.post("/{card_id}/companion")

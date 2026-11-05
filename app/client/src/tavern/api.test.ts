@@ -1,9 +1,9 @@
 import {describe,expect,it,vi,beforeEach} from 'vitest'
 import {api} from '../api'
 import {
-  characterAvatarBlob,createCharacterChat,createWorldInfo,editMessage,exportCharacterBlob,
+  characterAvatarBlob,createCharacterChat,createGroupChat,createWorldInfo,editMessage,exportCharacterBlob,
   exportChatBlob,getCharacter,getChat,getPrompt,importCharacter,importChats,listCharacterChats,
-  listCharacters,listPresets,listWorldInfo,messageText,previewWorldInfo,selectSwipe,setDefaultPreset,
+  listCharacters,listChats,listPresets,listWorldInfo,messageText,previewWorldInfo,selectSwipe,setDefaultPreset,
   updateCharacter,updateChat,updateChatSampling,updatePreset,updatePrompt,updateWorldInfo,worldInfoKeys,
   createPreset,type TavernCharacter,
 } from './api'
@@ -215,5 +215,19 @@ describe('tavern chat pagination and import/export',()=>{
     vi.mocked(api).mockResolvedValueOnce({preset:{id:'p1',name:'细腻',isDefault:true}})
     await setDefaultPreset('p1')
     expect(vi.mocked(api)).toHaveBeenCalledWith('/tavern/presets/p1',{method:'PATCH',key:'key-1',body:{isDefault:true}})
+  })
+
+  it('creates a group chat with 2-5 member card ids',async()=>{
+    vi.mocked(api).mockResolvedValueOnce({chat:{id:'g1',cardId:'',mode:'group',title:'群聊',members:[{cardId:'c1',name:'林渡'},{cardId:'c2',name:'阿青'}]}})
+    const chat=await createGroupChat(['c1','c2'])
+    expect(chat.mode).toBe('group')
+    expect(chat.members?.map(member=>member.name)).toEqual(['林渡','阿青'])
+    expect(vi.mocked(api)).toHaveBeenCalledWith('/tavern/chats',{method:'POST',key:'key-1',body:{cardIds:['c1','c2']}})
+  })
+
+  it('lists chats from an items envelope or a bare array',async()=>{
+    vi.mocked(api).mockResolvedValueOnce({items:[{id:'chat-1',cardId:'c1',title:'单聊'}]}).mockResolvedValueOnce([{id:'chat-2',cardId:'',mode:'group',title:'群聊'}])
+    await expect(listChats()).resolves.toHaveLength(1)
+    await expect(listChats()).resolves.toHaveLength(1)
   })
 })

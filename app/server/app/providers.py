@@ -278,13 +278,7 @@ class ChatCompletionsAdapter:
         return {"supported": False, "state": "unsupported"}
 
     def normalizeUsage(self, usage):
-        from .usage_reporting import billing
-        details = billing(usage)
-        # Preserve the legacy normalized receipt when no billing detail was
-        # supplied. The public reporting DTO explicitly projects missing values
-        # as null; it never invents a zero cost for these old receipts.
-        if details['reasoningTokens'] is None and details['cost'] is None:
-            details = {}
+        details = {}
         if isinstance(usage, dict) and type(usage.get("prompt_tokens")) is int and type(usage.get("completion_tokens")) is int and usage["prompt_tokens"] >= 0 and usage["completion_tokens"] >= 0:
             return {"inputTokens": usage["prompt_tokens"], "outputTokens": usage["completion_tokens"], "state": "known", **details}
         return {"inputTokens": None, "outputTokens": None, "state": "unknown", **details}
@@ -479,16 +473,6 @@ class MockAdapter(ChatCompletionsAdapter):
 
     def generate(self, profile, system_prompt, data, output_limit):
         import json
-        if system_prompt.startswith(('prose-chapter-', 'prose-review-')):
-            from .prose.fixtures import result
-            text = result(system_prompt, data)
-            return {'text': text, 'finishReason': 'stop', 'latencyMs': 1,
-                'usage': {'state': 'known', 'inputTokens': len(wire_json(data).encode()), 'outputTokens': len(text)}}
-        if system_prompt.startswith("world-"):
-            from .world.fixtures import mock_result
-            text = mock_result(system_prompt, data)
-            return {"text": text, "finishReason": "stop", "latencyMs": 1,
-                    "usage": {"state": "known", "inputTokens": len(json.dumps(data, ensure_ascii=False).encode()), "outputTokens": len(text)}}
         prefix = "\n".join(b["text"] for b in data.get("blocks", data.get("prefix", []))) + "\n" + "\n".join(e.get("quote", "") for e in data.get("evidence", []))
         if system_prompt.startswith("analysis-"):
             characters, facts, evidence = [], [], []

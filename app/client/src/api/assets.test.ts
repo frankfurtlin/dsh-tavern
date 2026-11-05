@@ -1,5 +1,4 @@
 import {beforeEach,it,expect,vi} from 'vitest'
-import {readFileSync} from 'node:fs'
 import {api,ApiError} from './index'
 import {imageSource,imageCacheKey,imageByteKey,imagePlacements,bytesHash,imageScopeKey,type ImageScope,type StoryImage,type ImagePlacement,type OfflineImages} from './assets'
 import {publicImages,validateOfflineImages,remapBookImages,worldImagesAt} from './offline-images'
@@ -9,7 +8,9 @@ vi.mock('../platform/bridge',()=>({accountId:()=>mock.owner,backendBase:()=>mock
 vi.mock('../platform/book-cache',()=>({isBookDeleted:()=>mock.bookDeleted}))
 vi.mock('../platform/world-cache',()=>({isWorldDeleted:()=>mock.worldDeleted,isWorldLineDeleted:()=>false}))
 const at:ImageScope={kind:'book',bookId:'b'.repeat(32),branchId:'c'.repeat(32),revisionId:'d'.repeat(32)}
-const raw=new Uint8Array(readFileSync(new URL('../../../server/app/assets/examples/original-light-letter/cover-0.png',import.meta.url)))
+// P3-a slimmed the old story server and removed its example assets. Keep the
+// byte-level fixture local (a 1x1 PNG) so this pipeline suite stays runnable.
+const raw=new Uint8Array(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=','base64'))
 let picture:StoryImage,row:ImagePlacement,url:string
 beforeEach(async()=>{
   mock.owner='a'.repeat(32);mock.base='https://fixture.invalid';mock.epoch++;mock.bookDeleted=false;mock.worldDeleted=false;mock.values.clear();mock.writes=[];vi.mocked(api).mockReset();url='data:image/png;base64,'+Buffer.from(raw).toString('base64');const hash=await bytesHash(raw.slice().buffer)

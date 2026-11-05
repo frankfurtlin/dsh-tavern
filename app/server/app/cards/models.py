@@ -2,7 +2,7 @@
 reader alembic revision does not change (``world.migrate`` creates the table)."""
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -84,22 +84,6 @@ class RegexScript(WorldOwned, WorldBase):
     replacement: Mapped[str] = mapped_column(Text, default="")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     order: Mapped[int] = mapped_column(Integer, default=0)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
-
-
-class CardMemory(WorldOwned, WorldBase):
-    """One long-term memory item attached to a character card."""
-
-    __tablename__ = "card_memories"
-    __table_args__ = (Index("ix_world_card_memories_card_enabled", "card_id", "enabled"), {"schema": "world"})
-
-    card_id: Mapped[str] = mapped_column(String(32), index=True)
-    kind: Mapped[str] = mapped_column(String(20), default="fact")
-    title: Mapped[str] = mapped_column(String(120), default="")
-    content: Mapped[str] = mapped_column(Text, default="")
-    salience: Mapped[int] = mapped_column(Integer, default=50)
-    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    source: Mapped[str] = mapped_column(String(8), default="manual")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 

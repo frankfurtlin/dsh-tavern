@@ -319,14 +319,11 @@ def injection_report(db, owner, card, message, recent=(), persona=None):
     """Render the appended system prompt plus the structured match summary."""
     matched = _match_text(db, owner, card.id, message, recent)
     preset_text, preset = _preset_section(db, owner, card)
-    from . import memory
-    memory_rows = memory.matched(db, owner, card)
     sections = [_card_section(card), _lore_section(matched), preset_text,
-                memory.injection(db, owner, card), persona_section(persona)]
+                persona_section(persona)]
     body = "\n\n".join(section for section in sections if section)
     return {"systemSuffix": INJECTION_HEADER + "\n\n" + body if body else "",
             "lore": [{"id": row.id, "title": row.name, "keys": list(row.keys or [])} for row in matched],
-            "memories": [{"id": row.id, "kind": row.kind, "title": row.title} for row in memory_rows],
             "persona": {"id": persona.id, "name": persona.name} if persona is not None else None,
             "preset": {"id": preset.id, "name": preset.name} if preset is not None else None}
 
@@ -349,34 +346,11 @@ def recent_user_messages(payload):
     return texts
 
 
-def card_for_world(db, owner, world_id):
-    if not world_id:
-        return None
-    return db.scalar(select(CharacterCard).where(
-        CharacterCard.owner_id == owner, CharacterCard.world_id == world_id,
-        CharacterCard.deleted_at.is_(None),
-    ).order_by(CharacterCard.created_at.desc(), CharacterCard.id.desc()).limit(1))
-
-
-def chat_injection(db, task):
-    """System-prompt append for a world_character_chat generation call."""
-    payload = task.payload or {}
-    card = card_for_world(db, task.owner_id, payload.get("worldId"))
-    if card is None:
-        return ""
-    from . import personas
-    persona = personas.persona_for_chat(db, task.owner_id, payload.get("chatId") or "")
-    return injection(db, task.owner_id, card, payload.get("message") or "",
-                     recent_user_messages(payload), persona)
-
-
 def preview(db, owner, card, message, persona=None):
     matched = _match_text(db, owner, card.id, message)
     preset_text, preset = _preset_section(db, owner, card)
-    from . import memory
     return {"loreMatched": [{"id": row.id, "name": row.name, "keys": list(row.keys or [])} for row in matched],
             "preset": {"id": preset.id, "name": preset.name} if preset else None,
             "systemSuffix": _text(preset.system_suffix, PRESET_SECTION_LIMIT) if preset else "",
             "persona": {"id": persona.id, "name": persona.name} if persona is not None else None,
-            "personaSection": persona_section(persona),
-            **memory.preview_payload(db, owner, card)}
+            "personaSection": persona_section(persona)}

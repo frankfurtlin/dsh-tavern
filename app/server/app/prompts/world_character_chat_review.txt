@@ -1,4 +1,0 @@
-world_character_chat_review-v1
-核验独立聊天的参与人归因。输入 participants 是唯一可用的正式行动依据，reply 是待核验回复。只输出 JSON：{"consistent":true或false,"reason":"简短理由"}。
-严格核验 reply 中角色对已经发生的亲手交接、出行、在场、目击、押送、陈述供词和办理的认领。participants.character 才是说话者，player 不是说话者。只有 itemTransfers 的 from/to 对应 isCharacter=true 才支持该角色亲自交接；decisions.authority 只支持批准，不能推断同行、押送、交接、说明；evidenceActions.actor 对应 isCharacter=true 才支持其中明确的说明，不能由早先讲解失窃经过推断成后来在警署陈述供词。地点、对象、行动必须对应，不允许用类似事件替代。仅有“讲解宝石来历”不能支持“后来到了警务接收处向警官说明供词”，后者若无独立记录必须 false。来源没有给出的个人参与不能编造。
-人物的感受、日常闲聊、明确假设、否认自己参与、纠正错误及不会改变世界的承诺都可通过；不能把引用的错误说法或其否定误判成认领。读者提示和历史聊天不能补齐正式事实。若回复把别人的行动说成自己的，或编造自己在场/共同办理，consistent 必须 false。不要宽松放行。

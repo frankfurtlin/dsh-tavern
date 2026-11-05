@@ -49,12 +49,12 @@ def swipe_content(swipes, index):
     return (item or {}).get("content", "") if isinstance(item, dict) else str(item)
 
 
-def message_out(row):
+def message_out(row, names=None):
     swipes = list(row.swipes or [])
     active = int(row.active_swipe or 0)
     if swipes:
         active = max(0, min(active, len(swipes) - 1))
-    return {
+    payload = {
         "id": row.id,
         "role": row.role,
         "sequence": row.sequence,
@@ -64,12 +64,19 @@ def message_out(row):
         "createdAt": iso(row.created_at),
         "updatedAt": iso(row.updated_at),
     }
+    speaker = getattr(row, "speaker_card_id", None)
+    if row.role == "assistant" and speaker:
+        payload["speakerCardId"] = speaker
+        payload["speakerName"] = (names or {}).get(speaker, "")
+    return payload
 
 
 def chat_out(row):
     return {
         "id": row.id,
         "cardId": row.card_id,
+        "mode": getattr(row, "mode", "single") or "single",
+        "members": list(getattr(row, "members", None) or []),
         "title": row.title,
         "presetId": row.preset_id,
         "sampling": dict(row.sampling or {}),
@@ -102,7 +109,7 @@ def chat_stats(db, owner):
     """{cardId: {"chatCount": int, "lastChatAt": iso|None}} for the owner."""
     rows = db.execute(
         select(TavernChat.card_id, func.count(TavernChat.id), func.max(TavernChat.last_message_at))
-        .where(TavernChat.owner_id == owner)
+        .where(TavernChat.owner_id == owner, TavernChat.card_id.is_not(None))
         .group_by(TavernChat.card_id)
     ).all()
     return {card_id: {"chatCount": count, "lastChatAt": iso(last)} for card_id, count, last in rows}
@@ -129,8 +136,9 @@ def truncate_after(db, chat, sequence):
                                            TavernMessage.sequence > sequence))
 
 
-def add_message(db, chat, owner, role, content, model=""):
+def add_message(db, chat, owner, role, content, model="", speaker_card_id=None):
     row = TavernMessage(id=uid(), owner_id=owner, chat_id=chat.id, role=role,
+                        speaker_card_id=speaker_card_id,
                         sequence=next_sequence(db, chat),
                         swipes=[{"content": content, "model": model, "createdAt": now().isoformat()}],
                         active_swipe=0, updated_at=now())
@@ -295,3 +303,96 @@ def delete_preset(db, owner, preset_id):
                .values(preset_id=None))
     db.delete(row)
     db.commit()
+
+# ------------------------------------------------------------- group chats
+MAX_GROUP_MEMBERS = 5
+MIN_GROUP_MEMBERS = 2
+
+
+def assistant_count(db, chat):
+    return int(db.scalar(select(func.count()).select_from(TavernMessage).where(
+        TavernMessage.chat_id == chat.id, TavernMessage.role == "assistant")) or 0)
+
+
+def speaker_name_map(chat):
+    return {str(item.get("cardId")): str(item.get("name") or "")
+            for item in (getattr(chat, "members", None) or []) if isinstance(item, dict)}
+
+
+def chat_cards(db, owner, chat):
+    if (getattr(chat, "mode", "single") or "single") != "group":
+        return [card_or_404(db, owner, chat.card_id)]
+    cards = []
+    for member in (getattr(chat, "members", None) or []):
+        card_id = member.get("cardId") if isinstance(member, dict) else None
+        if not card_id:
+            continue
+        card = db.get(CharacterCard, card_id)
+        if card is None or card.owner_id != owner or card.deleted_at is not None:
+            raise Problem("RESOURCE_NOT_FOUND", "群聊中有角色卡已被删除", 404)
+        cards.append(card)
+    if not cards:
+        raise Problem("RESOURCE_NOT_FOUND", "这段群聊没有可用成员", 404)
+    return cards
+
+
+def chat_card(db, owner, chat):
+    return chat_cards(db, owner, chat)[0]
+
+
+def member_entry(card, order):
+    return {"cardId": card.id, "name": card.name,
+            "avatarPath": card.avatar_path or None, "order": order}
+
+
+def group_speaker(db, chat):
+    """Next speaker: members[assistant_count % member_count]."""
+    members = [item for item in (getattr(chat, "members", None) or []) if isinstance(item, dict)]
+    if not members:
+        return None
+    index = assistant_count(db, chat) % len(members)
+    return members[index]
+
+
+def chat_history(db, chat, before=None):
+    """Prompt history rows with resolved assistant speaker names."""
+    names = speaker_name_map(chat)
+    rows = []
+    for row in list_messages(db, chat):
+        if before is not None and row.sequence >= before:
+            continue
+        item = {"role": row.role, "text": swipe_content(row.swipes, row.active_swipe)}
+        speaker = getattr(row, "speaker_card_id", None)
+        if row.role == "assistant" and speaker:
+            item["speaker"] = names.get(speaker, "")
+        rows.append(item)
+    return rows
+
+
+def group_world_info(db, cards):
+    rows = []
+    for card in cards:
+        rows.extend(world_info_rows(db, card))
+    return rows
+
+
+def chats_out(db, rows):
+    items = []
+    for row in rows:
+        item = chat_out(row)
+        messages = list_messages(db, row)
+        last = messages[-1] if messages else None
+        names = speaker_name_map(row)
+        item["lastMessage"] = (message_out(last, names) if last is not None else None)
+        item["lastMessageAt"] = iso(row.last_message_at)
+        item["messageCount"] = len(messages)
+        items.append(item)
+    return items
+
+
+def list_chats(db, owner, limit=20, offset=0):
+    statement = (select(TavernChat).where(TavernChat.owner_id == owner)
+                 .order_by(TavernChat.last_message_at.desc().nulls_last(),
+                           TavernChat.updated_at.desc(), TavernChat.id)
+                 .offset(offset).limit(limit))
+    return list(db.scalars(statement))
