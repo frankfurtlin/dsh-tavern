@@ -3,12 +3,15 @@
 把本地「酒馆」装进 DSH：DSH 侧栏多一行 **酒馆**，点开不用跳站，面板里就是
 **角色卡网格**；点一张卡进入**全屏聊天**（`/tavern/chats/<id>`），回复按 SSE
 **逐字流出**，重新生成会追加一个**版本**（`‹n/m›` 切换），角色卡的世界书按
-关键词注入本轮 prompt。生成走 DSH 当前模型（本机 `opencode-go / deepseek-v4.1-flash`），
-不依赖浏览器里的模型登录态。
+关键词注入本轮 prompt。角色卡库还能多选 2–5 张卡**发起群聊**（同一场里按顺序
+轮转发言），`/tavern/chats` 是聊天历史页。生成走 DSH 当前模型（本机
+`opencode-go / deepseek-v4.1-flash`），不依赖浏览器里的模型登录态。
 
-酒馆 2.0 是**单用户、单卡聊天**的原生酒馆：没有故事模式、探索页、群聊、
-长期记忆与「长期伙伴」等旧能力（旧 UI 已下线，服务端旧代码暂留、待 P3 清理）。
-界面**固定浅色**，没有明暗切换。
+酒馆 2.0 是**单用户原生酒馆**：故事模式、探索作品、世界、分支、长期记忆、
+「长期伙伴」、卡↔世界、AI 写卡等旧能力已随 **P3 彻底删除**（UI 与服务端代码
+都不在了，旧 API `/worlds`、`/world-chats`、`/books`、`/play-controls` 一律 404）。
+服务端现有 **86 条路由**（`/api/reader/v1/tavern/**` 36 条）；旧 story 表已按备份
+**DROP**（备份见下）。界面**固定浅色**，没有明暗切换。
 
 - 侧栏顺序：紫微斗数(20) → **酒馆(24)** → Skill Center(30)
 - 插件目录：`/root/workspace/plugins/dsh-tavern`，已在
@@ -16,7 +19,8 @@
 - 应用目录：本仓库 `app/`，由四个 systemd 单元跑在回环地址上：
   - `dsh-tavern-api.service` → `127.0.0.1:8001`（FastAPI / uvicorn；聊天 SSE 在**请求线程**里直连 DSH 网关）
   - `dsh-tavern-web.service` → `127.0.0.1:8810`（`app/client/dist` 静态站）
-  - `dsh-tavern-worker.service`、`dsh-tavern-world-worker.service` → 旧 story 模式的生成/世界观任务 worker（2.0 聊天不再用任务队列，进程保留给暂未清理的旧代码）
+  - `dsh-tavern-worker.service` → 文本任务 worker（2.0 聊天不用任务队列，SSE 在请求线程里跑）
+  - `dsh-tavern-world-worker.service` → 旧 story worker；P3 删掉 `app.world.worker` 后已由 host **停用并 disable**（旧单元文件仍可查到，但不再启动）
 - 公开入口只有 `https://dsh.frankfurtlin.top/tavern/`（受 DSH 登录保护）。
   插件内部只连 `127.0.0.1`，不额外开端口
 
@@ -25,7 +29,9 @@
 | 能力 | 说明 |
 | --- | --- |
 | 角色卡 | 角色卡网格 + 搜索；导入 SillyTavern 卡（PNG / JSON，v2/v3 `character_book` 自动进世界书）；卡详情改设定（简介/性格/场景/开场白/系统提示词/后置指令/标签）、导出 PNG/JSON、删除（软删）；头像 |
-| 聊天 | 点卡直接进最近一段对话，没有则新建；`/chats/<id>` 全屏聊天：发送、**SSE 逐字流式**、停止生成、重新生成（追加 swipe）、`‹n/m›` 切换版本、编辑/删除自己的消息、改聊天标题、**导出聊天**（JSONL / JSON）、**导入聊天记录**（ST JSONL）；长聊天按 200 条分页，向上翻「加载更早」 |
+| 聊天 | 点卡直接进最近一段对话，没有则新建；`/chats/<id>` 全屏聊天：发送、**SSE 逐字流式**、停止生成、重新生成（追加 swipe）、`‹n/m›` 切换版本、编辑/删除自己的消息、改聊天标题、**导出聊天**（JSONL / JSON）、**导入聊天记录**（ST JSONL，仅单聊）；长聊天按 200 条分页，向上翻「加载更早」 |
+| 群聊 | 角色卡库勾选 2–5 张卡 → 「发起群聊」；`mode='group'` 聊天里成员头像常驻，assistant 气泡带发言人名字/头像，每轮按成员顺序**轮转发言**；重新生成沿用原发言人；导出 JSONL 带 `speaker_name` |
+| 聊天历史 | `/chats` 页：全部聊天按最近消息倒序，群聊显示成员名，点进对应聊天 |
 | 世界书 | 卡详情维护条目：关键词（≤20 个）、内容（≤8000 字）、注入位置（角色前/角色后/示例前/指定深度）、注入深度（`at_depth` 用，0–100）、常驻、概率（0–100%，确定性抽样）、顺序（升序注入）、启用；导入卡自带条目；卡详情有**注入预览**：输入一句示例消息，返回命中的条目、命中原因（常驻 / 关键词「X」）与拼好的注入文本 |
 | 设置 | `/settings`：人设（多个人设 + 默认人设）、预设管理（新建/编辑/设为默认/删除；system / main / jailbreak / post_history + temperature / top_p / max_tokens / stop）、输出替换规则页 `/settings/regex`（账号级正则 CRUD、启停、两步删除、客户端校验；规则在回复落库前生效，刷新后可见替换结果）、导入导出说明 |
 | 采样与提示词 | 聊天页「采样参数」Sheet（temperature / top_p / max_tokens / stop，落库并回显）；卡详情「提示词与采样」（主提示词 / 越狱提示词 / 采样覆盖 + 世界书默认位置）；生成时按 **chat > 预设 > 卡设置** 逐级回退 |
@@ -36,9 +42,11 @@
 1. DSH 侧栏点 **酒馆**（等价于打开 `/tavern/`），面板里是角色卡网格；
    顶栏「酒馆」品牌 + 右侧「设置」。
 2. 首次使用：点「导入卡」上传 SillyTavern 角色卡（PNG 或 JSON），卡出现在网格里；
-   搜索框按角色名 / 简介过滤。
+   搜索框按角色名 / 简介过滤；顶栏「聊天历史」进 `/chats` 看全部会话。
 3. 点卡片主体直接进聊天：有历史进最近一段，没有就按开场白新建；
    卡片右上「设置」进卡详情。
+3b. 想多个角色同场：在卡库勾选 2–5 张（最多 5 张），底部「发起群聊（N）」→
+   进入群聊；发言顺序按勾选顺序轮转，assistant 气泡上会标发言人。
 4. 聊天页：输入框发消息 → 回复逐字出现 → 「停止」可中断（已收到的内容不落库）；
    最后一条回复可「重新生成」，每次生成追加一个版本，用 `‹n/m›` 切换；
    点「编辑」可改自己的消息（会截断其后的消息）；标题可点开改名；可导出聊天。
@@ -59,11 +67,11 @@
 | `cordis.patch.yml` | `- insert: [{id: dsh-tavern, name: dsh-tavern}]`，`id` 必须等于包名 |
 | `lib/index.js` | host 半：注册 `prefix /tavern` 反向代理（旧 `/story` 为 302 兼容别名）；先过 DSH 登录闸门；`/api/**`、`/health/**` → 8001 并附加可信头，其余 → 8810 静态站。另外注册 `prefix /tavern-agent` 模型网关，给应用服务端调 DSH 真生成 |
 | `client.js` | client 半：注册侧栏行（`sidebar.panellist` 座位）+ 主面板（`main` 座位，`key=tavern`）；工具条 + 同源 iframe（`tavern/`）；记住应用最后的路由以便切面板后恢复 |
-| `app/` | 酒馆 2.0 应用本体（Vue 前端 + FastAPI 后端）：`tavern/` 模块（角色/聊天/世界书/prompt/SSE）、`cards/` 角色卡解析与存储。旧 story/world/experience/cards 空间/记忆代码暂留但已无 UI 入口，待 P3 清理 |
+| `app/` | 酒馆 2.0 应用本体（Vue 前端 + FastAPI 后端）：`tavern/` 模块（角色/单聊/群聊/聊天历史/世界书/prompt/SSE）、`cards/` 角色卡解析与导出。旧 story 域代码已在 P3 删除 |
 | `docs/contract.md` | 与应用侧的集成契约（路由分流、可信头、P2、UI 座位、网关字段、应用 API/SSE/swipe）——**先读它再改代码** |
 | `docs/architecture.md` | 实现架构：请求链路、网关、原生酒馆数据模型与 prompt 组装、面板结构、配置、风险 |
 | `docs/step6-native-tavern.md` | 酒馆 2.0 的设计与验收清单（当前设计） |
-| `docs/step1–step5*.md` | **历史设计**：故事模式 / 卡片空间 / 群聊 / 长期记忆 / P0–P2 体验；其中 UI 多已下线，仅作参考 |
+| `docs/step1–step5*.md` | **历史设计**：故事模式 / 旧卡片空间 / 旧群聊 / 长期记忆 / P0–P2 体验；其中 UI 与服务端多已删除，仅作参考 |
 | `docs/testing.md` | 验收方法：静态检查 + 隔离实例真实浏览器 E2E |
 | `scripts/check.sh`、`verify.mjs` | 验收工具：静态检查 + 隔离实例端到端 |
 
@@ -174,9 +182,11 @@ node verify.mjs --url "http://127.0.0.1:3080/?token=..." \
   角色页导入聊天记录）、W 世界书深度语义（position/depth/constant/probability/order
   保存回显 + 预览命中原因）、S2 采样参数（聊天页 Sheet 保存 → 刷新回显 → 带参生成）、
   Q 预设与提示词（新建预设 → 设默认 → 新聊天 prompt 含预设文本；非法采样 422）、
-  M 旧路由（`/tavern/explore`、`/works` 等不死链，页面无「探索作品」入口）；
-  `--only c,n` 可只跑部分分组；
-- 最新一轮完整验收（隔离实例 + 生产各跑一遍）：**41 PASS / 0 FAIL / 0 SKIP**；
+  P3 工具条（`/chats` 聊天上下文 → 「让 DSH 续写/角色扮演」预填 DSH 输入框；
+  无上下文时按钮禁用）、M 旧路由（`/tavern/explore`、`/works` 等不死链，页面无
+  「探索作品」入口）；`--only c,n,p3` 可只跑部分分组；
+- 最新一轮完整验收（隔离实例 + 生产各跑一遍）：全部 PASS，条数以
+  `report.json` 的 `summary` 为准（P3 后新增群聊/历史页/工具条断言）；
 - 产物在 `/tmp/dsh-tavern-native/check`：`report.json`（逐项 PASS/FAIL/SKIP）、
   `logs/*.log`（含隔离实例 `dsh.log`）、截图 `90-sidebar.png`…`99-old-routes.png`；
 - 隔离实例用的是临时 `DSH_HOME`（`/tmp/dsh-tavern-native/instance`，端口默认 3099），
@@ -193,15 +203,21 @@ node verify.mjs --url "http://127.0.0.1:3080/?token=..." \
   预设 > 卡设置），但插件 host 半的网关代码要 **DSH Web 重启后**才加载新参数；
   且本机 `opencode-go` 适配器会忽略 topP/stop（只有 temperature 真正传给上游），
   不要依赖 stop 一定截断。
-- **旧 story 后端代码暂留**：`world/play_controls/experience`、卡片空间
-  （`cards/space.py`、`chat_presets`、`regex_scripts`）、长期记忆
-  （`cards/memory.py`）等已从 UI 下线，代码与旧表保留待 P3 清理；
-  `worker`/`world-worker` 进程仍在跑，但 2.0 聊天不依赖它们。
-- **旧路由**：应用不再有探索/作品/群聊页，`/tavern/explore`、`/tavern/works`、
-  `/tavern/worlds/scripts` 等都会落到角色卡首页（`/`），不会 404 死链。
-- **面板工具条仍有 1.x 遗留动作**：「让 DSH 续写 / 角色扮演 / 续写要求」来自
-  故事模式，当前应用没有故事上下文可读，点击会提示读不到内容；刷新/新窗口
-  正常可用。这部分在 `client.js`，计划随 P3 与旧代码一起清掉。
+- **旧 story 域已彻底删除**：P3 删除了故事模式/探索/世界/分支/记忆/伙伴的 UI 与服务端
+  代码（旧 API `/worlds`、`/world-chats`、`/books`、`/play-controls` 全部 404）；
+  `books`、`world.lines`、`world_chat_sessions` 等 51 张旧表已按备份 **DROP**（备份
+  `/root/workspace/.backups/dsh-tavern/story_between-pre-p3-20261105-081109.dump`）。
+  `dsh-tavern-world-worker` 已停用并 disable（其模块 `app.world.worker` 随 P3 删除）。
+- **群聊限制**：成员卡被删（软删）后再打开该群聊会 404（无级联清理）；
+  群聊 JSONL 可以导出但**不能导回成群聊**（导入接口只建单聊）；群聊轮转顺序
+  固定按成员顺序，暂不支持指定/随机/权重。
+- **旧路由**：应用不再有探索/作品页，也没有独立的群聊页（群聊从卡库多选发起）；
+  `/tavern/explore`、`/tavern/works`、`/tavern/worlds/scripts`、
+  `/tavern/characters/groups` 等都会落到角色卡首页（`/`），不会 404 死链。
+- **面板工具条（原生酒馆）**：在聊天页 `/chats/<id>` 里「让 DSH 续写 / 角色扮演」
+  可用——插件通过 P2 桥向应用要角色卡（名字/简介/性格/场景/开场白）与最近对话，
+  组好 prompt 后新开 DSH 会话并预填；角色卡库、设置页等没有聊天上下文的页面
+  按钮禁用并提示「先打开一个聊天」。`@角色名` 可覆盖角色扮演对象。
 - **世界书注入预览已可用**：卡详情「注入预览」输入一句示例消息，返回命中条目、
   命中原因（常驻 / 关键词「X」）与拼好的注入文本
   （调 `POST /characters/{id}/world-info/preview`）。
@@ -215,11 +231,12 @@ node verify.mjs --url "http://127.0.0.1:3080/?token=..." \
 - **流式帧格式**：服务端 SSE 帧为 `event: {"message"|"delta"|"done"|"error"}` +
   `data: {...}`，与客户端 `sse.ts` 的命名事件解析一致；逐字流式已验证，且整段
   回复会在 `done` 后落库并刷新。
-- **位置记忆只记「页面路由」**：切走面板再回来会恢复到上次的 `/chats/<id>` 或
-  `/characters/<id>`；应用内未写进路由的临时状态（滚动位置、未发送草稿）不恢复。
-  恢复地址失效时点「刷新」回角色卡首页。
-- **P2 故事上下文协议保留但无数据源**：`ping/pong/state` 仍可握手上报 `appPath`，
-  `context-request` 没有故事页可答；契约 §3 保留定义用于兼容，P3 再决定去留。
+- **位置记忆只记聊天页**：切走面板再回来会恢复到上次的 `/chats/<id>`；卡库、
+  卡详情、设置页不记（回到 `/`）。应用内未写进路由的临时状态（滚动位置、
+  未发送草稿）不恢复。恢复地址失效时点「刷新」回角色卡首页。
+- **P2 上下文只覆盖聊天页**：`ping/pong/state` 负责握手与路由上报；
+  `context-request` 只在 `/chats/<id>` 返回角色卡 + 最近对话，其它页面回
+  `ok:false`（「当前页面没有可用的聊天上下文」）。字段表见 `docs/contract.md` §3。
 
 ## 文档
 
@@ -228,5 +245,5 @@ node verify.mjs --url "http://127.0.0.1:3080/?token=..." \
 | [docs/contract.md](docs/contract.md) | 与应用侧的集成契约：分流、可信头、P2、UI 座位、网关字段、应用 API / SSE / swipe |
 | [docs/architecture.md](docs/architecture.md) | 实现架构：请求链路、模型网关、原生酒馆数据模型与 prompt 组装、面板结构、配置、风险 |
 | [docs/step6-native-tavern.md](docs/step6-native-tavern.md) | 酒馆 2.0 当前设计：原生聊天、SSE、swipe、世界书、验收分组 |
-| [docs/step1-character-card-chat.md](docs/step1-character-card-chat.md) 等 step1–step5 | **历史设计**（故事模式 / 卡片空间 / 群聊 / 长期记忆 / P0–P2），多数 UI 已下线 |
+| [docs/step1-character-card-chat.md](docs/step1-character-card-chat.md) 等 step1–step5 | **历史设计**（故事模式 / 旧卡片空间 / 旧群聊 / 长期记忆 / P0–P2），UI 与服务端多已删除 |
 | [docs/testing.md](docs/testing.md) | 验收方法：静态检查 + 隔离实例真实浏览器 E2E |

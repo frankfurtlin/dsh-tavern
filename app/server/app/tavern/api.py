@@ -15,7 +15,7 @@ from ..errors import Problem
 from ..models import now
 from ..schemas import Strict
 from ..security import current_user
-from ..story_flow import default_profile
+from ..profiles import default_profile
 from . import prompt as prompt_builder
 from . import service, stream
 from .models import TavernChat, TavernMessage, TavernPreset, TavernWorldInfo
@@ -55,6 +55,8 @@ class TavernCardPatch(Strict):
 
 
 class ChatCreate(Strict):
+    cardId: str | None = Field(default=None, max_length=32)
+    cardIds: list[str] | None = Field(default=None, max_length=5)
     greetingId: int | None = Field(default=None, ge=0)
     title: str | None = Field(default=None, min_length=1, max_length=160)
     presetId: str | None = Field(default=None, max_length=32)
@@ -209,8 +211,15 @@ def _history(db, chat, *, before=None):
 
 
 def _build_prompt(db, owner, card, chat, history_rows, message, persona_id,
-                  preset=None, require_profile=True):
-    settings = dict(card.prompt_settings or {})
+                  preset=None, require_profile=True, speaker_member=None):
+    group = chat is not None and (chat.mode or "single") == "group"
+    cards = service.chat_cards(db, owner, chat) if group else None
+    if group:
+        wanted = (speaker_member or {}).get("cardId")
+        speaker_card = next((item for item in cards if item.id == wanted), cards[0])
+    else:
+        speaker_card = card
+    settings = dict(speaker_card.prompt_settings or {})
     try:
         profile = default_profile(db, owner)
     except Problem:
@@ -227,31 +236,79 @@ def _build_prompt(db, owner, card, chat, history_rows, message, persona_id,
     else:
         limit = stream.output_limit_for(profile, settings, preset, chat_sampling)
     sampling = stream.sampling_for(settings, preset, chat_sampling)
-    history = [{"role": row.role, "text": service.swipe_content(row.swipes, row.active_swipe)}
-               for row in history_rows]
-    built = prompt_builder.build(card, chat if chat is not None else SimpleNamespace(id=""),
-                                 history=history, message=message,
-                                 user_name=persona_view["name"] if persona_view else "User",
-                                 persona=persona_view, settings=settings, profile=profile,
-                                 output_limit=limit,
-                                 world_info=service.world_info_rows(db, card),
-                                 preset=preset)
+    names = service.speaker_name_map(chat) if group else {}
+    history = [_history_item(row, names) for row in history_rows]
+    char_name = speaker_card.name
+    if not group:
+        history = [{"role": item["role"], "text": item["text"]} for item in history]
+    world_info = (service.group_world_info(db, cards) if group
+                  else service.world_info_rows(db, speaker_card))
+    builder = prompt_builder.build_group if group else prompt_builder.build
+    build_kwargs = dict(history=history, message=message,
+                        user_name=persona_view["name"] if persona_view else "User",
+                        persona=persona_view, settings=settings, profile=profile,
+                        output_limit=limit, world_info=world_info, preset=preset)
+    if group:
+        build_kwargs["speaker"] = speaker_card
+        built = builder(cards, chat, **build_kwargs)
+    else:
+        built = builder(speaker_card, chat if chat is not None else SimpleNamespace(id=""),
+                        **build_kwargs)
     return {"built": built, "limit": limit, "profile": profile, "sampling": sampling,
-            "preset": preset, "persona": persona_view}
+            "preset": preset, "persona": persona_view, "speaker": speaker_member,
+            "speaker_card": speaker_card, "char_name": char_name}
 
 
-def _reply_context(db, owner, chat, card, history_rows, message, persona_id):
-    context = _build_prompt(db, owner, card, chat, history_rows, message, persona_id)
+def _reply_context(db, owner, chat, card, history_rows, message, persona_id, speaker=None):
+    context = _build_prompt(db, owner, card, chat, history_rows, message, persona_id,
+                            speaker_member=speaker)
     built = context["built"]
     return (built["systemPrompt"], built["data"], context["limit"],
             stream.profile_view(context["profile"]), context["profile"].model_id,
-            context["sampling"], context["preset"])
+            context["sampling"], context["preset"], context["speaker"])
 
 
 def _prompt_view(card):
     settings = dict(PROMPT_DEFAULTS)
     settings.update(card.prompt_settings or {})
     return {"systemPrompt": card.system_prompt or "", **settings}
+
+
+GROUP_MIN_MEMBERS = 2
+GROUP_MAX_MEMBERS = 5
+
+
+def _group_members(db, owner, card_ids):
+    """Validate + dedupe group members (order preserved) -> (member dicts, cards)."""
+    seen, ids = set(), []
+    for raw in card_ids or []:
+        card_id = str(raw or "").strip()
+        if card_id and card_id not in seen:
+            seen.add(card_id)
+            ids.append(card_id)
+    if len(ids) < GROUP_MIN_MEMBERS or len(ids) > GROUP_MAX_MEMBERS:
+        raise Problem("GROUP_MEMBERS_INVALID", "群聊需要 2 至 5 位角色", 422)
+    cards = [service.card_or_404(db, owner, card_id) for card_id in ids]
+    return [service.member_entry(card, index) for index, card in enumerate(cards)], cards
+
+
+def _chat_speaker(db, chat, card_id=None):
+    if (chat.mode or "single") != "group":
+        return None
+    members = [item for item in (chat.members or []) if isinstance(item, dict)]
+    if card_id:
+        for member in members:
+            if member.get("cardId") == card_id:
+                return member
+    return service.group_speaker(db, chat)
+
+
+def _history_item(row, names):
+    item = {"role": row.role, "text": service.swipe_content(row.swipes, row.active_swipe)}
+    speaker = getattr(row, "speaker_card_id", None)
+    if row.role == "assistant" and speaker:
+        item["speaker"] = names.get(speaker, "")
+    return item
 
 
 # ---------------------------------------------------------------- characters
@@ -393,19 +450,49 @@ def create_chat(card_id: str, payload: ChatCreate | None = None,
     return {"chat": service.chat_out(chat)}
 
 
+@router.post("/chats", status_code=201)
+def create_group_chat(payload: ChatCreate, user=Depends(current_user), db=Depends(get_db)):
+    """Create a group chat (2-5 cards) or a single chat addressed by ``cardId``."""
+    if payload.cardIds:
+        members, cards = _group_members(db, user.id, payload.cardIds)
+        preset_id = service.get_preset(db, user.id, payload.presetId).id if payload.presetId else None
+        title = (payload.title or "、".join(card.name for card in cards))[:160]
+        chat = TavernChat(id=service.uid(), owner_id=user.id, card_id=None,
+                          mode="group", members=members, preset_id=preset_id,
+                          sampling=_clean_sampling(payload.sampling), title=title,
+                          model_name="", updated_at=now())
+        db.add(chat)
+        db.commit()
+        return {"chat": service.chat_out(chat)}
+    if payload.cardId:
+        return create_chat(payload.cardId, payload, user=user, db=db)
+    raise Problem("INVALID_REQUEST", "创建对话需要 cardId 或 cardIds", 422)
+
+
+@router.get("/chats")
+def list_chat_history(limit: int = Query(default=20, ge=1, le=100),
+                      offset: int = Query(default=0, ge=0),
+                      user=Depends(current_user), db=Depends(get_db)):
+    rows = service.list_chats(db, user.id, limit=limit, offset=offset)
+    return {"items": service.chats_out(db, rows), "limit": limit, "offset": offset}
+
+
 @router.get("/chats/{chat_id}")
 def get_chat(chat_id: str, before: int | None = Query(default=None, ge=1),
              limit: int = Query(default=200, ge=1, le=500),
              user=Depends(current_user), db=Depends(get_db)):
     chat = service.chat_or_404(db, user.id, chat_id)
-    card = service.card_or_404(db, user.id, chat.card_id)
+    cards = service.chat_cards(db, user.id, chat)
+    names = service.speaker_name_map(chat)
     all_rows = service.list_messages(db, chat)
     latest = all_rows[-1].sequence if all_rows else 0
     candidates = [row for row in all_rows if before is None or row.sequence < before]
     has_more = len(candidates) > limit
     page = candidates[-limit:] if has_more else candidates
-    return {"chat": {**service.chat_out(chat), "card": service.card_summary(card)},
-            "messages": [service.message_out(row) for row in page],
+    return {"chat": {**service.chat_out(chat),
+                     "card": service.card_summary(cards[0]),
+                     "cards": [service.card_summary(card) for card in cards]},
+            "messages": [service.message_out(row, names) for row in page],
             "hasMore": has_more, "latestSequence": latest}
 
 
@@ -413,33 +500,40 @@ def get_chat(chat_id: str, before: int | None = Query(default=None, ge=1),
 def export_chat(chat_id: str, format: str = Query(default="jsonl"),
                 user=Depends(current_user), db=Depends(get_db)):
     chat = service.chat_or_404(db, user.id, chat_id)
-    card = service.card_or_404(db, user.id, chat.card_id)
+    cards = service.chat_cards(db, user.id, chat)
+    names = service.speaker_name_map(chat)
     rows = service.list_messages(db, chat)
     if format == "json":
-        document = {"chat": {**service.chat_out(chat), "card": service.card_summary(card)},
-                    "card": service.card_summary(card),
-                    "messages": [service.message_out(row) for row in rows]}
+        document = {"chat": {**service.chat_out(chat),
+                             "card": service.card_summary(cards[0]),
+                             "cards": [service.card_summary(card) for card in cards]},
+                    "card": service.card_summary(cards[0]),
+                    "cards": [service.card_summary(card) for card in cards],
+                    "messages": [service.message_out(row, names) for row in rows]}
         return Response(json.dumps(document, ensure_ascii=False), media_type="application/json",
-                        headers=exporting.filename_header(f"{card.name}-{_stamp()}", ".json"))
+                        headers=exporting.filename_header(f"{chat.title or cards[0].name}-{_stamp()}", ".json"))
     if format == "jsonl":
         lines = []
         for row in rows:
             swipes = list(row.swipes or [])
+            speaker = names.get(row.speaker_card_id) if row.speaker_card_id else ""
             payload = {
                 "user_name": "User",
-                "character_name": card.name,
+                "character_name": speaker or cards[0].name,
                 "create_date": service.iso(row.updated_at or row.created_at),
                 "mes": service.swipe_content(row.swipes, row.active_swipe),
                 "is_user": row.role == "user",
                 "is_name": True,
             }
+            if speaker and row.role == "assistant":
+                payload["speaker_name"] = speaker
             if len(swipes) > 1:
                 payload["swipes"] = [str((item or {}).get("content", "")) for item in swipes]
                 payload["swipe_id"] = int(row.active_swipe or 0)
             lines.append(json.dumps(payload, ensure_ascii=False))
         body = "\n".join(lines) + ("\n" if lines else "")
         return Response(body, media_type="text/plain; charset=utf-8",
-                        headers=exporting.filename_header(f"{card.name}-{_stamp()}", ".jsonl"))
+                        headers=exporting.filename_header(f"{chat.title or cards[0].name}-{_stamp()}", ".jsonl"))
     raise Problem("INVALID_REQUEST", "导出格式仅支持 jsonl 或 json", 422)
 
 
@@ -536,21 +630,30 @@ def delete_chat(chat_id: str, user=Depends(current_user), db=Depends(get_db)):
 def send_message(chat_id: str, payload: MessageInput, user=Depends(current_user),
                  db=Depends(get_db)):
     chat = service.chat_or_404(db, user.id, chat_id, lock=True)
-    card = service.card_or_404(db, user.id, chat.card_id)
+    group = (chat.mode or "single") == "group"
+    speaker = service.group_speaker(db, chat) if group else None
+    card = service.chat_card(db, user.id, chat) if group else service.card_or_404(
+        db, user.id, chat.card_id)
     text = payload.message.strip()
     if not text:
         raise Problem("MESSAGE_REQUIRED", "消息不能为空", 422)
-    system_prompt, data, limit, profile, model_name, sampling, preset = _reply_context(
-        db, user.id, chat, card, _history(db, chat), text, payload.personaId)
+    names = service.speaker_name_map(chat) if group else {}
+    system_prompt, data, limit, profile, model_name, sampling, preset, speaker = _reply_context(
+        db, user.id, chat, card, _history(db, chat), text, payload.personaId, speaker)
     user_row = service.add_message(db, chat, user.id, "user", text, "")
     db.commit()
     initial = {"type": "message", "userMessage": service.message_out(user_row),
                "assistantSequence": user_row.sequence + 1}
+    if speaker:
+        initial["speaker"] = {"cardId": speaker.get("cardId"),
+                              "name": speaker.get("name", "")}
     return StreamingResponse(
         stream.reply_events(owner=user.id, chat_id=chat.id, mode="message",
                             system_prompt=system_prompt, data=data, output_limit=limit,
                             profile=profile, model_name=model_name, initial=initial,
-                            sampling=sampling),
+                            sampling=sampling,
+                            speaker_card_id=(speaker or {}).get("cardId"),
+                            speaker_names=names),
         media_type=stream.SSE_MEDIA_TYPE, headers=stream.SSE_HEADERS)
 
 
@@ -558,23 +661,34 @@ def send_message(chat_id: str, payload: MessageInput, user=Depends(current_user)
 def regenerate(chat_id: str, payload: RegenerateInput | None = None,
                user=Depends(current_user), db=Depends(get_db)):
     chat = service.chat_or_404(db, user.id, chat_id, lock=True)
-    card = service.card_or_404(db, user.id, chat.card_id)
+    group = (chat.mode or "single") == "group"
     target = service.last_assistant(db, chat)
     if target is None:
         raise Problem("NOTHING_TO_REGENERATE", "没有可以重新生成的回复", 409)
+    speaker, names = None, {}
+    if group:
+        speaker = _chat_speaker(db, chat, target.speaker_card_id)
+        names = service.speaker_name_map(chat)
+        card = service.chat_card(db, user.id, chat)
+    else:
+        card = service.card_or_404(db, user.id, chat.card_id)
     history = [row for row in service.list_messages(db, chat) if row.sequence < target.sequence]
     persona_id = payload.personaId if payload else None
     message = next((service.swipe_content(row.swipes, row.active_swipe)
                     for row in reversed(history) if row.role == "user"), "")
-    system_prompt, data, limit, profile, model_name, sampling, preset = _reply_context(
-        db, user.id, chat, card, history, message, persona_id)
+    system_prompt, data, limit, profile, model_name, sampling, preset, speaker = _reply_context(
+        db, user.id, chat, card, history, message, persona_id, speaker)
+    initial = {"type": "message", "messageId": target.id,
+               "activeSwipe": target.active_swipe}
+    if speaker:
+        initial["speaker"] = {"cardId": speaker.get("cardId"),
+                              "name": speaker.get("name", "")}
     return StreamingResponse(
         stream.reply_events(owner=user.id, chat_id=chat.id, mode="regenerate",
                             system_prompt=system_prompt, data=data, output_limit=limit,
                             profile=profile, model_name=model_name, target_id=target.id,
-                            sampling=sampling,
-                            initial={"type": "message", "messageId": target.id,
-                                     "activeSwipe": target.active_swipe}),
+                            sampling=sampling, initial=initial, speaker_names=names,
+                            speaker_card_id=(speaker or {}).get("cardId")),
         media_type=stream.SSE_MEDIA_TYPE, headers=stream.SSE_HEADERS)
 
 
@@ -589,7 +703,8 @@ def select_swipe(chat_id: str, message_id: str, index: int,
     row.active_swipe = index
     row.updated_at = now()
     db.commit()
-    return {"message": service.message_out(row)}
+    names = service.speaker_name_map(chat)
+    return {"message": service.message_out(row, names)}
 
 
 @router.patch("/chats/{chat_id}/messages/{message_id}")

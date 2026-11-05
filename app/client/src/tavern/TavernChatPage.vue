@@ -2,17 +2,22 @@
 import {computed,nextTick,onMounted,onUnmounted,ref,watch} from 'vue'
 import {useRoute,useRouter} from 'vue-router'
 import {ArrowLeft,ChevronLeft,ChevronRight,Download,Pencil,RefreshCw,Send,Square,Trash2,X} from 'lucide-vue-next'
+import {authorizationHeaders} from '../api'
 import {useApp} from '../stores/app'
 import {useRequestScope} from '../platform/request-scope'
-import {deleteMessage,editMessage,exportChatBlob,getChat,messageText,selectSwipe,updateChat,updateChatSampling,type ChatDetail,TavernMessage} from './api'
+import {deleteMessage,editMessage,exportChatBlob,getCharacter,getChat,messageText,selectSwipe,tavernAvatarUrl,updateChat,updateChatSampling,type ChatDetail,TavernCharacter,TavernMessage} from './api'
 import {saveBlob,safeFileName} from '../platform/download'
 import {streamChat} from './sse'
 import Sheet from '../components/Sheet.vue'
+import {clearChatContextSnapshot,patchChatContextSnapshot,setChatContextSnapshot} from './context-snapshot'
 
 const route=useRoute(),router=useRouter(),store=useApp(),scope=useRequestScope()
 const chatId=computed(()=>String(route.params.id||''))
 const detail=ref<ChatDetail|null>(null)
 const messages=ref<TavernMessage[]>([])
+const character=ref<TavernCharacter|null>(null)
+const groupAvatars=ref<Record<string,string>>({})
+const streamSpeaker=ref<{cardId:string;name:string}|null>(null)
 const loading=ref(true)
 const error=ref('')
 const streamError=ref('')
@@ -40,9 +45,79 @@ let mounted=true
 const PAGE_SIZE=200
 
 const characterName=computed(()=>detail.value?.chat.characterName||detail.value?.chat.title||'聊天')
+const groupMembers=computed(()=>detail.value?.chat.mode==='group'?(detail.value.chat.members??[]).slice().sort((a,b)=>(a.order??0)-(b.order??0)).slice(0,5):[])
+const isGroup=computed(()=>detail.value?.chat.mode==='group')
+const assistantCount=computed(()=>messages.value.filter(message=>message.role==='assistant').length)
+const nextSpeaker=computed(()=>{
+  const members=groupMembers.value
+  if(!members.length)return null
+  return members[assistantCount.value%members.length]??null
+})
 const canRegenerate=computed(()=>!streaming.value&&messages.value.length>0&&messages.value[messages.value.length-1]?.role==='assistant')
 
+function avatarFor(cardId?:string|null){
+  return cardId?groupAvatars.value[cardId]??'':('')
+}
+
+function speakerNameFor(message:TavernMessage){
+  return message.speakerName||groupMembers.value.find(member=>member.cardId===message.speakerCardId)?.name||''
+}
+
+function speakerAvatarFor(message:TavernMessage){
+  return avatarFor(message.speakerCardId)
+}
+
+async function loadAvatar(cardId:string){
+  if(!cardId||groupAvatars.value[cardId])return
+  try{
+    const response=await fetch(tavernAvatarUrl(cardId),{credentials:'include',headers:authorizationHeaders()})
+    if(!response.ok)return
+    const blob=await response.blob()
+    if(!mounted)return
+    groupAvatars.value={...groupAvatars.value,[cardId]:URL.createObjectURL(blob)}
+  }catch{/* 头像失败不影响聊天 */}
+}
+
+function ensureGroupAvatars(){
+  if(!isGroup.value)return
+  for(const member of groupMembers.value)void loadAvatar(member.cardId)
+  for(const message of messages.value)if(message.speakerCardId)void loadAvatar(message.speakerCardId)
+}
+
 function scrollToBottom(){void nextTick(()=>{if(log.value)log.value.scrollTop=log.value.scrollHeight})}
+
+/** Publishes what the DSH panel needs to continue this chat (see dsh-context.ts). */
+function publishSnapshot(loaded=false){
+  const chat=detail.value?.chat
+  if(!chat)return
+  const recent=messages.value
+    .map(message=>({role:message.role,text:messageText(message)}))
+    .filter(message=>message.text)
+  // Single chats use the card name. Group chats use whoever this turn belongs to
+  // (last assistant's speaker, else the next scheduled speaker) so the DSH tools
+  // write "请以<发言人名>...", not the joined group title.
+  const lastAssistant=[...messages.value].reverse().find(message=>message.role==='assistant')
+  const contextSpeaker=chat.mode==='group'
+    ?((lastAssistant?speakerNameFor(lastAssistant):'')||nextSpeaker.value?.name||'')
+    :''
+  setChatContextSnapshot({
+    chatId:chat.id,
+    cardId:chat.cardId,
+    characterName:chat.characterName||contextSpeaker||character.value?.name||chat.title||'',
+    character:character.value,
+    messages:recent,
+    loaded:loaded||!!detail.value,
+  })
+}
+
+async function loadCharacter(cardId:string){
+  if(!cardId)return
+  try{
+    const card=await getCharacter(cardId)
+    character.value=card
+    if(detail.value?.chat)patchChatContextSnapshot(detail.value.chat.id,{character:card})
+  }catch{/* The card is optional context; the chat itself still works. */}
+}
 
 async function load(silent=false){
   if(!silent)loading.value=true
@@ -55,6 +130,9 @@ async function load(silent=false){
     messages.value=value.messages||[]
     hasMore.value=value.hasMore??messages.value.length>=PAGE_SIZE
     if(!titleEditing.value)titleText.value=value.chat.title||''
+    publishSnapshot(true)
+    ensureGroupAvatars()
+    void loadCharacter(value.chat.cardId)
     scrollToBottom()
   }catch(e){
     if(ticket.valid())error.value=(e as Error).message||'聊天加载失败，请稍后重试。'
@@ -144,6 +222,7 @@ function send(){
   const text=input.value.trim()
   if(!text||streaming.value)return
   input.value=''
+  streamSpeaker.value=nextSpeaker.value
   void runStream('/chats/'+encodeURIComponent(chatId.value)+'/messages',{text})
 }
 
@@ -161,6 +240,8 @@ function stop(){
 
 function regenerate(){
   if(!canRegenerate.value)return
+  const lastAssistant=[...messages.value].reverse().find(item=>item.role==='assistant')
+  streamSpeaker.value=lastAssistant?{cardId:lastAssistant.speakerCardId||'',name:lastAssistant.speakerName||''}:null
   void runStream('/chats/'+encodeURIComponent(chatId.value)+'/regenerate',{})
 }
 
@@ -255,8 +336,9 @@ function goBack(){
 }
 
 watch(chatId,()=>void load())
+watch([messages,character],()=>{publishSnapshot();ensureGroupAvatars()})
 onMounted(()=>void load())
-onUnmounted(()=>{mounted=false;abort?.abort();abort=null})
+onUnmounted(()=>{mounted=false;clearChatContextSnapshot(chatId.value);abort?.abort();abort=null;for(const url of Object.values(groupAvatars.value))URL.revokeObjectURL(url);groupAvatars.value={}})
 </script>
 
 <template>
@@ -269,6 +351,12 @@ onUnmounted(()=>{mounted=false;abort?.abort();abort=null})
      <input v-model="titleText" aria-label="聊天名称" maxlength="120">
      <button type="submit">保存</button>
     </form>
+    <div v-if="isGroup&&groupMembers.length" class="chat-members" aria-label="群聊参与者">
+     <span v-for="member in groupMembers" :key="member.cardId" class="chat-member-avatar" :title="member.name">
+      <img v-if="avatarFor(member.cardId)" :src="avatarFor(member.cardId)" alt="">
+      <span v-else>{{member.name.slice(0,1)}}</span>
+     </span>
+    </div>
    </div>
    <div class="chat-menu">
     <button type="button" class="chat-icon" aria-label="聊天菜单" @click="exportMenuOpen=!exportMenuOpen"><Download :size="19"/></button>
@@ -290,6 +378,13 @@ onUnmounted(()=>{mounted=false;abort?.abort();abort=null})
    </div>
    <p v-if="!messages.length&&!streaming" class="chat-empty">还没有消息，说点什么开始吧。</p>
    <article v-for="message in messages" :key="message.id" class="bubble-row" :class="message.role">
+    <div v-if="isGroup&&message.role==='assistant'" class="bubble-speaker">
+     <span class="bubble-speaker-avatar">
+      <img v-if="speakerAvatarFor(message)" :src="speakerAvatarFor(message)" alt="">
+      <span v-else>{{speakerNameFor(message).slice(0,1)}}</span>
+     </span>
+     <span class="bubble-speaker-name">{{speakerNameFor(message)}}</span>
+    </div>
     <div class="bubble" :class="message.role">
      <p v-if="message.role==='user'" class="bubble-meta">你</p>
      <template v-if="editingId===message.id">
@@ -327,6 +422,13 @@ onUnmounted(()=>{mounted=false;abort?.abort();abort=null})
     </div>
    </article>
    <article v-if="streaming" class="bubble-row assistant">
+    <div v-if="isGroup&&streamSpeaker" class="bubble-speaker">
+     <span class="bubble-speaker-avatar">
+      <img v-if="avatarFor(streamSpeaker.cardId)" :src="avatarFor(streamSpeaker.cardId)" alt="">
+      <span v-else>{{streamSpeaker.name.slice(0,1)}}</span>
+     </span>
+     <span class="bubble-speaker-name">{{streamSpeaker.name}}</span>
+    </div>
     <div class="bubble assistant">
      <p v-if="streamText" class="bubble-text">{{streamText}}</p>
      <p v-else class="bubble-text bubble-pending">正在写…</p>
@@ -385,6 +487,14 @@ onUnmounted(()=>{mounted=false;abort?.abort();abort=null})
 .chat-title-form input{min-height:38px;width:min(46vw,260px)}
 .chat-title-form button{min-height:38px;padding:0 12px}
 .chat-status{font-size:12px;color:var(--quiet);min-width:64px;text-align:right}
+.chat-members{display:flex;justify-content:center;gap:-2px;margin-top:2px}
+.chat-member-avatar{width:20px;height:20px;margin-left:-6px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--wash);color:var(--accent);font-size:11px;border:1px solid var(--paper)}
+.chat-member-avatar:first-child{margin-left:0}
+.chat-member-avatar img{width:100%;height:100%;object-fit:cover;display:block}
+.bubble-speaker{display:flex;align-items:center;gap:6px;margin-bottom:2px;padding-left:2px;font-size:12px;color:var(--quiet)}
+.bubble-speaker-avatar{width:22px;height:22px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--wash);color:var(--accent);font-size:11px}
+.bubble-speaker-avatar img{width:100%;height:100%;object-fit:cover;display:block}
+.bubble-speaker-name{font-weight:600}
 .chat-log{flex:1;min-height:0;overflow-y:auto;padding:18px clamp(12px,3vw,28px) 12px;display:flex;flex-direction:column;gap:14px;max-width:860px;width:100%;margin:0 auto}
 .chat-loading{flex:1;display:flex;align-items:center;justify-content:center;color:var(--quiet)}
 .chat-empty{color:var(--quiet);text-align:center;margin:auto}

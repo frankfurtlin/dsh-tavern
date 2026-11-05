@@ -8,7 +8,7 @@ from pathlib import Path
 
 from ..completion_policy import completion_limit
 from ..errors import Problem
-from ..story_flow import default_profile
+from ..profiles import default_profile
 
 logger = logging.getLogger("reader")
 

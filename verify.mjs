@@ -80,6 +80,7 @@ const report = {
     worldInfo: null,
     exportImport: null,
     oldRoutes: null,
+    group: null,
   },
   app: {},
   screenshots: [],
@@ -547,6 +548,373 @@ try {
     }
   }
 
+  // ── G. 群聊（task-62，多选 2 张卡发起群聊 → 轮转 → 刷新 → 列表 → 删除）────
+  const groupCheckNames = [
+    '多选两张卡发起群聊，进入 /chats/<id> 且页头出现两个参与者',
+    '群聊发送「你好」后出现 assistant 回复且发言人=第一位成员',
+    '再发一条后发言人轮转到第二位成员',
+    '刷新后消息与发言人保持，标题含成员名',
+    '/chats 聊天历史出现该群聊（群聊标记 + 成员名 + 最后一条消息）',
+    '删除群聊后聊天历史列表减少',
+    '群聊 console 无报错',
+  ]
+  const groupEvidence = {
+    enabled: false,
+    imported: false,
+    cards: 0,
+    selected: [],
+    barText: null,
+    groupUrl: null,
+    groupId: null,
+    title: null,
+    members: [],
+    memberText: null,
+    headerText: null,
+    replies: [],
+    speakers: [],
+    rotation: false,
+    persisted: false,
+    listBefore: 0,
+    listAfter: 0,
+    listShown: false,
+    deleted: false,
+    listAfterDelete: 0,
+    console: null,
+    steps: [],
+  }
+  report.native.group = groupEvidence
+  if (groupOn('g')) {
+    if (nativeBlocked) {
+      for (const name of groupCheckNames) skip(name, blockedReason)
+    } else {
+      groupEvidence.enabled = true
+      const groupConsoleStart = consoleErrors.length
+      const groupSecond =
+        manifest && Array.isArray(manifest.cards) ? manifest.cards.find((card) => card.name !== cardName) || null : null
+      const groupSecondName = (groupSecond && groupSecond.name) || '顾清和'
+      const skipGroupRemaining = (detail) => {
+        for (let index = groupEvidence.steps.length; index < groupCheckNames.length; index += 1) {
+          if (!groupEvidence.steps.includes(index)) skip(groupCheckNames[index], detail)
+        }
+      }
+      const markStep = (index) => {
+        if (!groupEvidence.steps.includes(index)) groupEvidence.steps.push(index)
+      }
+      // 记录建群前的聊天历史条数（API），G6 删除后要回落。
+      const apiChats = async () => {
+        const frameNow = fnow()
+        if (!frameNow) return null
+        return frameNow
+          .evaluate(async () => {
+            try {
+              const response = await fetch('/tavern/api/reader/v1/tavern/chats', { credentials: 'include' })
+              if (!response.ok) return { status: response.status }
+              const payload = await response.json()
+              return { items: Array.isArray(payload.items) ? payload.items : [] }
+            } catch (error) {
+              return { error: String(error) }
+            }
+          })
+          .catch(() => null)
+      }
+      const listBefore = await apiChats()
+      groupEvidence.listBefore = listBefore && Array.isArray(listBefore.items) ? listBefore.items.length : 0
+      // 1) 准备两张不同的卡（G 组可独立跑：缺卡时自己导入 fixture）。
+      //    注意不能只看卡片数量：重复导入同名卡也会让数量 +1，但群聊需要两张「不同」角色。
+      let home = await appGoto('/')
+      await waitFor(async () => (await home.locator('.tavern-home').count().catch(() => 0)) > 0, 20000)
+      const ensureCard = async (name, file) => {
+        if (await findCard(name)) return true
+        const importInput = home.locator('input[type="file"]').first()
+        if (!(await importInput.count().catch(() => 0))) return false
+        await importInput.setInputFiles(path.join(fixturesDir, file)).catch(() => {})
+        const appeared = await waitFor(async () => Boolean(await findCard(name)), 30000)
+        if (appeared) await page.waitForTimeout(400)
+        return appeared
+      }
+      const firstReady = fixtureCard ? await ensureCard(cardName, fixtureCard.file) : false
+      const secondReady = groupSecond ? await ensureCard(groupSecondName, groupSecond.file) : false
+      groupEvidence.cards = await cardCount()
+      groupEvidence.imported = firstReady && secondReady
+      // 2) 多选两张卡 → 发起群聊
+      const picked = []
+      for (const name of [cardName, groupSecondName]) {
+        const selectButton = home.locator(`button.tavern-select[aria-label="选择 ${name} 加入群聊"]`).first()
+        const fallback = home.locator('.tavern-card').filter({ hasText: name }).locator('.tavern-select').first()
+        const target = (await selectButton.count().catch(() => 0)) ? selectButton : fallback
+        if (await target.count().catch(() => 0)) {
+          await target.click({ force: true }).catch(() => {})
+          picked.push(name)
+        }
+        await page.waitForTimeout(150)
+      }
+      groupEvidence.selected = picked
+      const bar = home.locator('.tavern-select-bar').first()
+      const barShown = await waitFor(async () => (await bar.count().catch(() => 0)) > 0, 8000)
+      const barText = barShown ? ((await bar.innerText().catch(() => '')) || '').trim() : ''
+      groupEvidence.barText = barText
+      await shot(page, '130-g-select.png')
+      let groupChatFrame = null
+      if (picked.length === 2 && /已选\s*2/.test(barText)) {
+        const createButton = home.locator('.tavern-select-group').first()
+        if (await createButton.count().catch(() => 0)) await createButton.click({ force: true }).catch(() => {})
+        groupChatFrame = await waitFrameUrl(/\/chats\/[0-9a-zA-Z_-]+/, 30000)
+      }
+      const groupUrl = groupChatFrame ? groupChatFrame.url() : null
+      const groupChatId = groupUrl ? groupUrl.split('/chats/')[1].split(/[?#]/)[0] : null
+      groupEvidence.groupUrl = groupUrl
+      groupEvidence.groupId = groupChatId
+      const readGroup = async () => {
+        if (!groupChatFrame || !groupChatId) return null
+        return groupChatFrame
+          .evaluate(async (chatId) => {
+            try {
+              const response = await fetch(`/tavern/api/reader/v1/tavern/chats/${chatId}`, { credentials: 'include' })
+              if (!response.ok) return { status: response.status }
+              return await response.json()
+            } catch (error) {
+              return { error: String(error) }
+            }
+          }, groupChatId)
+          .catch(() => null)
+      }
+      const groupDetail = groupUrl ? await readGroup() : null
+      const detailChat = groupDetail && groupDetail.chat ? groupDetail.chat : null
+      const detailMembers =
+        detailChat && Array.isArray(detailChat.members) ? detailChat.members.map((member) => member.name) : []
+      groupEvidence.members = detailMembers
+      groupEvidence.title = detailChat ? detailChat.title : null
+      if (!groupChatFrame) {
+        check(groupCheckNames[0], false, `没有进入 /chats/<id>（bar=${clip(barText)} selected=${clip(picked)}；owner: cards-client 建群/路由）`)
+        markStep(0)
+        skipGroupRemaining('群聊没有创建成功，后续步骤无法验证')
+      } else {
+        await waitChatRendered(groupChatFrame, 25000)
+        const memberText = ((await groupChatFrame.locator('.chat-members').innerText().catch(() => '')) || '').trim()
+        const memberTitles = await groupChatFrame
+          .locator('.chat-members [title]')
+          .evaluateAll((els) => els.map((el) => el.getAttribute('title') || ''))
+          .catch(() => [])
+        const headerText = ((await groupChatFrame.locator('.chat-title').innerText().catch(() => '')) || '').trim()
+        groupEvidence.memberText = memberText
+        groupEvidence.headerText = headerText
+        const membersShown =
+          (memberText.includes(cardName) || memberTitles.some((title) => title.includes(cardName))) &&
+          (memberText.includes(groupSecondName) || memberTitles.some((title) => title.includes(groupSecondName)))
+        const headerHasNames = headerText.includes(cardName) && headerText.includes(groupSecondName)
+        const apiOk =
+          Boolean(detailChat) &&
+          detailChat.mode === 'group' &&
+          detailMembers.length === 2 &&
+          detailMembers[0] === cardName &&
+          detailMembers[1] === groupSecondName
+        check(
+          groupCheckNames[0],
+          Boolean(groupChatFrame) && membersShown && headerHasNames && apiOk,
+          `url=${groupUrl} members=${clip(detailMembers)} header=${clip(headerText)} memberText=${clip(memberText)} apiOk=${apiOk}`,
+        )
+        markStep(0)
+        await shot(page, '131-g-chat-members.png')
+
+        const sendGroupMessage = async (text) => {
+          const input = groupChatFrame.locator('textarea[aria-label="聊天输入框"], textarea[placeholder*="说"]').first()
+          if (!(await input.count().catch(() => 0))) return null
+          await input.fill(text).catch(() => {})
+          const beforeRows = await groupChatFrame.locator('.bubble-row.assistant').count().catch(() => 0)
+          const sendButton = groupChatFrame.locator('button[aria-label="发送消息"], button[type="submit"]').first()
+          const startedAt = Date.now()
+          if (await sendButton.count().catch(() => 0)) await sendButton.click({ force: true }).catch(() => {})
+          else await input.press('Enter').catch(() => {})
+          let stable = 0
+          let lastText = ''
+          let finalText = ''
+          while (Date.now() - startedAt < 180000) {
+            const rows = groupChatFrame.locator('.bubble-row.assistant')
+            const count = await rows.count().catch(() => 0)
+            const row = count > beforeRows ? rows.nth(count - 1) : null
+            const bubble = row ? row.locator('.bubble-text').first() : null
+            const textNow =
+              bubble && (await bubble.count().catch(() => 0)) ? ((await bubble.innerText().catch(() => '')) || '').trim() : ''
+            const pending =
+              (await groupChatFrame.locator('.bubble-pending').count().catch(() => 0)) > 0 ||
+              /正在回复/.test(await bodyText(groupChatFrame))
+            if (textNow !== lastText) {
+              lastText = textNow
+              stable = 0
+            } else if (textNow) {
+              stable += 1
+            }
+            if (textNow && !pending && stable >= 4) {
+              finalText = textNow
+              break
+            }
+            await page.waitForTimeout(250)
+          }
+          const lastRow = await lastAssistantRow(groupChatFrame)
+          const speaker = lastRow
+            ? ((await lastRow.locator('.bubble-speaker-name').first().innerText().catch(() => '')) || '').trim()
+            : ''
+          return { text: finalText || lastText, speaker, elapsedMs: Date.now() - startedAt }
+        }
+
+        // G2：第一条 → members[0]
+        const reply1 = await sendGroupMessage('你好')
+        const detail1 = await readGroup()
+        const assistants1 = detail1 && Array.isArray(detail1.messages) ? detail1.messages.filter((item) => item.role === 'assistant') : []
+        const apiSpeaker1 = assistants1.length ? assistants1[assistants1.length - 1].speakerName : null
+        groupEvidence.replies.push(reply1)
+        const g2Ok =
+          Boolean(reply1 && reply1.text && reply1.text.length >= 2) &&
+          reply1.speaker === detailMembers[0] &&
+          apiSpeaker1 === detailMembers[0] &&
+          (await bodyText(groupChatFrame)).includes(detailMembers[0])
+        check(
+          groupCheckNames[1],
+          g2Ok,
+          `speaker=${clip(reply1 && reply1.speaker)} 期望=${clip(detailMembers[0])} apiSpeaker=${clip(apiSpeaker1)} text=${clip(reply1 && reply1.text, 80)} elapsed=${reply1 && reply1.elapsedMs}ms`,
+        )
+        markStep(1)
+        await shot(page, '132-g-reply-first.png')
+
+        // G3：第二条 → members[1]
+        const reply2 = await sendGroupMessage('再聊聊刚才那盏茶吧。')
+        const detail2 = await readGroup()
+        const assistants2 = detail2 && Array.isArray(detail2.messages) ? detail2.messages.filter((item) => item.role === 'assistant') : []
+        const apiSpeakers = assistants2.map((item) => item.speakerName).filter(Boolean)
+        groupEvidence.replies.push(reply2)
+        groupEvidence.speakers = apiSpeakers
+        const rotationOk =
+          Boolean(reply2 && reply2.text && reply2.text.length >= 2) &&
+          reply2.speaker === detailMembers[1] &&
+          apiSpeakers.length >= 2 &&
+          apiSpeakers[0] === detailMembers[0] &&
+          apiSpeakers[1] === detailMembers[1]
+        groupEvidence.rotation = rotationOk
+        check(
+          groupCheckNames[2],
+          rotationOk,
+          `speaker=${clip(reply2 && reply2.speaker)} 期望=${clip(detailMembers[1])} apiSpeakers=${clip(apiSpeakers)} text=${clip(reply2 && reply2.text, 80)}`,
+        )
+        markStep(2)
+        await shot(page, '133-g-reply-rotate.png')
+
+        // G4：刷新后消息/发言人/标题保持
+        const firstText = (reply1 && reply1.text ? reply1.text : '').slice(0, 20)
+        const secondText = (reply2 && reply2.text ? reply2.text : '').slice(0, 20)
+        await groupChatFrame.evaluate(() => location.reload()).catch(() => {})
+        groupChatFrame = (await waitFrameUrl(/\/chats\/[0-9a-zA-Z_-]+/, 25000)) || fnow()
+        await waitChatRendered(groupChatFrame, 25000)
+        const persisted = await waitFor(async () => {
+          const text = await bodyText(groupChatFrame)
+          return Boolean(firstText && secondText) && text.includes(firstText) && text.includes(secondText)
+        }, 30000)
+        // 刷新后详情是异步加载的：标题先显示占位「聊天」，发言人名也要等 detail 回来才渲染。
+        const readTitle = async () => {
+          const nameButton = groupChatFrame.locator('.chat-name').first()
+          if (await nameButton.count().catch(() => 0)) return ((await nameButton.innerText().catch(() => '')) || '').trim()
+          return ((await groupChatFrame.locator('.chat-title').innerText().catch(() => '')) || '').trim()
+        }
+        const reloadReady = await waitFor(async () => {
+          const title = await readTitle()
+          const names = await groupChatFrame.locator('.bubble-row.assistant .bubble-speaker-name').count().catch(() => 0)
+          return names >= 2 && title.includes(cardName) && title.includes(groupSecondName)
+        }, 25000)
+        const speakerNames = await groupChatFrame
+          .locator('.bubble-row.assistant .bubble-speaker-name')
+          .allTextContents()
+          .catch(() => [])
+        const titleAfterReload = await readTitle()
+        const g4Ok =
+          persisted &&
+          speakerNames.map((item) => item.trim()).includes(detailMembers[0]) &&
+          speakerNames.map((item) => item.trim()).includes(detailMembers[1]) &&
+          titleAfterReload.includes(cardName) &&
+          titleAfterReload.includes(groupSecondName)
+        groupEvidence.persisted = persisted
+        groupEvidence.titleAfterReload = titleAfterReload
+        check(
+          groupCheckNames[3],
+          g4Ok,
+          `persisted=${persisted} speakers=${clip(speakerNames)} title=${clip(titleAfterReload)}`,
+        )
+        markStep(3)
+        await shot(page, '134-g-reload.png')
+
+        // G5：/chats 聊天历史列表出现该群聊
+        const listFrame = await appGoto('/chats')
+        const listReady = await waitFor(
+          async () => (await listFrame.locator('.chat-history-row, .chat-history-list').count().catch(() => 0)) > 0,
+          25000,
+        )
+        const rowTexts = await listFrame.locator('.chat-history-row').allInnerTexts().catch(() => [])
+        const groupRow = rowTexts.find((text) => text.includes(groupSecondName) && text.includes(cardName)) || ''
+        const modeShown = groupRow.includes('群聊')
+        const lastShown = /。|！|？|\.|!|\?/.test(groupRow)
+        const apiAfter = await apiChats()
+        groupEvidence.listAfter = apiAfter && Array.isArray(apiAfter.items) ? apiAfter.items.length : 0
+        groupEvidence.listShown = Boolean(groupRow)
+        groupEvidence.listModeShown = modeShown
+        const g5Ok = listReady && Boolean(groupRow) && modeShown && lastShown && groupEvidence.listAfter > groupEvidence.listBefore
+        check(
+          groupCheckNames[4],
+          g5Ok,
+          `rows=${rowTexts.length} before=${groupEvidence.listBefore} after=${groupEvidence.listAfter} groupRow=${clip(groupRow)} mode=${modeShown} lastMessage=${lastShown}`,
+        )
+        markStep(4)
+        await shot(page, '135-g-list.png')
+
+        // G6：删除群聊 → 列表减少（客户端菜单没有删除聊天，走 API DELETE，随后刷新列表）
+        const deleteStatus = await listFrame
+          .evaluate(async (chatId) => {
+            try {
+              const response = await fetch(`/tavern/api/reader/v1/tavern/chats/${chatId}`, {
+                method: 'DELETE',
+                credentials: 'include',
+              })
+              return response.status
+            } catch (error) {
+              return String(error)
+            }
+          }, groupChatId)
+          .catch(() => null)
+        const apiDeleted = await apiChats()
+        groupEvidence.listAfterDelete = apiDeleted && Array.isArray(apiDeleted.items) ? apiDeleted.items.length : -1
+        const listFrame2 = await appGoto('/chats')
+        await waitFor(async () => (await listFrame2.locator('.chat-history-row').count().catch(() => 0)) >= 0, 15000)
+        const rowsAfter = await listFrame2.locator('.chat-history-row').allInnerTexts().catch(() => [])
+        const groupGone = !rowsAfter.some((text) => text.includes(groupSecondName) && text.includes(cardName))
+        groupEvidence.deleted = groupGone
+        const g6Ok =
+          deleteStatus === 204 && groupGone && groupEvidence.listAfterDelete < groupEvidence.listAfter
+        check(
+          groupCheckNames[5],
+          g6Ok,
+          `deleteStatus=${deleteStatus} listAfter=${groupEvidence.listAfter} afterDelete=${groupEvidence.listAfterDelete} groupGone=${groupGone}`,
+        )
+        markStep(5)
+        await shot(page, '136-g-deleted.png')
+
+        // G7：本组 console clean
+        const groupConsole = consoleErrors
+          .slice(groupConsoleStart)
+          .filter((text) => !/Failed to load resource/.test(text))
+        groupEvidence.console = groupConsole
+        check(groupCheckNames[6], groupConsole.length === 0, groupConsole.length ? clip(groupConsole.join(' | ')) : '本组无 console 报错')
+        markStep(6)
+      }
+    }
+  }
+
+  // G 组结束后 iframe 停在 /chats 列表：把聊天页还回 C 组创建的单聊（C2/R/P/T 依赖 chatFrame）。
+  if (groupEvidence.enabled && chatEvidence.chatUrl) {
+    const restorePath = new URL(chatEvidence.chatUrl).pathname.replace(/^\/tavern/, '') || '/'
+    const restored = await appGoto(restorePath)
+    if (restored) {
+      await waitChatRendered(restored, 25000)
+      chatFrame = restored
+    }
+  }
+
   // ── C2. 停止生成（在 R 之前制造一次可取消的流式，不新增成功回复）────────────
   const stopEvidence = { visible: false, clicked: false, ended: false, error: null }
   report.native.stop = stopEvidence
@@ -758,10 +1126,19 @@ try {
       skip('返回角色页看到聊天历史列表', blockedReason)
       skip('从历史重新进入聊天，消息完整', blockedReason)
     } else {
-      const detail = await openDetail()
-      const listShown = detail
+      let detail = await openDetail()
+      let listShown = detail
         ? await waitFor(async () => (await detail.locator('section[aria-label="聊天历史"] .chat-history-item, .chat-history-item').count().catch(() => 0)) > 0, 20000)
         : false
+      if (!listShown && detail) {
+        // 卡详情可能先渲染、聊天历史异步拉取偶发未返回：重进一次详情页再等。
+        const detailPath = new URL(detail.url()).pathname.replace(/^\/tavern/, '')
+        if (detailPath) await appGoto(detailPath)
+        detail = fnow()
+        listShown = detail
+          ? await waitFor(async () => (await detail.locator('section[aria-label="聊天历史"] .chat-history-item, .chat-history-item').count().catch(() => 0)) > 0, 30000)
+          : false
+      }
       historyEvidence.listShown = listShown
       const itemCount = detail ? await detail.locator('.chat-history-item').count().catch(() => 0) : 0
       check('返回角色页看到聊天历史列表', listShown, listShown ? `角色页聊天历史 ${itemCount} 条` : '角色页没有聊天历史条目（owner: cards-client 卡详情）')
@@ -1469,34 +1846,52 @@ try {
             const readyAgain = await waitChatRendered(chatFrame)
             let persisted = false
             let echo = null
-            const echoDebug = { ready: Boolean(readyAgain), menu: false, item: false, dialog: false, text: '' }
-            if (readyAgain) {
-              const menuAgain = chatFrame.locator('button[aria-label="聊天菜单"]').first()
-              if ((await menuAgain.count().catch(() => 0)) > 0) {
-                // reload 后 Vue 事件可能还没绑定：最多点 3 次，每次等 4s。
-                for (let attempt = 0; attempt < 3 && !echoDebug.menu; attempt += 1) {
-                  await menuAgain.click({ force: true }).catch(() => {})
-                  echoDebug.menu = await waitFor(async () => (await chatFrame.locator('.chat-menu-pop').count().catch(() => 0)) > 0, 4000)
-                  if (!echoDebug.menu) await page.waitForTimeout(600)
-                }
-                const itemAgain = chatFrame.locator('.chat-menu-pop button, .chat-menu-pop [role="menuitem"]').filter({ hasText: /采样参数/ }).first()
-                echoDebug.item = (await itemAgain.count().catch(() => 0)) > 0
-                if (echoDebug.item) {
-                  await itemAgain.click({ force: true }).catch(() => {})
-                  const dialogAgain = chatFrame.locator('section.sheet[aria-label="采样参数"], [role="dialog"], section[aria-label*="采样"]').first()
-                  echoDebug.dialog = await waitFor(async () => (await dialogAgain.count().catch(() => 0)) > 0, 10000)
-                  if (echoDebug.dialog) {
-                    echoDebug.text = ((await dialogAgain.innerText().catch(() => '')) || '').replace(/\s+/g, ' ').slice(0, 200)
-                    const t = dialogAgain.locator('input[aria-label*="temperature" i], input[aria-label*="温度"]').first()
-                    const p = dialogAgain.locator('input[aria-label*="top_p" i], input[aria-label*="top"]').first()
-                    const m = dialogAgain.locator('input[aria-label*="max_tokens" i], input[aria-label*="max"]').first()
-                    echo = { temperature: await t.inputValue().catch(() => null), topP: await p.inputValue().catch(() => null), maxTokens: await m.inputValue().catch(() => null) }
-                    persisted = Number(echo.temperature) === 1.2 && Number(echo.topP) === 0.9 && Number(echo.maxTokens) === 200
-                    await dialogAgain.getByRole('button', { name: /关闭|取消|完成/ }).first().click({ force: true }).catch(() => {})
-                  }
-                }
+            const readEchoFromUi = async () => {
+              const debug = { ready: false, menu: false, item: false, dialog: false, text: '', reopened: false, attempt: 0 }
+              await page.waitForTimeout(600)
+              if (!(await waitFrameUrl(/\/tavern\//, 15000))) return { ok: false, echo: null, debug }
+              // reload 后 Vue 事件偶发未绑定：直接整页重进聊天页再读，最稳。
+              const navigated = await appGoto(chatPath)
+              if (!navigated) return { ok: false, echo: null, debug }
+              debug.reopened = true
+              debug.ready = await waitChatRendered(navigated, 25000)
+              if (!debug.ready) return { ok: false, echo: null, debug }
+              const menuButton = navigated.locator('button[aria-label="聊天菜单"]').first()
+              for (let attempt = 0; attempt < 4 && !debug.menu; attempt += 1) {
+                debug.attempt = attempt + 1
+                await menuButton.click({ force: true }).catch(() => {})
+                debug.menu = await waitFor(async () => (await navigated.locator('.chat-menu-pop').count().catch(() => 0)) > 0, 4000)
+                if (!debug.menu) await page.waitForTimeout(700)
               }
+              if (!debug.menu) return { ok: false, echo: null, debug }
+              const item = navigated.locator('.chat-menu-pop button, .chat-menu-pop [role="menuitem"]').filter({ hasText: /采样参数/ }).first()
+              debug.item = (await item.count().catch(() => 0)) > 0
+              if (!debug.item) return { ok: false, echo: null, debug }
+              await item.click({ force: true }).catch(() => {})
+              const dialog = navigated.locator('section.sheet[aria-label="采样参数"], [role="dialog"], section[aria-label*="采样"]').first()
+              debug.dialog = await waitFor(async () => (await dialog.count().catch(() => 0)) > 0, 10000)
+              if (!debug.dialog) return { ok: false, echo: null, debug }
+              debug.text = ((await dialog.innerText().catch(() => '')) || '').replace(/\s+/g, ' ').slice(0, 200)
+              const t = dialog.locator('input[aria-label*="temperature" i], input[aria-label*="温度"]').first()
+              const p = dialog.locator('input[aria-label*="top_p" i], input[aria-label*="top"]').first()
+              const m = dialog.locator('input[aria-label*="max_tokens" i], input[aria-label*="max"]').first()
+              const values = {
+                temperature: await t.inputValue().catch(() => null),
+                topP: await p.inputValue().catch(() => null),
+                maxTokens: await m.inputValue().catch(() => null),
+              }
+              await dialog.getByRole('button', { name: /关闭|取消|完成/ }).first().click({ force: true }).catch(() => {})
+              return { ok: true, echo: values, debug }
             }
+            let echoAttempt = await readEchoFromUi()
+            if (!echoAttempt.ok) {
+              await page.waitForTimeout(1500)
+              echoAttempt = await readEchoFromUi()
+            }
+            const echoDebug = echoAttempt.debug
+            echo = echoAttempt.echo
+            persisted = Boolean(echo) && Number(echo.temperature) === 1.2 && Number(echo.topP) === 0.9 && Number(echo.maxTokens) === 200
+            chatFrame = (await waitFrameUrl(/\/tavern\//, 10000)) || chatFrame
             sampling.persisted = persisted
             sampling.api = savedSampling
             sampling.echoDebug = echoDebug
@@ -1815,6 +2210,297 @@ try {
     }
   }
   if (groupOn('q')) q2SkipRemaining(0, 'Q 组未执行（跳过）')
+
+  // ── P3. 原生上下文桥（task-58，插件工具条在 /chats/:id 可用）──────────────
+  const bridge = {
+    enabled: false,
+    home: null,
+    chat: null,
+    continuePrompt: null,
+    roleplayPrompt: null,
+    memory: null,
+    console: null,
+    steps: [],
+  }
+  report.native.bridge = bridge
+  const p3Names = [
+    '首页工具条：续写/角色扮演不可用并提示「先打开一个聊天」',
+    '聊天页工具条：检测到上下文并启用续写/角色扮演',
+    '点「让 DSH 续写」后 DSH 会话输入框预填（角色名 + 续写要求）',
+    '点「角色扮演」后输入框预填（身份扮演 + 角色名）',
+    '位置记忆：聊天页刷新仍在该聊天、首页刷新回首页',
+  ]
+  const p3Done = new Set()
+  const p3Record = (index, ok, detail, skipped = false) => {
+    if (p3Done.has(index)) return
+    p3Done.add(index)
+    bridge.steps.push({ name: p3Names[index], ok: Boolean(ok), skipped, detail })
+    record(p3Names[index], ok, detail, skipped)
+  }
+  const p3SkipRemaining = (from, reason) => {
+    for (let index = from; index < p3Names.length; index += 1) p3Record(index, false, reason, true)
+  }
+  if (groupOn('p3')) {
+    if (nativeBlocked) {
+      p3SkipRemaining(0, blockedReason)
+    } else {
+      const p3Start = consoleErrors.length
+      const panelView = () => page.locator('[data-dsh-tavern-view]').first()
+      const toolbarStatus = async () => ((await page.locator('[data-dsh-tavern-status]').first().innerText().catch(() => '')) || '').trim()
+      const toolbarHint = async () => (await panelView().getAttribute('data-dsh-tavern-hint').catch(() => '')) || ''
+      const actionButton = (action) => page.locator(`[data-dsh-tavern-action="${action}"]`).first()
+      const ensurePanel = async (timeoutMs = 20000) => {
+        const visible = await panelView()
+          .waitFor({ state: 'visible', timeout: 1500 })
+          .then(() => true)
+          .catch(() => false)
+        if (visible) return true
+        const anchor = await findEntry(timeoutMs)
+        if (!anchor) return false
+        await dismissWelcome()
+        await anchor.click({ force: true }).catch(() => {})
+        return panelView()
+          .waitFor({ state: 'visible', timeout: timeoutMs })
+          .then(() => true)
+          .catch(() => false)
+      }
+      // DSH 主会话输入框：Lexical / contenteditable / textarea 都覆盖，取最后一个有内容的。
+      const readComposer = () =>
+        page
+          .evaluate(() => {
+            const nodes = Array.prototype.slice.call(
+              document.querySelectorAll('[data-lexical-editor="true"], [contenteditable="true"][role="textbox"], [contenteditable="true"], textarea'),
+            )
+            const texts = []
+            for (const node of nodes) {
+              if (node.tagName === 'TEXTAREA') {
+                if (node.value && node.value.trim()) texts.push(node.value)
+              } else {
+                const text = (node.innerText || node.textContent || '').trim()
+                if (text) texts.push(text)
+              }
+            }
+            return texts
+          })
+          .catch(() => [])
+      const readClipboard = () =>
+        page
+          .evaluate(() => (navigator.clipboard && navigator.clipboard.readText ? navigator.clipboard.readText() : ''))
+          .catch(() => '')
+      // 只认「本次点击对应」的 prompt（续写/扮演文案不同），避免读到另一个会话残留的草稿。
+      const waitComposerText = async (pattern, timeoutMs = 30000) => {
+        let found = ''
+        await waitFor(async () => {
+          const texts = await readComposer()
+          found = texts.find((text) => pattern.test(text)) || ''
+          return Boolean(found)
+        }, timeoutMs)
+        return found
+      }
+      // 点工具条按钮 → 等 DSH 新会话输入框出现对应 prompt；插件退化到剪贴板时记录并重试一次。
+      const askAndRead = async (action, pattern) => {
+        const beforeTexts = (await readComposer()).map((text) => text.slice(0, 40))
+        await actionButton(action).click({ force: true }).catch(() => {})
+        let text = await waitComposerText(pattern, 30000)
+        let source = 'editor'
+        if (!text) {
+          const clip = (await readClipboard()) || ''
+          if (pattern.test(clip)) {
+            text = clip
+            source = 'clipboard'
+          }
+        }
+        const debug = {
+          hint: await toolbarHint(),
+          status: (await toolbarStatus()).slice(0, 120),
+          composers: (await readComposer()).map((item) => item.slice(0, 80)).slice(0, 5),
+          before: beforeTexts.slice(0, 3),
+          dom: await page
+            .evaluate(() => ({
+              path: location.pathname,
+              editors: document.querySelectorAll('[contenteditable="true"]').length,
+              lexical: document.querySelectorAll('[data-lexical-editor="true"]').length,
+              textareas: document.querySelectorAll('textarea').length,
+              bodyLen: (document.body.innerText || '').length,
+              snippet: (document.body.innerText || '').slice(0, 240),
+            }))
+            .catch(() => null),
+        }
+        return { text, source, debug }
+      }
+      const chatPath = (() => {
+        if (!chatEvidence || !chatEvidence.chatUrl) return ''
+        try {
+          return new URL(chatEvidence.chatUrl).pathname.replace(/^\/tavern/, '')
+        } catch {
+          return ''
+        }
+      })()
+      const homeEvidence = report.native.home || {}
+      const chatCharacterName =
+        (chatEvidence && chatEvidence.characterName) || (homeEvidence.cardName || cardName) || '林小满'
+      bridge.enabled = true
+      bridge.characterName = chatCharacterName
+      try {
+        // P1 首页：无上下文 → 两个按钮 disabled + 状态提示「先打开一个聊天」。
+        let panelOk = await ensurePanel()
+        if (!panelOk) {
+          p3SkipRemaining(0, '找不到酒馆面板工具条（owner: plugin-core）')
+        } else {
+          await appGoto('/')
+          const homeOk = await waitFor(async () => {
+            const continueButton = actionButton('continue')
+            const roleplayButton = actionButton('roleplay')
+            const disabled =
+              (await continueButton.count().catch(() => 0)) > 0 &&
+              (await continueButton.isDisabled().catch(() => false)) &&
+              (await roleplayButton.count().catch(() => 0)) > 0 &&
+              (await roleplayButton.isDisabled().catch(() => false))
+            const status = await toolbarStatus()
+            return disabled && /先打开一个聊天/.test(status)
+          }, 25000)
+          const homeDetail = `continueDisabled=${await actionButton('continue').isDisabled().catch(() => null)} roleplayDisabled=${await actionButton('roleplay').isDisabled().catch(() => null)} status=${(await toolbarStatus()).slice(0, 120)} hint=${await toolbarHint()}`
+          bridge.home = { ok: homeOk, detail: homeDetail }
+          p3Record(0, homeOk, homeDetail)
+          await shot(page, '120-p3-home-disabled.png').catch(() => {})
+
+          // P2 聊天页：上下文就绪 → 按钮 enabled，状态栏显示当前聊天路径。
+          if (!chatPath) {
+            p3SkipRemaining(1, '没有已建立的聊天会话（先跑 C 组；owner: harness）')
+          } else {
+            await appGoto(chatPath)
+            const chatOk = await waitFor(async () => {
+              const continueButton = actionButton('continue')
+              const roleplayButton = actionButton('roleplay')
+              const enabled =
+                (await continueButton.count().catch(() => 0)) > 0 &&
+                !(await continueButton.isDisabled().catch(() => true)) &&
+                (await roleplayButton.count().catch(() => 0)) > 0 &&
+                !(await roleplayButton.isDisabled().catch(() => true))
+              const status = await toolbarStatus()
+              return enabled && /当前：\/chats\//.test(status)
+            }, 30000)
+            const chatDetail = `continueDisabled=${await actionButton('continue').isDisabled().catch(() => null)} roleplayDisabled=${await actionButton('roleplay').isDisabled().catch(() => null)} status=${(await toolbarStatus()).slice(0, 120)} hint=${await toolbarHint()}`
+            bridge.chat = { ok: chatOk, detail: chatDetail }
+            p3Record(1, chatOk, chatDetail)
+            await shot(page, '121-p3-chat-enabled.png').catch(() => {})
+
+            // P3 续写：点按钮 → DSH 新会话输入框预填；编辑器写不进去时按剪贴板兜底断言。
+            if (!chatOk) {
+              p3SkipRemaining(2, '聊天页上下文未就绪，无法验证续写/扮演（owner: plugin-core 桥接）')
+            } else {
+              let ask = await askAndRead('continue', /继续写下一段回复/)
+              if (ask.source === 'clipboard') {
+                // 插件 fillComposer 偶发退化到剪贴板（owner: plugin-core）；重开面板再试一次，仍退化才记 FAIL。
+                await ensurePanel().catch(() => false)
+                await appGoto(chatPath)
+                await waitFor(async () => !(await actionButton('continue').isDisabled().catch(() => true)), 30000)
+                ask = await askAndRead('continue', /继续写下一段回复/)
+              }
+              const continueText = ask.text
+              const continueSource = ask.source
+              const continueOk = Boolean(continueText) && continueText.includes(chatCharacterName) && /继续写下一段回复/.test(continueText)
+              bridge.continuePrompt = { ok: continueOk, source: continueSource, text: continueText.slice(0, 200), debug: ask.debug }
+              p3Record(
+                2,
+                continueOk,
+                continueOk
+                  ? `source=${continueSource} 含角色名=${continueText.includes(chatCharacterName)} 含续写要求=true`
+                  : `source=${continueSource} text=${continueText.slice(0, 160) || '（空）'}（owner: plugin-core 续写预填 / cards-client 桥上下文）`,
+              )
+              await shot(page, '122-p3-continue-prompt.png').catch(() => {})
+
+              // P4 角色扮演：重新打开酒馆面板并回到聊天页，再点角色扮演。
+              const reopened = await ensurePanel()
+              if (!reopened) {
+                p3SkipRemaining(3, '点续写后无法重新打开酒馆面板（owner: plugin-core）')
+              } else {
+                await appGoto(chatPath)
+                const readyAgain = await waitFor(async () => !(await actionButton('roleplay').isDisabled().catch(() => true)), 30000)
+                if (!readyAgain) {
+                  p3SkipRemaining(3, '重新进入聊天页后上下文未就绪（owner: plugin-core 桥接）')
+                } else {
+                  let askRole = await askAndRead('roleplay', /身份扮演/)
+                  if (askRole.source === 'clipboard') {
+                    await ensurePanel().catch(() => false)
+                    await appGoto(chatPath)
+                    await waitFor(async () => !(await actionButton('roleplay').isDisabled().catch(() => true)), 30000)
+                    askRole = await askAndRead('roleplay', /身份扮演/)
+                  }
+                  const roleplayText = askRole.text
+                  const roleplaySource = askRole.source
+                  const roleplayOk =
+                    Boolean(roleplayText) && roleplayText.includes(chatCharacterName) && /身份扮演/.test(roleplayText)
+                  bridge.roleplayPrompt = { ok: roleplayOk, source: roleplaySource, text: roleplayText.slice(0, 200), debug: askRole.debug }
+                  p3Record(
+                    3,
+                    roleplayOk,
+                    roleplayOk
+                      ? `source=${roleplaySource} 含角色名=${roleplayText.includes(chatCharacterName)} 含身份扮演=true`
+                      : `source=${roleplaySource} text=${roleplayText.slice(0, 160) || '（空）'}（owner: plugin-core 扮演预填 / cards-client 桥上下文）`,
+                  )
+                  await shot(page, '123-p3-roleplay-prompt.png').catch(() => {})
+                }
+              }
+            }
+          }
+        }
+
+        // P5 位置记忆 + 本组 console：
+        //   a) 聊天页刷新 → 仍在该聊天；
+        //   b) 回到首页后刷新应用 iframe → 停在首页（不会被「上次聊天」记忆拉回聊天页）。
+        // 注意：P3-3/P3-4 点击工具条会新开 DSH 会话，面板可能重挂载/整页刷新，这里每一步都取「当前」tavern frame 并重试一次。
+        await ensurePanel().catch(() => false)
+        await page.waitForTimeout(800)
+        const currentTavernFrame = async () => (await waitFrameUrl(/\/tavern\//, 15000)) || fnow()
+        const tryChatReload = async () => {
+          const frame = await currentTavernFrame()
+          if (!frame || !chatPath) return false
+          await frame.evaluate(() => location.reload()).catch(() => {})
+          return Boolean(await waitFrameUrl(new RegExp(chatPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), 20000))
+        }
+        const tryHomeReload = async () => {
+          const frame = await currentTavernFrame()
+          if (!frame) return false
+          const origin = new URL(frame.url()).origin
+          await frame.goto(`${origin}/tavern/`, { waitUntil: 'domcontentloaded' }).catch(() => {})
+          await frame.evaluate(() => location.reload()).catch(() => {})
+          const settled = await waitFrameUrl(/\/tavern\/?$/, 25000)
+          if (!settled) return false
+          return waitFor(async () => {
+            const frameNow = await currentTavernFrame()
+            if (!frameNow) return false
+            const body = await bodyText(frameNow)
+            return /角色卡/.test(body) && !/正在打开角色卡/.test(body)
+          }, 25000)
+        }
+        let chatReloadOk = await tryChatReload()
+        if (!chatReloadOk) {
+          await ensurePanel().catch(() => false)
+          await page.waitForTimeout(1200)
+          chatReloadOk = await tryChatReload()
+        }
+        let homeAgain = await tryHomeReload()
+        if (!homeAgain) {
+          await page.waitForTimeout(1200)
+          homeAgain = await tryHomeReload()
+        }
+        const p3Console = consoleErrors.slice(p3Start).filter((text) => !/Failed to load resource/.test(text))
+        bridge.console = p3Console
+        const memoryOk = chatReloadOk && homeAgain
+        bridge.memory = { chatReloadOk, homeAgain }
+        p3Record(
+          4,
+          memoryOk,
+          `聊天页刷新仍在该聊天=${chatReloadOk} 首页刷新回首页=${homeAgain} console=${p3Console.length ? p3Console.slice(0, 2).join(' | ') : 'clean'}`,
+        )
+        await shot(page, '124-p3-memory.png').catch(() => {})
+      } catch (error) {
+        p3SkipRemaining(p3Done.size, `P3 组异常：${(error && error.message) || error}`)
+      }
+    }
+  }
+  if (groupOn('p3')) p3SkipRemaining(0, 'P3 组未执行（跳过）')
 
   // ── M. 旧路由下线 ────────────────────────────────────────────────────────
   const oldRouteEvidence = { routes: [], deadLinks: 0, exploreEntry: false }

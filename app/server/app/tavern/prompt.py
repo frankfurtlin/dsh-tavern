@@ -177,7 +177,10 @@ def history_lines(card, history, char_name, user_name, budget_chars):
         text = str(item.get("text") or "").strip()
         if not text:
             continue
-        speaker = user_name if item.get("role") == "user" else char_name
+        if item.get("role") == "user":
+            speaker = user_name
+        else:
+            speaker = str(item.get("speaker") or char_name)
         line = f"{speaker}: {text}"
         if used + len(line) > budget_chars:
             remaining = budget_chars - used
@@ -268,6 +271,100 @@ def build(card, chat, *, history, message, user_name="User", persona=None,
         "character": {"id": card.id, "name": char_name},
         "chatId": chat.id,
         "mode": "reply",
+    }
+    return {"systemPrompt": system_prompt, "data": data, "sections": rendered,
+            "matched": _matched_view(matched_pairs), "worldInjection": "\n\n".join(world_parts),
+            "prompts": resolved}
+
+
+GROUP_MEMBER_HEADER = "[群聊角色]"
+GROUP_SPEAKER_LIMITS = {"description": 500, "personality": 300, "scenario": 500}
+
+
+def group_member_section(cards):
+    lines = []
+    for card in cards:
+        lines.append(f"- {card.name}")
+        for attribute, limit in GROUP_SPEAKER_LIMITS.items():
+            value = (getattr(card, attribute, "") or "").strip()
+            if not value:
+                continue
+            label = {"description": "描述", "personality": "性格", "scenario": "场景"}[attribute]
+            lines.append(f"  {label}：{value[:limit]}")
+    return GROUP_MEMBER_HEADER + "\n" + "\n".join(lines)
+
+
+def build_group(cards, chat, *, speaker, history, message, user_name="User", persona=None,
+                settings=None, profile=None, output_limit=512, world_info=None,
+                preset=None):
+    """Assemble a group-chat prompt where only ``speaker`` may talk this turn."""
+    settings = settings or {}
+    world_info = world_info or []
+    speaker_name = speaker.name
+    resolved = effective_prompts(speaker, settings, preset)
+
+    matched_pairs = match_world_info_with_reason(world_info, scan_text(message, history))
+    matched = [row for row, _reason in matched_pairs]
+    before_char = [row for row in matched if getattr(row, "position", "") == "before_char"]
+    before_example = [row for row in matched if getattr(row, "position", "") == "before_example"]
+    after_char = [row for row in matched if getattr(row, "position", "") == "after_char"]
+    at_depth = [row for row in matched if getattr(row, "position", "") == "at_depth"]
+
+    blocks = []
+    world_parts = []
+
+    def add_world(title, rows):
+        body = world_section(rows, "").lstrip("\n")
+        blocks.append((title, body))
+        world_parts.append(title + "\n" + body)
+
+    if resolved["system"]:
+        blocks.append(("[系统提示词]", replace_macros(resolved["system"], speaker_name, user_name)))
+    blocks.append(("[主提示词]", replace_macros(resolved["main"], speaker_name, user_name)))
+    if before_char:
+        add_world(POSITION_LABELS["before_char"], before_char)
+    blocks.append((GROUP_MEMBER_HEADER, group_member_section(cards).split("\n", 1)[1]))
+    persona_block = persona_section(persona, user_name)
+    if persona_block:
+        blocks.append(("[你的角色]", persona_block.split("\n", 1)[1]))
+    examples = example_section(speaker, speaker_name, user_name)
+    if examples:
+        blocks.append(("[示例对话]", examples.split("\n", 1)[1]))
+    if before_example:
+        add_world(POSITION_LABELS["before_example"], before_example)
+    if after_char:
+        add_world(POSITION_LABELS["after_char"], after_char)
+
+    context_window = int(getattr(profile, "context_window", 32768) or 32768)
+    budget_chars = max(1200, min(60000, (context_window - output_limit - 1024) * 3))
+    lines = history_lines(speaker, history, speaker_name, user_name, budget_chars)
+    if at_depth:
+        groups = {}
+        for row in at_depth:
+            groups.setdefault(max(0, int(getattr(row, "depth", 4) or 0)), []).append(row)
+        for depth in sorted(groups):
+            text = world_section(groups[depth], POSITION_LABELS["at_depth"])
+            world_parts.append(POSITION_LABELS["at_depth"] + "\n" + groups[depth][0].content)
+            lines.insert(max(0, len(lines) - depth), text)
+    blocks.append(("[对话历史]", "\n".join(lines) if lines else "（暂无历史）"))
+    if resolved["postHistory"]:
+        blocks.append(("[后置指令]", replace_macros(resolved["postHistory"], speaker_name, user_name)))
+    if resolved["jailbreak"]:
+        blocks.append(("[越狱提示]", replace_macros(resolved["jailbreak"], speaker_name, user_name)))
+    blocks.append(("[本轮要求]",
+                   f"本轮只扮演 {speaker_name}，其他人作为场景中的角色存在；"
+                   f"不要替其他角色或读者说话，也不要写名字前缀。"
+                   + DEFAULT_REPLY_INSTRUCTION.format(char=speaker_name, user=user_name)))
+
+    rendered = [{"title": title, "chars": len(body)} for title, body in blocks]
+    system_prompt = "tavern-v1\n\n" + "\n\n".join(_section(title, body) for title, body in blocks)
+    data = {
+        "message": message,
+        "character": {"id": speaker.id, "name": speaker_name},
+        "members": [{"id": card.id, "name": card.name} for card in cards],
+        "chatId": chat.id,
+        "mode": "group",
+        "speaker": {"id": speaker.id, "name": speaker_name},
     }
     return {"systemPrompt": system_prompt, "data": data, "sections": rendered,
             "matched": _matched_view(matched_pairs), "worldInjection": "\n\n".join(world_parts),

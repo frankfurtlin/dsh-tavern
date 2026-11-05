@@ -1,9 +1,14 @@
 import {describe,it,expect,vi,afterEach} from 'vitest'
 import {createDshBridge,BRIDGE_STATE_DELAY_MS} from './dsh-bridge'
-import type {DshBridgeEnv,StoryContext} from './dsh-bridge'
+import type {DshBridgeEnv,TavernChatContext} from './dsh-bridge'
 
 const ORIGIN='http://127.0.0.1:3080'
-const CONTEXT:StoryContext={appPath:'/worlds/w1/play',worldTitle:'长夜',lineTitle:'主线',mode:'world-play',characters:[{name:'阿岚',identity:'守夜人',speech:'寡言'}],activeCharacter:'阿岚',recentText:'雨停在门外。'}
+const CONTEXT:TavernChatContext={
+  appPath:'/chats/c1',chatId:'c1',cardId:'k1',characterName:'林渡',
+  characterDescription:'雨夜书店老板。',personality:'克制',scenario:'旧信书店',
+  firstMessage:'灯还亮着。',recentMessages:[{role:'user',text:'我回来了。'},{role:'assistant',text:'伞放门口。'}],
+  activeCharacter:'林渡',
+}
 
 function flush(){return new Promise(resolve=>setTimeout(resolve,0))}
 
@@ -14,7 +19,7 @@ function setup(overrides:Partial<DshBridgeEnv>={}){
   const env:DshBridgeEnv={
     parent:parent as unknown as DshBridgeEnv['parent'],
     origin:ORIGIN,
-    appPath:()=>'/worlds/w1/play',
+    appPath:()=>'/chats/c1',
     hasContext:()=>true,
     readContext:vi.fn(async()=>CONTEXT),
     subscribe(notify){listener=notify;return ()=>{listener=undefined}},
@@ -37,7 +42,7 @@ describe('dsh bridge message validation',()=>{
     const {posted,bridge,event}=setup()
     bridge.handle(event({type:'dsh-tavern:ping'}))
     expect(posted).toHaveLength(1)
-    expect(posted[0]!.data).toEqual({type:'dsh-tavern:pong',appPath:'/worlds/w1/play'})
+    expect(posted[0]!.data).toEqual({type:'dsh-tavern:pong',appPath:'/chats/c1'})
     expect(posted[0]!.targetOrigin).toBe(ORIGIN)
   })
 
@@ -79,28 +84,28 @@ function minimalEnv(posted:{data:unknown}[]):DshBridgeEnv{
 }
 
 describe('dsh bridge context requests',()=>{
-  it('returns the story context for a valid continue request',async()=>{
+  it('returns the tavern chat context for a valid continue request',async()=>{
     const {posted,bridge,event}=setup()
     bridge.handle(event({type:'dsh-tavern:context-request',id:'r1',kind:'continue'}))
     await flush()
     expect(posted).toHaveLength(1)
-    expect(posted[0]!.data).toEqual({type:'dsh-tavern:context',id:'r1',ok:true,context:{...CONTEXT,appPath:'/worlds/w1/play'}})
+    expect(posted[0]!.data).toEqual({type:'dsh-tavern:context',id:'r1',ok:true,context:{...CONTEXT,appPath:'/chats/c1'}})
   })
 
-  it('passes the roleplay target through to the context reader',async()=>{
+  it('uses the same context for roleplay requests and passes the target through',async()=>{
     const {bridge,event,env,posted}=setup()
-    bridge.handle(event({type:'dsh-tavern:context-request',id:7,kind:'roleplay',target:' 阿岚 '}))
+    bridge.handle(event({type:'dsh-tavern:context-request',id:7,kind:'roleplay',target:' 林渡 '}))
     await flush()
-    expect(env.readContext).toHaveBeenCalledWith('roleplay','阿岚')
+    expect(env.readContext).toHaveBeenCalledWith('roleplay','林渡')
     expect(posted).toHaveLength(1)
-    expect(posted[0]!.data).toMatchObject({type:'dsh-tavern:context',id:7,ok:true})
+    expect(posted[0]!.data).toMatchObject({type:'dsh-tavern:context',id:7,ok:true,context:{chatId:'c1'}})
   })
 
   it('reports a failure when the page has no context',async()=>{
     const {posted,bridge,event}=setup({readContext:vi.fn(async()=>null)})
     bridge.handle(event({type:'dsh-tavern:context-request',id:'r2',kind:'continue'}))
     await flush()
-    expect(posted[0]!.data).toEqual({type:'dsh-tavern:context',id:'r2',ok:false,error:'当前页面没有可用的故事上下文'})
+    expect(posted[0]!.data).toEqual({type:'dsh-tavern:context',id:'r2',ok:false,error:'当前页面没有可用的聊天上下文'})
   })
 
   it('reports an error when reading the context throws',async()=>{
@@ -117,7 +122,7 @@ describe('dsh bridge context requests',()=>{
     bridge.handle(event({type:'dsh-tavern:context-request',id:null,kind:'continue'}))
     await flush()
     expect(posted).toHaveLength(1)
-    expect(posted[0]!.data).toEqual({type:'dsh-tavern:context',id:'r4',ok:false,error:'不支持的故事上下文类型'})
+    expect(posted[0]!.data).toEqual({type:'dsh-tavern:context',id:'r4',ok:false,error:'不支持的上下文类型'})
   })
 })
 
@@ -130,7 +135,7 @@ describe('dsh bridge state notifications',()=>{
     expect(posted).toHaveLength(0)
     vi.advanceTimersByTime(1)
     expect(posted).toHaveLength(1)
-    expect(posted[0]!.data).toEqual({type:'dsh-tavern:state',appPath:'/worlds/w1/play',hasContext:true})
+    expect(posted[0]!.data).toEqual({type:'dsh-tavern:state',appPath:'/chats/c1',hasContext:true})
     notify();notify();notify()
     vi.advanceTimersByTime(BRIDGE_STATE_DELAY_MS)
     expect(posted).toHaveLength(2)
@@ -146,7 +151,7 @@ describe('dsh bridge state notifications',()=>{
 })
 
 describe('dsh bridge context readiness',()=>{
-  it('waits for a freshly opened story page instead of answering "no context"',async()=>{
+  it('waits for a freshly opened chat page instead of answering "no context"',async()=>{
     let calls=0
     const {posted,bridge,event}=setup({
       expectContext:()=>true,
@@ -166,7 +171,7 @@ describe('dsh bridge context readiness',()=>{
     bridge.handle(event({type:'dsh-tavern:context-request',id:'r-none',kind:'continue'}))
     await flush()
     expect(posted).toHaveLength(1)
-    expect(posted[0]!.data).toEqual({type:'dsh-tavern:context',id:'r-none',ok:false,error:'当前页面没有可用的故事上下文'})
+    expect(posted[0]!.data).toEqual({type:'dsh-tavern:context',id:'r-none',ok:false,error:'当前页面没有可用的聊天上下文'})
   })
 })
 

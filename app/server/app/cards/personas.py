@@ -1,18 +1,16 @@
 """Reader personas ("我是谁") for character card chats: CRUD and prompt injection."""
 from fastapi import APIRouter, Depends
 from pydantic import Field
-from sqlalchemy import select, update
+from sqlalchemy import select
 
 from ..db import get_db
 from ..errors import Problem
 from ..models import now, uid
 from ..schemas import Strict
 from ..security import current_user
-from ..world.api import available
-from ..play_controls.models import WorldChatSession
 from .models import TavernPersona
 
-router = APIRouter(prefix="/tavern-personas", dependencies=[Depends(available)])
+router = APIRouter(prefix="/tavern-personas")
 
 NAME_LIMIT = 80
 DESCRIPTION_LIMIT = 800
@@ -69,22 +67,8 @@ def update_persona(db, owner, persona_id, values):
 def delete_persona(db, owner, persona_id):
     row = get_persona(db, owner, persona_id)
     row.deleted_at = now()
-    db.execute(update(WorldChatSession).where(
-        WorldChatSession.owner_id == owner, WorldChatSession.persona_id == persona_id,
-    ).values(persona_id=None))
     db.commit()
     return row
-
-
-def persona_for_chat(db, owner, chat_id):
-    if not chat_id:
-        return None
-    session = db.get(WorldChatSession, chat_id)
-    if session is None or session.owner_id != owner or not session.persona_id:
-        return None
-    return db.scalar(select(TavernPersona).where(
-        TavernPersona.id == session.persona_id, TavernPersona.owner_id == owner,
-        TavernPersona.deleted_at.is_(None)))
 
 
 class PersonaInput(Strict):

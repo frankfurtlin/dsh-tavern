@@ -111,54 +111,71 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** 上下文里「最近正文」的统一兜底。 */
-    function recentTextOf(context) {
-      var text = context && typeof context.recentText === "string" ? context.recentText.trim() : "";
-      return text || "（应用没有提供最近正文）";
+    /** 角色名：2.0 由应用在聊天页给 characterName；旧版字段兼容取 characters 末位。 */
+    function characterNameOf(context) {
+      var name = context && typeof context.characterName === "string" ? context.characterName.trim() : "";
+      if (name) return name;
+      var characters = (context && context.characters) || [];
+      for (var i = characters.length - 1; i >= 0; i -= 1) {
+        var legacy = String(characters[i] && characters[i].name ? characters[i].name : "").trim();
+        if (legacy) return legacy;
+      }
+      return "角色";
     }
 
-    /** 角色列表 → prompt 里的几行。 */
-    function characterLines(characters) {
-      var list = characters || [];
-      if (!list.length) return ["（应用没有提供角色信息）"];
-      return list.map(function (item) {
-        var text = "- " + (item.name || "未命名角色");
-        if (item.identity) text += "（" + item.identity + "）";
-        if (item.speech) text += "，说话口吻：" + item.speech;
-        return text;
-      });
+    /** 角色设定几行：简介 / 性格 / 场景 / 开场白，缺字段就跳过。 */
+    function characterLines(context) {
+      var rows = [];
+      function push(label, value) {
+        var text = typeof value === "string" ? value.trim() : "";
+        if (text) rows.push("【" + label + "】" + text);
+      }
+      push("简介", context && context.characterDescription);
+      push("性格", context && context.personality);
+      push("场景", context && context.scenario);
+      push("开场白", context && context.firstMessage);
+      if (!rows.length) rows.push("（应用没有提供角色设定）");
+      return rows;
     }
 
-    /** 作品/章节标题。 */
-    function contextLabel(context) {
-      var world = (context && context.worldTitle) || "未命名作品";
-      var line = context && context.lineTitle ? " · " + context.lineTitle : "";
-      return world + line;
+    /** 最近对话：优先新字段 recentMessages[{role,text}]，兼容旧 recentText。 */
+    function recentDialogueLines(context) {
+      var name = characterNameOf(context);
+      var messages = (context && context.recentMessages) || [];
+      var rows = [];
+      if (Array.isArray(messages)) {
+        for (var i = 0; i < messages.length; i += 1) {
+          var item = messages[i] || {};
+          var text = typeof item.text === "string" ? item.text.trim() : "";
+          if (!text) continue;
+          var role = String(item.role || "").toLowerCase();
+          var who = role === "user" || role === "reader" ? "读者" : role === "assistant" || role === "char" ? name : role || "旁白";
+          rows.push(who + "：" + text);
+        }
+      }
+      if (!rows.length && context && typeof context.recentText === "string" && context.recentText.trim()) {
+        rows.push(context.recentText.trim());
+      }
+      if (!rows.length) rows.push("（应用没有提供最近对话）");
+      return rows;
     }
 
     /**
-     * 续写 prompt：作品/章节/模式/角色/最近正文 + 固定续写要求 + 用户额外要求。
-     * @param {object} context iframe 回传的上下文
+     * 续写 prompt：角色设定 + 最近对话 + 固定续写要求 + 用户额外要求。
+     * @param {object} context iframe 回传的酒馆上下文
      * @param {string} extra 用户在工具条里填的额外要求
      */
     function buildContinuePrompt(context, extra) {
+      var name = characterNameOf(context);
       var lines = [
-        "请帮我接着下面的故事往下续写。",
+        "请以" + name + "的口吻继续写下一段回复（第一人称，符合人设与场景；不要替读者说话）。",
         "",
-        "【作品】" + ((context && context.worldTitle) || "未命名作品"),
-        "【章节】" + ((context && context.lineTitle) || "未命名章节"),
+        "【角色】" + name,
       ];
-      if (context && context.mode) lines.push("【模式】" + context.mode);
-      if (context && context.appPath) lines.push("【页面】" + context.appPath);
+      lines = lines.concat(characterLines(context));
       lines.push("");
-      lines.push("【角色】");
-      lines = lines.concat(characterLines(context && context.characters));
-      lines.push("");
-      lines.push("【最近正文】");
-      lines.push(recentTextOf(context));
-      lines.push("");
-      lines.push("【要求】");
-      lines.push("请基于以上内容续写下一段（400–600 字，保持文风与人物口吻）。");
+      lines.push("【最近对话】");
+      lines = lines.concat(recentDialogueLines(context));
       if (extra && extra.trim()) {
         lines.push("");
         lines.push("【我的额外要求】");
@@ -168,34 +185,25 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 角色扮演 prompt：指定角色 + 最近情境 + 第一人称即兴演绎 + 用户额外要求。
-     * @param {object} context iframe 回传的上下文
-     * @param {object} target 扮演对象（{name, identity, speech}）
+     * 角色扮演 prompt：固定扮演要求 + 角色设定 + 最近对话 + 用户额外要求。
+     * @param {object} context iframe 回传的酒馆上下文
+     * @param {string} targetName 扮演的角色名（@角色名 可覆盖当前聊天角色）
      * @param {string} extra 用户在工具条里填的额外要求
      */
-    function buildRoleplayPrompt(context, target, extra) {
-      var name = (target && target.name) || "最近活跃角色";
-      var role = "【你要扮演】" + name;
-      if (target && target.identity) role += "（" + target.identity + "）";
-      if (target && target.speech) role += "，说话口吻：" + target.speech;
+    function buildRoleplayPrompt(context, targetName, extra) {
+      var name = targetName || characterNameOf(context);
       var lines = [
-        "请以角色扮演的方式，接着下面的故事即兴演绎。",
+        "请以" + name + "的身份扮演，针对读者最后一条消息即兴演绎一段回复。",
         "",
-        "【作品】" + contextLabel(context),
-        "【模式】" + ((context && context.mode) || "角色扮演"),
-        "",
-        "【角色】",
+        "【角色】" + name,
       ];
-      lines = lines.concat(characterLines(context && context.characters));
+      if (name !== characterNameOf(context)) {
+        lines.push("（这是当前聊天之外的角色，只依据她的名字与你的理解演绎。）");
+      }
+      lines = lines.concat(characterLines(context));
       lines.push("");
-      lines.push(role);
-      lines.push("");
-      lines.push("【最近情境】");
-      lines.push(recentTextOf(context));
-      lines.push("");
-      lines.push("【要求】");
-      lines.push("以 " + name + " 的第一人称即兴演绎，保持其身份、认知与说话口吻。");
-      lines.push("承接最近情境往下写 300–500 字，不要复述原文，也不要写成旁白。");
+      lines.push("【最近对话】");
+      lines = lines.concat(recentDialogueLines(context));
       if (extra && extra.trim()) {
         lines.push("");
         lines.push("【我的额外要求】");
@@ -205,40 +213,20 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 选角色扮演对象：
-     *   1. 用户在额外要求里写 `@角色名` → 按名字匹配；
-     *   2. 契约 §3 的 context.activeCharacter（最近活跃角色）→ 按名字匹配；
-     *   3. 都没有 → 退化取 characters 末位（应用侧通常把新近角色排在后面）。
+     * 选角色扮演对象：用户写 `@角色名` 可覆盖，否则用当前聊天角色（characterName）。
+     * 两者都没有时返回空串，由调用方提示「先打开一个聊天」。
      */
     function pickRoleplayTarget(context, extra) {
-      var characters = (context && context.characters) || [];
-      var match = String(extra || "").match(/@([^\s，,。；;：:]+)/);
-      var wanted = match ? match[1] : "";
-      if (wanted) {
-        for (var i = 0; i < characters.length; i += 1) {
-          var name = String(characters[i].name || "");
-          if (name && (name === wanted || name.indexOf(wanted) !== -1)) return characters[i];
-        }
-      }
-      var active =
-        context && typeof context.activeCharacter === "string"
-          ? context.activeCharacter.trim()
-          : "";
-      if (active) {
-        for (var j = 0; j < characters.length; j += 1) {
-          if (String(characters[j].name || "") === active) return characters[j];
-        }
-        // 给了名字但 characters 里没有：仍按这个名字组 prompt。
-        return { name: active, identity: "", speech: "" };
-      }
-      if (characters.length) return characters[characters.length - 1];
-      return null;
+      var match = String(extra || "").match(/@([^\s，,。；;：:）)]+)/);
+      if (match && match[1]) return match[1];
+      var name = characterNameOf(context);
+      return name === "角色" ? "" : name;
     }
 
     /** 把额外要求里的 `@角色名` 去掉（它只用于指定扮演对象，不该原样进 prompt）。 */
     function stripRoleToken(extra) {
       return String(extra || "")
-        .replace(/@[^\s，,。；;：:]+/g, "")
+        .replace(/@[^\s，,。；;：:）)]+/g, "")
         .replace(/[ \t]+/g, " ")
         .trim();
     }
@@ -382,14 +370,16 @@ window.__ModuleLoader__.load({
       }
 
       /**
-       * 记住「最后一次有效路由」：应用报告了上下文（hasContext=true）或停在
-       * /worlds/ 路由下才记；`/` 首页没有恢复价值；恢复过程中不覆盖记忆。
+       * 记住「最后一次有效路由」：只有聊天页 /chats/:id 值得恢复；
+       * 卡库 `/`、设置页等不记；恢复过程中不覆盖记忆。
        */
-      function rememberRoute(path, hasContext) {
+      function isRememberablePath(path) {
+        return /^\/chats\/[^/]+\/?$/.test(path);
+      }
+
+      function rememberRoute(path) {
         if (restoringRef.current) return;
-        if (!isUsableAppPath(path)) return;
-        if (!hasContext && !/^\/worlds(\/|$)/.test(path)) return;
-        if (path === "/") return;
+        if (!isUsableAppPath(path) || !isRememberablePath(path)) return;
         if (path === rememberedAppPath) return;
         storeRememberedPath(path);
       }
@@ -405,14 +395,20 @@ window.__ModuleLoader__.load({
 
           if (data.type === MSG.pong) {
             markConnected(data.appPath);
-            // pong 不带 hasContext：只有 /worlds/ 路由才敢当作可恢复位置。
-            rememberRoute(data.appPath, false);
+            // pong 不带 hasContext：只有 /chats/:id 才当作可恢复位置。
+            rememberRoute(data.appPath);
             return;
           }
           if (data.type === MSG.state) {
             markConnected(data.appPath);
             setHasContext(!!data.hasContext);
-            rememberRoute(data.appPath, !!data.hasContext);
+            rememberRoute(data.appPath);
+            // 打开聊天后把「先打开一个聊天」的旧提示收掉，状态栏回到当前路由。
+            if (data.hasContext) {
+              setNotice(function (prev) {
+                return prev === "先打开一个聊天" ? "" : prev;
+              });
+            }
             return;
           }
           if (data.type === MSG.context) {
@@ -420,9 +416,11 @@ window.__ModuleLoader__.load({
             if (!entry) return;
             pendingRef.current.delete(data.id);
             window.clearTimeout(entry.timer);
+            var ok = !!(data.ok && data.context);
+            if (ok) setHasContext(true);
             entry.resolve({
-              context: data.ok && data.context ? data.context : null,
-              error: data.ok ? "" : String(data.error || "应用读取故事内容失败"),
+              context: ok ? data.context : null,
+              error: data.ok ? "" : String(data.error || "应用读取聊天内容失败"),
             });
           }
         }
@@ -499,31 +497,36 @@ window.__ModuleLoader__.load({
       }
 
       /**
-       * 把当前故事交给 DSH Agent：先要上下文，再组 prompt，然后新开会话。
+       * 把当前聊天交给 DSH Agent：先要上下文，再组 prompt，然后新开会话。
        * 会话草稿在宿主的 Lexical 编辑器里，插件拿不到写入 API；这里先复制到
        * 剪贴板兜底，新会话出现后再用浏览器原生插入命令「粘」进编辑器。
        */
       function startAsk(kind) {
         if (busy || !loaded) return;
+        // 没有聊天上下文时不发请求：按钮已禁用，这里是回车键等入口的兜底。
+        if (!hasContext) {
+          setNotice("先打开一个聊天");
+          return;
+        }
         // 取消上一个还在等编辑器的填充任务，避免两个动作抢着往同一个输入框里写。
         fillSeqRef.current += 1;
         setBusy(true);
         setSent(false);
         setCopied(false);
-        setNotice(kind === "roleplay" ? "正在读取当前角色与情境…" : "正在读取当前故事…");
+        setNotice(kind === "roleplay" ? "正在读取角色卡与最近对话…" : "正在读取当前聊天…");
         requestContext(kind, null).then(function (result) {
           if (!result.context) {
             setBusy(false);
-            setNotice("读取故事内容失败：" + (result.error || "未知原因") + "。请确认正文页已打开后点「刷新」重试。");
+            setNotice("读取聊天内容失败：" + (result.error || "未知原因") + "。请确认聊天页已打开后点「刷新」重试。");
             return;
           }
           var context = result.context;
-          var target = null;
+          var target = "";
           if (kind === "roleplay") {
             target = pickRoleplayTarget(context, extra);
             if (!target) {
               setBusy(false);
-              setNotice("当前故事没有可扮演的角色，先打开一章正文再试。");
+              setNotice("先打开一个聊天，再点「角色扮演」。");
               return;
             }
           }
@@ -666,7 +669,7 @@ window.__ModuleLoader__.load({
       if (!statusText) {
         if (!loaded) statusText = "正在加载酒馆应用…";
         else if (!connected) statusText = "等待应用就绪…（若一直没有反应，点「刷新」）";
-        else if (!hasContext) statusText = "已连接；打开一章正文后即可让 DSH 续写";
+        else if (!hasContext) statusText = "已连接；先打开一个聊天";
         else if (appPath) statusText = "当前：" + appPath;
         else statusText = "已连接酒馆应用";
       }
@@ -722,7 +725,7 @@ window.__ModuleLoader__.load({
             type: "text",
             "data-dsh-tavern-extra": "",
             value: extra,
-            placeholder: "续写要求 / @角色名（可选）",
+            placeholder: "额外要求（可选，角色扮演可写 @角色名）",
             onChange: function (event) {
               setExtra(event.target.value);
             },
@@ -746,11 +749,11 @@ window.__ModuleLoader__.load({
             {
               primary: true,
               action: "continue",
-              disabled: !loaded || busy,
+              disabled: !loaded || busy || !hasContext,
               onClick: function () {
                 startAsk("continue");
               },
-              title: "新开一个 DSH 会话，把当前故事交给 Agent 续写",
+              title: hasContext ? "新开一个 DSH 会话，请 Agent 以角色口吻接着写" : "先打开一个聊天",
             },
             sent ? "已交给 DSH ✓" : "让 DSH 续写",
           ),
@@ -758,11 +761,11 @@ window.__ModuleLoader__.load({
             ToolbarButton,
             {
               action: "roleplay",
-              disabled: !loaded || busy,
+              disabled: !loaded || busy || !hasContext,
               onClick: function () {
                 startAsk("roleplay");
               },
-              title: "新开一个 DSH 会话，由 Agent 以当前角色第一人称即兴演绎",
+              title: hasContext ? "新开一个 DSH 会话，由 Agent 以角色身份即兴演绎" : "先打开一个聊天",
             },
             "角色扮演",
           ),

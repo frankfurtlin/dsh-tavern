@@ -2,15 +2,22 @@
 
 目标：把本地「酒馆」（Tavern）应用装成 DSH 插件，放在
 `/root/workspace/plugins/dsh-tavern`，在 DSH Web 里以内嵌面板访问，登录只走 DSH
-闸门。**2.0 起产品改为单用户原生酒馆**：角色卡网格 → 点卡进全屏聊天，SSE 流式，
-重新生成追加版本（swipe），世界书按关键词注入 prompt；故事模式 / 探索 / 群聊 /
-长期记忆等旧 UI 已下线（服务端旧代码暂留，P3 清理）。
+闸门。**2.0 起产品改为单用户原生酒馆**：角色卡网格 → 点卡进全屏聊天（单聊）或
+在卡库多选 2–5 张发起**群聊**，SSE 流式，重新生成追加版本（swipe），世界书按关键词
+注入 prompt。**P3 已把旧 story 域整体删除**：故事模式 / 探索 / 世界 / 分支 / 记忆 /
+伙伴 / 卡↔世界 / AI 写卡的 UI 与服务端代码都已移除（`/worlds`、`/world-chats`、
+`/books`、`/play-controls` 等旧 API 一律 404），旧表已 DROP（备份
+`/root/workspace/.backups/dsh-tavern/story_between-pre-p3-20261105-081109.dump`）。
+服务端现状：`from app.main import app` 共 **86 条路由**（`/api/reader/v1/tavern/**`
+36 条），见 §7。
 
 应用源码在 `plugins/dsh-tavern/app`，host 侧 systemd 单元：
 
 - `dsh-tavern-api`  → uvicorn，127.0.0.1:8001（聊天 SSE 在请求线程直连网关）
 - `dsh-tavern-web`  → 静态 dist，127.0.0.1:8810
-- `dsh-tavern-worker` / `dsh-tavern-world-worker` → 旧 story 模式任务 worker（2.0 聊天不依赖）
+- `dsh-tavern-worker` → 文本任务 worker（2.0 聊天不用任务队列，直接请求线程跑 SSE）
+- `dsh-tavern-world-worker` → 旧 story worker；**P3 删掉 `app.world.worker` 后该单元已停用、disable（host 已处理，勿重启）**
+  重启会失败**，属 host 待清理项（停用或改指向由 Lead 处理）
 
 本契约按「谁写哪半边」分节；改代码前先读对应节，接口变更两边同时改并更新本文。
 
@@ -59,23 +66,31 @@
 同源 iframe：`new URL('tavern/', document.baseURI)`；父页面与 iframe 都用
 `window.location.origin` 校验 origin、父页面额外校验 `event.source`。
 
-> **2.0 状态**：应用只保留 `ping/pong/state`（握手与路由上报，位置记忆依赖
-> `state.appPath`）。`context-request` 仍会被应答，但没有故事上下文数据源，
-> 一律回 `ok:false`（「当前页面没有可用的故事上下文」）——工具条上依赖它的
-> 「让 DSH 续写/角色扮演」是 1.x 遗留动作，点击走读取失败分支（不新建空会话）。
-> 定义保留用于兼容，P3 再决定是否删除。
+> **2.0 状态（P3 起）**：桥协议保留 `ping/pong/state` 与 `context-request/context`，
+> 但上下文语义已改为原生酒馆：聊天页 `/chats/:id` 回当前角色卡与最近对话；
+> 其它页面（角色卡库 `/`、卡详情、设置）回 `ok:false`，错误文案
+> 「当前页面没有可用的聊天上下文」。工具条的「让 DSH 续写 / 角色扮演」据此
+> 在聊天页可用、其它页面禁用（见 §4）。旧故事字段（`worldTitle`/`lineTitle`/
+> `characters`/`recentText`）不再由应用提供；父页面只做兼容兜底，不依赖它们。
 
 父 → iframe：
 - `{type:'dsh-tavern:ping'}` → iframe 回 `{type:'dsh-tavern:pong', appPath}`
 - `{type:'dsh-tavern:context-request', id, kind:'continue'|'roleplay', target?}`
   → iframe 回
   `{type:'dsh-tavern:context', id, ok:true, context:{
-      appPath, worldTitle, lineTitle, mode,
-      characters:[{name, identity, speech}],
-      activeCharacter, // 最近活跃角色名，可为空（父页面缺省时退化取 characters 末位）
-      recentText,   // 最近正文纯文本，截断到 ~4000 字
+      appPath,      // 当前应用路由，如 /chats/42
+      chatId,       // 当前聊天 id（字符串）
+      cardId,       // 当前聊天角色卡 id；群聊的 chat.cardId 为 null（前端据此显示成员名）
+      characterName,        // 角色名（必填；父页面用它组 prompt 与按钮可用性）
+      characterDescription, // 角色简介，可空
+      personality,          // 性格，可空
+      scenario,             // 场景，可空
+      firstMessage,         // 开场白，可空
+      recentMessages:[{role:'user'|'assistant', text}], // 最近若干条，建议 ≤20 条
    }}`
-  失败时 `{type:'dsh-tavern:context', id, ok:false, error:'...'}`
+  失败时 `{type:'dsh-tavern:context', id, ok:false, error:'当前页面没有可用的聊天上下文'}`
+  （父页面对缺字段一律容错：缺角色名视为「无上下文」，缺设定/对话就少写一段，
+  不报错、不崩面板。）
 
 iframe → 父（主动，节流）：
 - `{type:'dsh-tavern:state', appPath, hasContext:boolean}`
@@ -90,25 +105,32 @@ iframe → 父（主动，节流）：
 
 - 侧栏 `sidebar.panellist`：`PANEL_ID="tavern"`、label「酒馆」、order 24（落在
   ziwei 20 与 Skill Center 30 之间）；图标带 `data-dsh-panel-entry="tavern"`。
-- `main` 座位 keyed 面板 `tavern`：工具条（标题、状态、续写要求输入、刷新、
-  新窗口打开，另有 1.x 遗留的「让 DSH 续写 / 角色扮演」）+ iframe
+- `main` 座位 keyed 面板 `tavern`：工具条（标题、状态、额外要求输入、刷新、
+  新窗口打开、「让 DSH 续写」「角色扮演」）+ iframe
   （`data-dsh-tavern-frame`，`src` 指向 `tavern/`）。
-- 位置记忆（宿主侧行为，应用无需配合）：记住最后一次 `state`/`pong` 上报的
-  有效站内路径（`hasContext=true` 或 `/worlds/…`），重新挂载面板时把 iframe
-  深链到该路径；「刷新」= 清空记忆并回 `/tavern/` 首页（恢复失败时的脱困路径）。
+- 工具条语义（原生酒馆）：`state.hasContext` 为真时两个动作可用，否则禁用并
+  提示「先打开一个聊天」（回车等入口也有同样的兜底）；两者都走
+  `context-request` → 组 prompt → 新开 DSH 会话（`startSession`）→
+  `selectPanel(null)` → 编辑器填充 + 剪贴板兜底。
+- 位置记忆（宿主侧行为，应用无需配合）：**只记聊天页** `/chats/:id`
+  （卡库 `/`、卡详情、设置页不记），重新挂载面板时把 iframe 深链回该聊天；
+  「刷新」= 清空记忆并回 `/tavern/` 首页（恢复失败时的脱困路径）。
   记忆存模块内存 + sessionStorage（key `dsh-tavern:last-app-path`），不上报服务端。
   验收锚点 `data-dsh-tavern-restored="1|0"`。
 - 其它验收锚点：`data-dsh-tavern-view`、`data-dsh-tavern-connected`、
   `data-dsh-tavern-hint`（idle/loading/waiting/ready/busy/sent/error）、
   `data-dsh-tavern-status`、`data-dsh-tavern-extra`；
   `data-dsh-tavern-action="continue|roleplay|reload|open"`。
-- 交给 Agent（1.x 遗留链路）：`workspaces.initializeDefault` →
-  `uiWorkspace.startSession` → `layout.selectPanel(null)` → 编辑器填充 + 剪贴板兜底。
-- 提示词模板（仅遗留动作使用）：
-  - 续写：作品/章节/模式/角色/最近正文 + 「请基于以上内容续写下一段（400–600 字，
-    保持文风与人物口吻）」+ 用户额外要求。
-  - 角色扮演：以 `target`（未指定时用 `activeCharacter`，为空再退化 `characters`
-    末位；`@角色名` 可覆盖）第一人称即兴演绎 + 最近情境 + 用户额外要求。
+- 交给 Agent 的链路：`workspaces.initializeDefault` → `uiWorkspace.startSession` →
+  `layout.selectPanel(null)` → 编辑器填充 + 剪贴板兜底。
+- 提示词模板（`<name>` = `context.characterName`；`@角色名` 只对角色扮演生效，
+  且会从额外要求里剥掉）：
+  - 续写：首句固定「请以<name>的口吻继续写下一段回复（第一人称，符合人设与场景；
+    不要替读者说话）。」+【角色】设定（简介/性格/场景/开场白，有则写）+
+    【最近对话】（`recentMessages` 逐条，`user` 记作「读者」、`assistant` 记作角色名）
+    + 可选【我的额外要求】。
+  - 角色扮演：首句固定「请以<name>的身份扮演，针对读者最后一条消息即兴演绎一段
+    回复。」+ 同样的角色设定与最近对话 + 可选【我的额外要求】。
 
 ## 5. 文件所有权（避免并发写冲突）
 
@@ -120,7 +142,7 @@ iframe → 父（主动，节流）：
 | `scripts/**`、`verify.mjs`、`docs/testing.md` | verifier |
 | `/etc/systemd/system`、Caddy、`/root/.dsh/profiles/web`（host 级，不在本仓库） | Lead |
 | `app/.env`（含 `DSH_AGENT_*`、`AI_MODE`）、host 重启与上线 | Lead |
-| `docs/step1–step5*.md`（历史设计，UI 多已下线） | Lead |
+| `docs/step1–step5*.md`（历史设计，UI 与服务端多已删除） | Lead |
 
 任何人不改别人范围的文件；发现 bug 用 send_message 报给 owner 或 Lead。
 
@@ -179,13 +201,15 @@ iframe → 父（主动，节流）：
 | `GET` | `/characters/{id}/avatar` | `image/png` |
 | `GET` | `/characters/{id}/export?format=png\|json` | 导出卡（附件文件名在 `Content-Disposition`） |
 | `GET` | `/characters/{id}/chats` | 该卡聊天列表（`lastText`/`messageCount`）+ `card` |
-| `POST` | `/characters/{id}/chats` | 新建聊天（201）；`greetingId` 选备用开场白；开场白作为第一条 assistant 消息 |
+| `POST` | `/characters/{id}/chats` | 新建**单聊**（201）；`greetingId` 选备用开场白；开场白作为第一条 assistant 消息 |
+| `POST` | `/chats` | 新建**群聊**（201）；body `{cardIds:[2..5], title?}`，也接受 `{cardId}` 走单聊；群聊 `mode='group'`、`members=[{cardId,name,order}]` |
+| `GET` | `/chats` | 全部聊天历史列表（`limit` 1–100 默认 20、`offset`），按 `lastMessageAt` 倒序；每项带 `mode`/`members`/`lastMessage`/`messageCount`（群聊标题/成员名由 `members` 拼） |
 | `GET` | `/chats/{id}` | `{chat, messages, hasMore, latestSequence}`；`before=<sequence>`、`limit=1..500`（默认 200）向后翻页 |
-| `PATCH` | `/chats/{id}` | 改标题（1–160） |
+| `PATCH` | `/chats/{id}` | 改 `title`（1–160）/ `presetId`（null 清空）/ `sampling`（见 §10）；空 body 422 |
 | `DELETE` | `/chats/{id}` | 连消息一起删（204） |
-| `GET` | `/chats/{id}/export?format=jsonl\|json` | 导出聊天（附件）；其它 format → 422 |
-| `POST` | `/chats/{id}/messages` | 发消息 → **SSE**；body `{message}`（兼容 `{text}`，≤4000），可选 `personaId` |
-| `POST` | `/chats/{id}/regenerate` | 对最后一条 assistant 重新生成 → **SSE**（追加 swipe） |
+| `GET` | `/chats/{id}/export?format=jsonl\|json` | 导出聊天（附件）；群聊 JSONL 每行带 `speaker_name`；其它 format → 422 |
+| `POST` | `/chats/{id}/messages` | 发消息 → **SSE**；body `{message}`（兼容 `{text}`，≤4000），可选 `personaId`；群聊首帧带本轮 `speaker` |
+| `POST` | `/chats/{id}/regenerate` | 对最后一条 assistant 重新生成 → **SSE**（追加 swipe；群聊沿用该条 `speaker_card_id`） |
 | `POST` | `/chats/{id}/messages/{mid}/swipes/{index}/select` | 切版本（下标 0 起），返回 `{message}` |
 | `PATCH` | `/chats/{id}/messages/{mid}` | 只能改 user 消息；截断其后消息，返回 `{message, deleted}` |
 | `DELETE` | `/chats/{id}/messages/{mid}` | 删除该消息及其后消息（204） |
@@ -194,6 +218,17 @@ iframe → 父（主动，节流）：
 | `POST` | `/characters/{id}/world-info/preview` | body `{message}` → `{matched, injection}`；卡详情已有预览 UI |
 | `GET/PATCH` | `/characters/{id}/prompt` | 读写 `systemPrompt` + `prompt_settings` |
 | `POST` | `/characters/{id}/chats/imports` | multipart `file`（ST JSONL）→ 201 `{chat, imported, skipped}` |
+
+群聊语义：`mode='single'|'group'`；`members` 是有序的 `[{cardId,name,order}]`
+（2–5 张，创建时按选择顺序），assistant 消息记 `speaker_card_id`；本轮发言人是
+`members[已保存 assistant 条数 % 成员数]`（轮转），重新生成沿用原消息的发言人；
+群聊 prompt 只允许本轮 speaker 说话（见 §10）。成员卡被软删后打开该群聊 →
+`404 RESOURCE_NOT_FOUND`（不做级联清理）；群聊 JSONL 导入未支持（导入接口只建单聊）。
+
+旧卡片空间 API 仍挂载但 2.0 UI 不再使用：`/character-cards/**`（15 条，含
+`lore`/`context-preview`/`companion`）、`/presets`、`/regex-scripts`（设置页仍用）、
+`/tavern-personas`（设置页人设仍用）、`/api/world/v1/config`。数据表
+`world.character_cards`/`card_lore`/`chat_presets`/`regex_scripts` 保留。
 
 字段约束（服务端校验）：卡文本字段 ≤20000、tags ≤20、备用开场白 ≤10；
 世界书 `keys` ≤20、`content` ≤8000、`position ∈ before_char|after_char|before_example|at_depth`、
@@ -214,10 +249,10 @@ iframe → 父（主动，节流）：
 
 | `type` | 时机 | 字段 |
 | --- | --- | --- |
-| `message` | 首帧（发消息） | `userMessage`（新 user 消息对象）、`assistantSequence` |
-| `message` | 首帧（重新生成） | `messageId`、`activeSwipe`（目标消息当前版本） |
+| `message` | 首帧（发消息） | `userMessage`（新 user 消息对象）、`assistantSequence`；群聊另有 `speaker:{cardId,name}`（本轮发言人） |
+| `message` | 首帧（重新生成） | `messageId`、`activeSwipe`（目标消息当前版本）；群聊另有 `speaker` |
 | `delta` | 每个增量 | `text` |
-| `done` | 生成成功并落库 | `message`（完整 assistant 消息，含 `swipes`/`activeSwipe`） |
+| `done` | 生成成功并落库 | `message`（完整 assistant 消息，含 `swipes`/`activeSwipe`；群聊含 `speakerCardId`/`speakerName`） |
 | `error` | 失败 | `code`、`message` |
 
 `error` 码：`GENERATION_CANCELLED`、`PROVIDER_UNAVAILABLE`、`REPLY_EMPTY`、
@@ -245,14 +280,18 @@ iframe → 父（主动，节流）：
 ## 9. 导出 / 导入 / 分页（P1，已实现）
 
 - `GET /chats/{id}/export?format=jsonl|json`：JSONL 每行 ST 风格
-  `{user_name, character_name, create_date, mes, is_user, is_name, swipes?, swipe_id?}`；
-  JSON 形状 `{chat, card, messages}`；其它 format → 422。
+  `{user_name, character_name, create_date, mes, is_user, is_name, swipes?, swipe_id?}`，
+  群聊 assistant 行另有 `speaker_name`（`character_name` 也取该发言人）；JSON 形状
+  `{chat, card, cards, messages}`；其它 format → 422。
 - `POST /characters/{id}/chats/imports`（multipart `file`）：≤20000 行、≤32 MiB；
   坏行跳过计数；空/全坏 → `422 CHAT_IMPORT_EMPTY`，超限 → `422 CHAT_IMPORT_TOO_LARGE`；
   成功 201 `{chat, imported, skipped}`；导入后聊天自动进入会话。
 - `GET /chats/{id}?before=<sequence>&limit=<1..500>`（默认 200）：返回
   `{chat, messages, hasMore, latestSequence}`；`before` 为空即取最新一页，
   向上翻页把当前最早 `sequence` 传给 `before`。
+- **导入只建单聊**：接口挂在 `/characters/{id}/chats/imports` 下，按 ST JSONL 逐行
+  解析成 user/assistant 消息；群聊导出文件可以下载，但暂不支持重新导入成群聊
+  （导入后会是一条单聊，`speaker_name` 被忽略）。
 - 客户端：聊天页「导出聊天 (JSONL/JSON)」菜单 + 顶部「加载更早」；角色页
   「导入聊天记录」上传 JSONL。
 
@@ -336,8 +375,8 @@ DSH 网关未重启到支持采样参数的版本前，网关侧会忽略部分�
 | `docs/step1-character-card-chat.md` | 历史：角色卡聊天第一步 |
 | `docs/step2-dsh-generation.md` | 历史：DSH 真生成网关（字段仍在用，见 §6） |
 | `docs/step3-card-space.md` | 历史：卡片空间（世界书/预设/正则），2.0 世界书改为 `tavern_world_info` |
-| `docs/step3b-group-chat.md` | 历史：群聊（UI 与服务端均已删除） |
-| `docs/step4-companion-memory.md` | 历史：长期记忆/伙伴（UI 已下线，代码待 P3 清） |
+| `docs/step3b-group-chat.md` | 历史：旧群聊设计；2.0 已用原生实现取代（见 §7 群聊语义） |
+| `docs/step4-companion-memory.md` | 历史：长期记忆/伙伴（P3 已随 story 域删除） |
 | `docs/step5-p0-p1-p2.md` | 历史：故事模式 P0–P2 体验设计 |
 
 旧文档只作参考，**有冲突以本文与 `docs/step6-native-tavern.md` 为准**。

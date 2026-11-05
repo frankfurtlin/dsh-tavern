@@ -43,9 +43,18 @@ export interface ChatSampling{
   stop:string[]
 }
 
+export interface TavernMember{
+  cardId:string
+  name:string
+  order?:number
+  avatarPath?:string|null
+}
+
 export interface TavernChat{
   id:string
   cardId:string
+  mode?:'single'|'group'
+  members?:TavernMember[]
   title:string
   modelName?:string|null
   characterName?:string|null
@@ -62,6 +71,8 @@ export interface TavernMessage{
   id:string
   role:'user'|'assistant'
   sequence:number
+  speakerCardId?:string|null
+  speakerName?:string|null
   swipes:Swipe[]
   activeSwipe:number
   createdAt?:string
@@ -110,7 +121,10 @@ function itemsOf<T>(value:{items?:T[]}|T[]|null):T[]{
   return Array.isArray(value?.items)?(value as {items:T[]}).items:[]
 }
 
-function avatarUrlFor(id:string){return backendBase()+'/api/reader/v1'+TAVERN+'/characters/'+encodeURIComponent(id)+'/avatar'}
+export function tavernAvatarUrl(id:string):string{
+  return backendBase()+'/api/reader/v1'+TAVERN+'/characters/'+encodeURIComponent(id)+'/avatar'
+}
+const avatarUrlFor=tavernAvatarUrl
 
 export async function listCharacters(q='',sort:'recent'|'name'='recent'):Promise<TavernCharacter[]>{
   const query:Record<string,string>={sort}
@@ -159,6 +173,18 @@ export async function exportCharacterBlob(id:string,format:'png'|'json'='png'):P
 
 export async function listCharacterChats(cardId:string):Promise<TavernChat[]>{
   const result=await api<{items:TavernChat[]}|TavernChat[]>(TAVERN+'/characters/'+encodeURIComponent(cardId)+'/chats')
+  return itemsOf(result)
+}
+
+export async function createGroupChat(cardIds:string[],title?:string):Promise<TavernChat>{
+  const body:Record<string,unknown>={cardIds}
+  if(title)body.title=title
+  const result=await api<TavernChat|{chat:TavernChat}>(TAVERN+'/chats',{method:'POST',key:newKey(),body})
+  return unwrap<TavernChat>(result,'chat')
+}
+
+export async function listChats():Promise<TavernChat[]>{
+  const result=await api<{items:TavernChat[]}|TavernChat[]>(TAVERN+'/chats')
   return itemsOf(result)
 }
 

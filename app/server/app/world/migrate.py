@@ -4,7 +4,6 @@ from ..db import engine
 from .models import WorldBase
 from ..cards.models import (  # noqa: F401  (registers the world.card_* tables)
     CardLore,
-    CardMemory,
     CharacterCard,
     ChatPreset,
     RegexScript,
@@ -31,13 +30,22 @@ def migrate():
         conn.execute(text("ALTER TABLE world.character_cards ADD COLUMN IF NOT EXISTS companion boolean NOT NULL DEFAULT false"))
         conn.execute(text("ALTER TABLE world.character_cards ADD COLUMN IF NOT EXISTS memory_task_id varchar(32)"))
         # P1 personas: world_chat_sessions gains an optional persona reference.
-        conn.execute(text("ALTER TABLE world_chat_sessions ADD COLUMN IF NOT EXISTS persona_id varchar(32)"))
+        # P3: the legacy world-chat stack (and its table) has been removed; keep the
+        # statement only when the old table still exists so the migration stays idempotent
+        # both on fresh databases and on databases that still carry pre-P3 tables.
+        if conn.scalar(text("SELECT to_regclass('world.world_chat_sessions')")) is not None:
+            conn.execute(text("ALTER TABLE world_chat_sessions ADD COLUMN IF NOT EXISTS persona_id varchar(32)"))
         # Native tavern: per-card prompt settings live on the card row.
         conn.execute(text("ALTER TABLE world.character_cards ADD COLUMN IF NOT EXISTS prompt_settings jsonb NOT NULL DEFAULT '{}'::jsonb"))
         # P2 presets: chats may bind one preset; presets themselves are created by create_all.
         conn.execute(text("ALTER TABLE world.tavern_chats ADD COLUMN IF NOT EXISTS preset_id varchar(32)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_world_tavern_chats_preset_id ON world.tavern_chats (preset_id)"))
         conn.execute(text("ALTER TABLE world.tavern_chats ADD COLUMN IF NOT EXISTS sampling jsonb"))
+        # P3 group chats: chats may have multiple members (card_id becomes null).
+        conn.execute(text("ALTER TABLE world.tavern_chats ADD COLUMN IF NOT EXISTS mode varchar(8) NOT NULL DEFAULT 'single'"))
+        conn.execute(text("ALTER TABLE world.tavern_chats ADD COLUMN IF NOT EXISTS members jsonb NOT NULL DEFAULT '[]'::jsonb"))
+        conn.execute(text("ALTER TABLE world.tavern_chats ALTER COLUMN card_id DROP NOT NULL"))
+        conn.execute(text("ALTER TABLE world.tavern_messages ADD COLUMN IF NOT EXISTS speaker_card_id varchar(32)"))
         # P2 presets: one built-in 「默认」 per owner; duplicated rows from the
         # earlier lazy-create race are collapsed here (idempotent).
         conn.execute(text("ALTER TABLE world.tavern_presets ADD COLUMN IF NOT EXISTS builtin boolean NOT NULL DEFAULT false"))

@@ -1,8 +1,0 @@
-card_memory_extract-v1
-你负责从一个角色与读者之间的聊天记录里，整理值得长期记住的少量信息，供角色以后自然地记得读者。
-只记录：读者自述的事实与近况、读者反复出现的偏好与习惯、双方明确达成的约定、双方关系的变化。
-不要记录：世界设定与剧情事件、角色自己的经历、一次性的寒暄或情绪、无法确认的猜测。
-输出必须是严格的 JSON 对象，格式为：{"memories":[{"kind":"fact","title":"...","content":"...","salience":50}]}。
-kind 只能是 fact、preference、relationship、event 之一。title 是 2 到 20 字的短标题，content 用一到两句完整中文说明，salience 是 1 到 100 的整数，越稳定越重要越高。
-与 existingTitles 语义重复的内容不要输出；没有可记的内容时输出 {"memories":[]}。
-只输出 JSON，不要代码围栏、解释或任何其它文字。
