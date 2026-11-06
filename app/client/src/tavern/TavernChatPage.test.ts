@@ -206,4 +206,36 @@ describe('TavernChatPage',()=>{
     expect(text(speakers[0]!)).toContain('林渡')
     expect(descendants(host,item=>String(item.props.class??'')==='chat-member-avatar').length).toBe(2)
   })
+
+  it('greys out deleted members and marks their speaker name',async()=>{
+    vi.mocked(getChat).mockResolvedValue({chat:{id:'chat-1',cardId:'',title:'群聊',mode:'group',aliveMemberCount:1,members:[{cardId:'c1',name:'林渡',order:0},{cardId:'c2',name:'阿青',order:1,deleted:true}]},messages:[userMessage,{...assistantMessage,speakerCardId:'c2',speakerName:'阿青'}]} as never)
+    mount();await flush()
+    const deletedAvatars=descendants(host,item=>String(item.props.class??'').includes('chat-member-avatar')&&String(item.props.class??'').includes('deleted'))
+    expect(deletedAvatars.length).toBe(1)
+    expect(deletedAvatars[0]!.props['aria-label']).toBe('阿青（已删除）')
+    expect(text(host)).toContain('阿青（已删除）')
+  })
+
+  it('locks the composer and regenerate when every member was deleted',async()=>{
+    vi.mocked(getChat).mockResolvedValue({chat:{id:'chat-1',cardId:'',title:'群聊',mode:'group',aliveMemberCount:0,members:[{cardId:'c1',name:'林渡',order:0,deleted:true},{cardId:'c2',name:'阿青',order:1,deleted:true}]},messages:[userMessage,assistantMessage]} as never)
+    mount();await flush()
+    expect(text(host)).toContain('群聊成员已全部删除，无法继续发言')
+    expect(aria('聊天输入框').props.disabled).toBe(true)
+    expect(aria('发送消息').props.disabled).toBe(true)
+    expect(button('重新生成')).toBeUndefined()
+  })
+
+  it('rotates the next speaker over living members only',async()=>{
+    vi.mocked(getChat).mockResolvedValue({chat:{id:'chat-1',cardId:'',title:'群聊',mode:'group',aliveMemberCount:2,members:[{cardId:'c1',name:'林渡',order:0},{cardId:'c2',name:'阿青',order:1,deleted:true},{cardId:'c3',name:'角色C',order:2}]},messages:[userMessage,assistantMessage]} as never)
+    mount();await flush()
+    const next=state().nextSpeaker as {name:string}
+    expect(next.name).toBe('角色C')
+  })
+
+  it('renders legacy group chats without a members field',async()=>{
+    vi.mocked(getChat).mockResolvedValue({chat:{id:'chat-1',cardId:'c1',title:'旧群聊',mode:'group'},messages:[userMessage,assistantMessage]} as never)
+    mount();await flush()
+    expect(text(host)).toContain('旧群聊')
+    expect(aria('聊天输入框').props.disabled).toBe(false)
+  })
 })

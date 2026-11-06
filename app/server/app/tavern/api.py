@@ -215,6 +215,8 @@ def _build_prompt(db, owner, card, chat, history_rows, message, persona_id,
     group = chat is not None and (chat.mode or "single") == "group"
     cards = service.chat_cards(db, owner, chat) if group else None
     if group:
+        if not cards:
+            raise Problem("CHAT_NO_MEMBERS", "群聊成员已全部删除，无法继续发言", 409)
         wanted = (speaker_member or {}).get("cardId")
         speaker_card = next((item for item in cards if item.id == wanted), cards[0])
     else:
@@ -292,15 +294,15 @@ def _group_members(db, owner, card_ids):
     return [service.member_entry(card, index) for index, card in enumerate(cards)], cards
 
 
-def _chat_speaker(db, chat, card_id=None):
+def _chat_speaker(db, owner, chat, card_id=None):
     if (chat.mode or "single") != "group":
         return None
-    members = [item for item in (chat.members or []) if isinstance(item, dict)]
+    members = service.alive_members(db, owner, chat)
     if card_id:
         for member in members:
             if member.get("cardId") == card_id:
                 return member
-    return service.group_speaker(db, chat)
+    return service.group_speaker(db, owner, chat)
 
 
 def _history_item(row, names):
@@ -482,7 +484,9 @@ def get_chat(chat_id: str, before: int | None = Query(default=None, ge=1),
              limit: int = Query(default=200, ge=1, le=500),
              user=Depends(current_user), db=Depends(get_db)):
     chat = service.chat_or_404(db, user.id, chat_id)
+    group = (chat.mode or "single") == "group"
     cards = service.chat_cards(db, user.id, chat)
+    members = service.member_views(db, user.id, chat) if group else []
     names = service.speaker_name_map(chat)
     all_rows = service.list_messages(db, chat)
     latest = all_rows[-1].sequence if all_rows else 0
@@ -490,7 +494,9 @@ def get_chat(chat_id: str, before: int | None = Query(default=None, ge=1),
     has_more = len(candidates) > limit
     page = candidates[-limit:] if has_more else candidates
     return {"chat": {**service.chat_out(chat),
-                     "card": service.card_summary(cards[0]),
+                     "members": members,
+                     "aliveMemberCount": len(cards),
+                     "card": service.card_summary(cards[0]) if cards else None,
                      "cards": [service.card_summary(card) for card in cards]},
             "messages": [service.message_out(row, names) for row in page],
             "hasMore": has_more, "latestSequence": latest}
@@ -500,18 +506,25 @@ def get_chat(chat_id: str, before: int | None = Query(default=None, ge=1),
 def export_chat(chat_id: str, format: str = Query(default="jsonl"),
                 user=Depends(current_user), db=Depends(get_db)):
     chat = service.chat_or_404(db, user.id, chat_id)
+    group = (chat.mode or "single") == "group"
     cards = service.chat_cards(db, user.id, chat)
+    members = service.member_views(db, user.id, chat) if group else []
     names = service.speaker_name_map(chat)
     rows = service.list_messages(db, chat)
+    fallback_name = (cards[0].name if cards else "") or service.DELETED_MEMBER_NAME
+    export_title = chat.title or fallback_name
+    card_payloads = [service.card_summary(card) for card in cards]
+    chat_payload = {**service.chat_out(chat), "members": members,
+                    "aliveMemberCount": len(cards),
+                    "card": card_payloads[0] if card_payloads else None,
+                    "cards": card_payloads}
     if format == "json":
-        document = {"chat": {**service.chat_out(chat),
-                             "card": service.card_summary(cards[0]),
-                             "cards": [service.card_summary(card) for card in cards]},
-                    "card": service.card_summary(cards[0]),
-                    "cards": [service.card_summary(card) for card in cards],
+        document = {"chat": chat_payload,
+                    "card": card_payloads[0] if card_payloads else None,
+                    "cards": card_payloads,
                     "messages": [service.message_out(row, names) for row in rows]}
         return Response(json.dumps(document, ensure_ascii=False), media_type="application/json",
-                        headers=exporting.filename_header(f"{chat.title or cards[0].name}-{_stamp()}", ".json"))
+                        headers=exporting.filename_header(f"{export_title}-{_stamp()}", ".json"))
     if format == "jsonl":
         lines = []
         for row in rows:
@@ -519,7 +532,7 @@ def export_chat(chat_id: str, format: str = Query(default="jsonl"),
             speaker = names.get(row.speaker_card_id) if row.speaker_card_id else ""
             payload = {
                 "user_name": "User",
-                "character_name": speaker or cards[0].name,
+                "character_name": speaker or (cards[0].name if cards else service.DELETED_MEMBER_NAME),
                 "create_date": service.iso(row.updated_at or row.created_at),
                 "mes": service.swipe_content(row.swipes, row.active_swipe),
                 "is_user": row.role == "user",
@@ -533,7 +546,7 @@ def export_chat(chat_id: str, format: str = Query(default="jsonl"),
             lines.append(json.dumps(payload, ensure_ascii=False))
         body = "\n".join(lines) + ("\n" if lines else "")
         return Response(body, media_type="text/plain; charset=utf-8",
-                        headers=exporting.filename_header(f"{chat.title or cards[0].name}-{_stamp()}", ".jsonl"))
+                        headers=exporting.filename_header(f"{export_title}-{_stamp()}", ".jsonl"))
     raise Problem("INVALID_REQUEST", "导出格式仅支持 jsonl 或 json", 422)
 
 
@@ -631,9 +644,16 @@ def send_message(chat_id: str, payload: MessageInput, user=Depends(current_user)
                  db=Depends(get_db)):
     chat = service.chat_or_404(db, user.id, chat_id, lock=True)
     group = (chat.mode or "single") == "group"
-    speaker = service.group_speaker(db, chat) if group else None
-    card = service.chat_card(db, user.id, chat) if group else service.card_or_404(
-        db, user.id, chat.card_id)
+    if group:
+        speaker = service.group_speaker(db, user.id, chat)
+        if speaker is None:
+            raise Problem("CHAT_NO_MEMBERS", "群聊成员已全部删除，无法继续发言", 409)
+        card = service.chat_card(db, user.id, chat)
+        if card is None:
+            raise Problem("CHAT_NO_MEMBERS", "群聊成员已全部删除，无法继续发言", 409)
+    else:
+        speaker = None
+        card = service.card_or_404(db, user.id, chat.card_id)
     text = payload.message.strip()
     if not text:
         raise Problem("MESSAGE_REQUIRED", "消息不能为空", 422)
@@ -667,9 +687,13 @@ def regenerate(chat_id: str, payload: RegenerateInput | None = None,
         raise Problem("NOTHING_TO_REGENERATE", "没有可以重新生成的回复", 409)
     speaker, names = None, {}
     if group:
-        speaker = _chat_speaker(db, chat, target.speaker_card_id)
+        speaker = _chat_speaker(db, user.id, chat, target.speaker_card_id)
+        if speaker is None:
+            raise Problem("CHAT_NO_MEMBERS", "群聊成员已全部删除，无法继续发言", 409)
         names = service.speaker_name_map(chat)
         card = service.chat_card(db, user.id, chat)
+        if card is None:
+            raise Problem("CHAT_NO_MEMBERS", "群聊成员已全部删除，无法继续发言", 409)
     else:
         card = service.card_or_404(db, user.id, chat.card_id)
     history = [row for row in service.list_messages(db, chat) if row.sequence < target.sequence]

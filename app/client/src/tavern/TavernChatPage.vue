@@ -46,21 +46,36 @@ const PAGE_SIZE=200
 
 const characterName=computed(()=>detail.value?.chat.characterName||detail.value?.chat.title||'聊天')
 const groupMembers=computed(()=>detail.value?.chat.mode==='group'?(detail.value.chat.members??[]).slice().sort((a,b)=>(a.order??0)-(b.order??0)).slice(0,5):[])
+const aliveMembers=computed(()=>groupMembers.value.filter(member=>!member.deleted))
+const deletedMembers=computed(()=>groupMembers.value.filter(member=>member.deleted))
 const isGroup=computed(()=>detail.value?.chat.mode==='group')
 const assistantCount=computed(()=>messages.value.filter(message=>message.role==='assistant').length)
+const allMembersDeleted=computed(()=>{
+  if(!isGroup.value)return false
+  const count=detail.value?.chat.aliveMemberCount
+  if(typeof count==='number')return count===0
+  // 旧数据没有 members/aliveMemberCount 时不要误判为全删，交给服务端校验。
+  return groupMembers.value.length>0&&aliveMembers.value.length===0
+})
 const nextSpeaker=computed(()=>{
-  const members=groupMembers.value
+  const members=aliveMembers.value
   if(!members.length)return null
   return members[assistantCount.value%members.length]??null
 })
-const canRegenerate=computed(()=>!streaming.value&&messages.value.length>0&&messages.value[messages.value.length-1]?.role==='assistant')
+const canRegenerate=computed(()=>!streaming.value&&!allMembersDeleted.value&&messages.value.length>0&&messages.value[messages.value.length-1]?.role==='assistant')
 
 function avatarFor(cardId?:string|null){
   return cardId?groupAvatars.value[cardId]??'':('')
 }
 
 function speakerNameFor(message:TavernMessage){
-  return message.speakerName||groupMembers.value.find(member=>member.cardId===message.speakerCardId)?.name||''
+  const member=groupMembers.value.find(item=>item.cardId===message.speakerCardId)
+  const name=message.speakerName||member?.name||''
+  return member?.deleted&&name?name+'（已删除）':name
+}
+
+function memberTitle(member:{name:string;deleted?:boolean}){
+  return member.deleted?member.name+'（已删除）':member.name
 }
 
 function speakerAvatarFor(message:TavernMessage){
@@ -80,8 +95,8 @@ async function loadAvatar(cardId:string){
 
 function ensureGroupAvatars(){
   if(!isGroup.value)return
-  for(const member of groupMembers.value)void loadAvatar(member.cardId)
-  for(const message of messages.value)if(message.speakerCardId)void loadAvatar(message.speakerCardId)
+  for(const member of aliveMembers.value)void loadAvatar(member.cardId)
+  for(const message of messages.value)if(message.speakerCardId&&!deletedMembers.value.some(member=>member.cardId===message.speakerCardId))void loadAvatar(message.speakerCardId)
 }
 
 function scrollToBottom(){void nextTick(()=>{if(log.value)log.value.scrollTop=log.value.scrollHeight})}
@@ -220,7 +235,7 @@ async function finishStream(){
 
 function send(){
   const text=input.value.trim()
-  if(!text||streaming.value)return
+  if(!text||streaming.value||allMembersDeleted.value)return
   input.value=''
   streamSpeaker.value=nextSpeaker.value
   void runStream('/chats/'+encodeURIComponent(chatId.value)+'/messages',{text})
@@ -352,7 +367,7 @@ onUnmounted(()=>{mounted=false;clearChatContextSnapshot(chatId.value);abort?.abo
      <button type="submit">保存</button>
     </form>
     <div v-if="isGroup&&groupMembers.length" class="chat-members" aria-label="群聊参与者">
-     <span v-for="member in groupMembers" :key="member.cardId" class="chat-member-avatar" :title="member.name">
+     <span v-for="member in groupMembers" :key="member.cardId" class="chat-member-avatar" :class="{deleted:member.deleted}" :title="memberTitle(member)" :aria-label="memberTitle(member)">
       <img v-if="avatarFor(member.cardId)" :src="avatarFor(member.cardId)" alt="">
       <span v-else>{{member.name.slice(0,1)}}</span>
      </span>
@@ -369,6 +384,7 @@ onUnmounted(()=>{mounted=false;clearChatContextSnapshot(chatId.value);abort?.abo
    <span class="chat-status" role="status">{{streaming?'正在回复…':(streamError?'出错':'')}}</span>
   </header>
 
+  <p v-if="allMembersDeleted" class="chat-readonly" role="status">群聊成员已全部删除，无法继续发言</p>
   <p v-if="error" class="error" role="alert">{{error}}<button class="inline-link" type="button" @click="load()">重试</button></p>
   <p v-if="loading" class="chat-loading" role="status">正在加载聊天…</p>
 
@@ -456,9 +472,9 @@ onUnmounted(()=>{mounted=false;clearChatContextSnapshot(chatId.value);abort?.abo
   </Sheet>
 
   <form class="chat-compose" @submit.prevent="send">
-   <textarea v-model="input" rows="1" placeholder="说点什么…" aria-label="聊天输入框" :disabled="streaming" @keydown.enter.exact.prevent="send"></textarea>
+   <textarea v-model="input" rows="1" :placeholder="allMembersDeleted?'群聊成员已全部删除':'说点什么…'" aria-label="聊天输入框" :disabled="streaming||allMembersDeleted" @keydown.enter.exact.prevent="send"></textarea>
    <button v-if="streaming" type="button" class="chat-stop" aria-label="停止生成" @click="stop"><Square :size="18"/>停止</button>
-   <button v-else type="submit" class="chat-send" aria-label="发送消息" :disabled="!input.trim()"><Send :size="18"/>发送</button>
+   <button v-else type="submit" class="chat-send" aria-label="发送消息" :disabled="!input.trim()||allMembersDeleted"><Send :size="18"/>发送</button>
   </form>
  </section>
 </template>
@@ -491,6 +507,8 @@ onUnmounted(()=>{mounted=false;clearChatContextSnapshot(chatId.value);abort?.abo
 .chat-member-avatar{width:20px;height:20px;margin-left:-6px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--wash);color:var(--accent);font-size:11px;border:1px solid var(--paper)}
 .chat-member-avatar:first-child{margin-left:0}
 .chat-member-avatar img{width:100%;height:100%;object-fit:cover;display:block}
+.chat-member-avatar.deleted{opacity:.45;filter:grayscale(1)}
+.chat-readonly{margin:0;padding:10px 16px;border-bottom:1px solid var(--edge);background:var(--wash);color:#8a5a2a;font-size:13px;text-align:center}
 .bubble-speaker{display:flex;align-items:center;gap:6px;margin-bottom:2px;padding-left:2px;font-size:12px;color:var(--quiet)}
 .bubble-speaker-avatar{width:22px;height:22px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--wash);color:var(--accent);font-size:11px}
 .bubble-speaker-avatar img{width:100%;height:100%;object-fit:cover;display:block}

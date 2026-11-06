@@ -416,6 +416,38 @@ R 重新生成 1 + S2 采样发送 1）。P3 只点击工具条不发送，不�
 清理：`cards=0 / chats=0 / messages=0 / world_info=0 / personas=0 / presets=1`（内置默认），
 `card-avatar-*.png`、`tavern-card-*.png` 已删；3099 无监听、隔离 HOME 已删。未 commit。
 
+## 群聊删成员容错断言（L 组 / task-66）
+
+打磨第 1 步：群成员角色卡被软删后，群聊不再 404，而是「已删除成员」展示 + 只读容错
+（服务端 task-63、客户端 task-64）。L 组用 API 造数，UI 只做展示断言：
+
+- **L1 单删成员详情容错**：API `POST /tavern/api/reader/v1/tavern/chats {cardIds:[a,b]}` 建群 →
+  发 1 条消息（真实生成 1 次）→ API `DELETE /tavern/character-cards/{a}`（实际客户端路径
+  `DELETE /tavern/api/reader/v1/tavern/characters/{a}`）→ `GET /chats/{id}` 仍 200，
+  `members` 中该成员 `deleted=true`、`aliveMemberCount=1`、`cards` 长度 1；
+- **L2 UI 已删除标记**：重进聊天页，页头 `.chat-members .chat-member-avatar.deleted` 的
+  `title/aria-label` 含「（已删除）」，且 CSS 置灰（`opacity:.45;filter:grayscale(1)`）；
+- **L3 发言人切换**：删成员后再发一条（真实生成 1 次）→ assistant 发言人 =
+  存活成员（API `speakerName` 与 UI `.bubble-speaker-name` 一致，不再是已删除成员）；
+- **L4 全员删除详情**：再 `DELETE` 第二位成员 → `GET /chats/{id}` 仍 200、
+  `aliveMemberCount=0`、两个成员都 `deleted=true`；
+- **L5 只读容错**：UI 出现 `.chat-readonly[role=status]`「群聊成员已全部删除，无法继续发言」，
+  输入框 disabled（placeholder 也变为「群聊成员已全部删除」）、发送 disabled、重新生成按钮隐藏/disabled；
+  直接 `POST /chats/{id}/messages` → 409 `CHAT_NO_MEMBERS`；
+- **L6 列表与删除**：`GET /tavern/chats` 仍包含该群聊（不报错），`DELETE /chats/{id}` → 204，
+  再查列表已回落；L7 本组 console clean。
+
+预期（task-63/64 全部部署时）：**60 PASS / 0 FAIL / 0 SKIP**（53 + L 组 7 项；L 组只做一次
+「单删 + 全员删除」闭环，真实生成 +2，全量总计 8 次）。未部署时 L 组依赖项记 SKIP 并注明
+`owner: app-auth`（详情容错/aliveMemberCount/409）或 `owner: cards-client`（已删除标记/只读 UI）。
+
+截图新增：`140-l-member-deleted.png`、`141-l-member-grey.png`、`142-l-speaker-switch.png`、
+`143-l-no-members.png`、`144-l-chat-deleted.png`。
+
+失败归因：`GET /chats/{id}` 404、缺 `deleted/aliveMemberCount`、轮转选中已删除成员、
+`POST messages` 未返回 409 `CHAT_NO_MEMBERS` → `owner: app-auth`；页头无「（已删除）」/未灰显、
+只读提示缺失、输入/发送未禁用 → `owner: cards-client`；时序/选择器 → `owner: verifier`。
+
 ## 实测记录（G，2026-11-05）
 
 命令：`bash scripts/check.sh --instance`（systemd-run 独立 cgroup，隔离 3099 + 生产 app 8001/8810 + 生产网关）
@@ -451,6 +483,45 @@ G 组证据（`report.native.group`）：
 6. **H 组聊天历史偶发为空**：卡详情渲染完成但历史接口返回慢，增加「重进详情页再等 30s」重试。
 7. **P3-5 位置记忆偶发 false**：点击工具条会新开 DSH 会话、面板可能重挂载，改为每步取当前 tavern frame，
    失败重试一次（`chatReloadOk/homeAgain` 均改为重试后判定）。
+
+清理：`cards=0 / chats=0 / messages=0 / world_info=0 / personas=0 / presets=1`（内置默认），
+`card-avatar-*.png`、`tavern-card-*.png` 已删；3099 无监听、隔离 HOME 已删。未 commit。
+
+## 实测记录（L，2026-11-06）
+
+命令：`bash scripts/check.sh --instance`（systemd-run 独立 cgroup，隔离 3099 + 生产 app 8001/8810 + 生产网关）
+
+结果：**60 PASS / 0 FAIL / 0 SKIP**（既有 53 项 + L 组 7 项），`report.ok=true`；
+静态检查 7 PASS / 0 FAIL / 1 SKIP（前端测试需 `--with-app-tests`）。
+报告 `/tmp/dsh-tavern-native/check/report.json`（startedAt 2026-11-06T00:55:39Z），截图 140–144。
+
+L 组证据（`report.native.groupDeletion`）：
+
+- L1 单删成员：`DELETE /characters/{a}` → 204；`GET /chats/{id}` → 200，
+  `members[0].deleted=true`、`aliveMemberCount=1`、`cards` 长度 1，`firstSpeaker=林小满`。
+- L2 UI 标记：`.chat-member-avatar.deleted[title="林小满（已删除）"]`，`opacity=.45`、
+  `filter=grayscale(1)`；assistant 气泡发言人显示「林小满（已删除）」。
+- L3 发言人切换：删成员后继续发言，`secondSpeaker=顾清和`（=aliveMemberName），
+  UI `.bubble-speaker-name` 一致，消息保存成功。
+- L4 全员删除：再删第二位 → `GET /chats/{id}` 200、`aliveMemberCount=0`、两个成员
+  `deleted=true`。
+- L5 只读：`.chat-readonly[role=status]` 文本「群聊成员已全部删除，无法继续发言」，
+  输入框 disabled（placeholder 同文案）、发送 disabled、重新生成按钮隐藏；
+  `POST /chats/{id}/messages` → 409 `CHAT_NO_MEMBERS`。
+- L6 列表/删除：`GET /tavern/chats` 仍包含该群聊；`DELETE /chats/{id}` → 204，
+  再查列表已消失；L7 本组 console clean。
+
+真实生成：L1 首条 + L3 删成员后一条 = 2 次；全量总计 8 次。
+
+本轮修的 harness 问题（非产品缺陷）：
+
+1. **新建群聊页就绪判定**：空群聊没有 `.bubble-row`，原先复用 `waitChatRendered` 会误判
+   「群聊页未渲染」→ 新增 `lWaitChatShell`（`.chat-name`/菜单 + `.chat-log|.chat-empty`）。
+2. **GET /chats/{id} 响应形状**：`members/aliveMemberCount/cards` 在 `payload.chat` 里，
+   不是顶层（首版读错层级导致误 SKIP）。
+3. **群聊完成判定**：群聊气泡没有 `.bubble-meta`（`small` 为空），不能用「已保存」判定；
+   改为「无 `.bubble-pending` + 文本连续两次采样稳定 + 行数增加」。
+4. **重复 SKIP**：`skipRest` 未记录 steps 导致末尾补齐又 SKIP 一遍；改为 skip 同时 markStep。
 
 清理：`cards=0 / chats=0 / messages=0 / world_info=0 / personas=0 / presets=1`（内置默认），
 `card-avatar-*.png`、`tavern-card-*.png` 已删；3099 无监听、隔离 HOME 已删。未 commit。

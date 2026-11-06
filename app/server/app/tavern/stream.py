@@ -100,6 +100,10 @@ def _persist(*, owner, chat_id, mode, text, model, target_id, speaker_card_id=No
             swipes.append(swipe)
             row.swipes = swipes
             row.active_swipe = len(swipes) - 1
+            if speaker_card_id:
+                # Regenerated reply may fall back to another alive speaker when
+                # the original member card was deleted; keep attribution honest.
+                row.speaker_card_id = speaker_card_id
             row.updated_at = now()
         else:
             row = TavernMessage(id=uid(), owner_id=owner, chat_id=chat.id, role="assistant",

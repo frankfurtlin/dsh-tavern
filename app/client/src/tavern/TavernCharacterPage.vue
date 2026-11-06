@@ -229,7 +229,7 @@ async function removeInfo(entry:WorldInfoEntry){
   }catch(e){worldError.value=(e as Error).message||'删除世界书失败，请稍后重试。'}
 }
 async function removeCard(){
-  if(!window.confirm('删除这张角色卡？聊天记录会一并隐藏。'))return
+  if(!window.confirm('删除这张角色卡？聊天记录会一并隐藏。删除后相关群聊仍保留，但该角色将显示为已删除。'))return
   try{
     await deleteCharacter(cardId.value)
     store.message('角色卡已删除。')
