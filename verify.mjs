@@ -28,6 +28,9 @@
  *      新聊天 prompt 接口包含预设文本；非法采样值后端 422（或前端拦截）。
  *   M. 旧路由：/tavern/explore、/tavern/works、/tavern/worlds/scripts、
  *      /tavern/conversations/world/x → 落 / 或无 404 死链；页面无「探索作品」入口。
+ *   L. 群聊删成员容错（task-66）：删 1 位成员后详情 200 + members.deleted/aliveMemberCount + UI 灰显
+ *      「（已删除）」+ 发言人切到存活成员；全员删除后 200 + UI 只读 + POST messages 409 CHAT_NO_MEMBERS；
+ *      /chats 列表仍可见、删除群聊 204。用 API 造数，真实生成 +2。
  *
  * 设计原则：
  *   - 插件/应用尚未就绪时不崩：能跑出「未就绪」报告，依赖项记 SKIP 并写明 owner。
@@ -81,6 +84,7 @@ const report = {
     exportImport: null,
     oldRoutes: null,
     group: null,
+    groupDeletion: null,
   },
   app: {},
   screenshots: [],
@@ -2537,6 +2541,414 @@ try {
       oldRouteEvidence.deadLinks = deadLinks
       check('页面无「探索作品」等旧入口', !exploreEntry && deadLinks === 0, `旧文案=${exploreEntry} 死链=${deadLinks}`)
       await shot(page, '99-old-routes.png')
+    }
+  }
+
+
+  // ── L. 群聊删成员容错（task-66：成员卡被删后 200 + 已删除展示 + 只读）─────
+  const groupDeletionCheckNames = [
+    '删除一位成员后群聊详情仍可读（deleted 标记 + aliveMemberCount=1 + cards 只剩存活成员）',
+    'UI 页头把已删除成员标注「（已删除）」并灰显',
+    '删成员后继续发言，发言人切换到存活成员',
+    '全部成员删除后群聊详情仍可读（aliveMemberCount=0）',
+    '全员删除后 UI 只读提示 + 输入/发送/重生成禁用，POST messages 返回 409 CHAT_NO_MEMBERS',
+    '/chats 列表仍包含该群聊，删除群聊 204 且列表回落',
+    '群聊删成员场景 console 无报错',
+  ]
+  const groupDeletionEvidence = {
+    enabled: false,
+    chatId: null,
+    cards: [],
+    memberDeleted: null,
+    uiDeleted: null,
+    speakerSwitch: null,
+    allDeleted: null,
+    readonly: null,
+    list: null,
+    console: null,
+    steps: [],
+  }
+  report.native.groupDeletion = groupDeletionEvidence
+  if (groupOn('l')) {
+    if (nativeBlocked) {
+      for (const name of groupDeletionCheckNames) skip(name, blockedReason)
+    } else {
+      groupDeletionEvidence.enabled = true
+      const lConsoleStart = consoleErrors.length
+      const lApi = async (pathname, options = {}) => {
+        const frameNow = fnow()
+        if (!frameNow) return null
+        return frameNow
+          .evaluate(
+            async ([pathAndQuery, opts]) => {
+              try {
+                const response = await fetch('/tavern/api/reader/v1/tavern' + pathAndQuery, {
+                  credentials: 'include',
+                  method: opts.method || 'GET',
+                  headers: opts.body ? { 'Content-Type': 'application/json' } : undefined,
+                  body: opts.body ? JSON.stringify(opts.body) : undefined,
+                })
+                const text = await response.text()
+                let payload = null
+                try {
+                  payload = text ? JSON.parse(text) : null
+                } catch {
+                  payload = { raw: String(text).slice(0, 200) }
+                }
+                return { status: response.status, payload }
+              } catch (error) {
+                return { status: 0, error: String(error) }
+              }
+            },
+            [pathname, options],
+          )
+          .catch(() => null)
+      }
+      const markStep = (index) => {
+        if (!groupDeletionEvidence.steps.includes(index)) groupDeletionEvidence.steps.push(index)
+      }
+      const skipRest = (fromIndex, detail) => {
+        for (let index = fromIndex; index < groupDeletionCheckNames.length; index += 1) {
+          if (!groupDeletionEvidence.steps.includes(index)) {
+            skip(groupDeletionCheckNames[index], detail)
+            markStep(index)
+          }
+        }
+      }
+      // 新建的群聊还没有消息：就绪条件是聊天壳（标题/菜单）+ 空态或消息区，而不是 .bubble-row。
+      const lWaitChatShell = async (frameNow, timeoutMs) => {
+        if (!frameNow) return false
+        return waitFor(async () => {
+          const chrome = await frameNow
+            .locator('.chat-name, button[aria-label="聊天菜单"]')
+            .count()
+            .catch(() => 0)
+          const shell = await frameNow
+            .locator('.chat-log, .chat-empty, .bubble-row')
+            .count()
+            .catch(() => 0)
+          return chrome > 0 && shell > 0
+        }, timeoutMs)
+      }
+
+      // 1) 准备两张 fixture 卡（L 组可独立跑：缺卡时自己导入）。
+      const lHome = await appGoto('/')
+      const secondCard =
+        manifest && Array.isArray(manifest.cards) ? manifest.cards.find((card) => card.name !== cardName) || null : null
+      const secondCardName = (secondCard && secondCard.name) || '顾清和'
+      const lEnsureCard = async (name, file) => {
+        if (!lHome) return false
+        if (await findCard(name)) return true
+        if (!file) return false
+        const input = lHome.locator('input[type="file"]').first()
+        if (!(await input.count().catch(() => 0))) return false
+        await input.setInputFiles(path.join(fixturesDir, file)).catch(() => {})
+        const appeared = await waitFor(async () => Boolean(await findCard(name)), 30000)
+        if (appeared) await page.waitForTimeout(400)
+        return appeared
+      }
+      const firstReady = fixtureCard ? await lEnsureCard(cardName, fixtureCard.file) : false
+      const secondReady = secondCard ? await lEnsureCard(secondCardName, secondCard.file) : false
+      const cardsList = await lApi('/characters')
+      const cardItems =
+        cardsList && cardsList.payload && Array.isArray(cardsList.payload.items) ? cardsList.payload.items : []
+      const cardIdFor = (name) => {
+        const found = cardItems.find((item) => item.name === name)
+        return found ? found.id : null
+      }
+      const firstCardId = cardIdFor(cardName)
+      const secondCardId = cardIdFor(secondCardName)
+      groupDeletionEvidence.cards = [firstCardId, secondCardId]
+      if (!firstReady || !secondReady || !firstCardId || !secondCardId) {
+        skipRest(0, '缺少两张 fixture 卡，无法建群（owner: verifier 导入）')
+      } else {
+        // 2) API 建群（不依赖 G 组：L 组必须可独立运行）。
+        const created = await lApi('/chats', { method: 'POST', body: { cardIds: [firstCardId, secondCardId] } })
+        const createdChat = created && created.payload && created.payload.chat ? created.payload.chat : null
+        const chatId = createdChat && createdChat.id ? createdChat.id : null
+        groupDeletionEvidence.chatId = chatId
+        if (!chatId) {
+          skipRest(0, `API 建群失败（status=${created && created.status}；owner: app-auth）`)
+        } else {
+          let frame = await appGoto(`/chats/${chatId}`)
+          const chatReady = frame ? await lWaitChatShell(frame, 25000) : false
+          if (!chatReady) {
+            skipRest(0, '群聊页未渲染（owner: cards-client）')
+          } else {
+            const sendInChat = async (frameNow, text) => {
+              const input = frameNow.locator('textarea[aria-label="聊天输入框"]').first()
+              await input.waitFor({ state: 'visible', timeout: 20000 }).catch(() => {})
+              await input.fill(text).catch(() => {})
+              const before = await frameNow.locator('.bubble-row.assistant').count().catch(() => 0)
+              const sendButton = frameNow.locator('button[aria-label="发送消息"]').first()
+              await sendButton.click({ force: true }).catch(() => {})
+              const started = await waitFor(
+                async () => (await frameNow.locator('.bubble-row.assistant').count().catch(() => 0)) > before,
+                7000,
+              )
+              if (!started) await sendButton.evaluate((element) => element.click()).catch(() => {})
+              // 群聊气泡没有 .bubble-meta（small 为空），完成判定用「无 pending + 文本连续两次稳定」。
+              let saved = false
+              let previousText = ''
+              const deadline = Date.now() + 180000
+              while (Date.now() < deadline) {
+                const rows = await frameNow.locator('.bubble-row').count().catch(() => 0)
+                const pending = await frameNow.locator('.bubble-pending').count().catch(() => 0)
+                const textNow =
+                  ((await frameNow.locator('.bubble-row.assistant .bubble-text').last().innerText().catch(() => '')) || '').trim()
+                if (rows >= before + 2 && pending === 0 && textNow.length > 10) {
+                  if (previousText && previousText === textNow) {
+                    saved = true
+                    break
+                  }
+                  previousText = textNow
+                } else {
+                  previousText = ''
+                }
+                await page.waitForTimeout(600)
+              }
+              const replyText =
+                ((await frameNow.locator('.bubble-row.assistant .bubble-text').last().innerText().catch(() => '')) || '').trim()
+              const debug = {
+                saved,
+                rows: await frameNow.locator('.bubble-row').count().catch(() => 0),
+                assistants: await frameNow.locator('.bubble-row.assistant').count().catch(() => 0),
+                pending: await frameNow.locator('.bubble-pending').count().catch(() => 0),
+                meta: ((await frameNow.locator('.bubble-row.assistant small').last().innerText().catch(() => '')) || '').trim(),
+                before,
+                replyLength: replyText.length,
+              }
+              return { saved, replyText, debug }
+            }
+            const assistantsOf = (payload) =>
+              payload && Array.isArray(payload.messages) ? payload.messages.filter((item) => item.role === 'assistant') : []
+
+            // 3) 先发一条消息（真实生成 1 次），确认群聊可用。
+            const firstSend = await sendInChat(frame, '（E2E 群聊）你好，先打个招呼。')
+            const detailBefore = await lApi(`/chats/${chatId}`)
+            const beforePayload = detailBefore && detailBefore.payload ? detailBefore.payload : null
+            const firstSpeaker = assistantsOf(beforePayload).length
+              ? assistantsOf(beforePayload)[assistantsOf(beforePayload).length - 1].speakerName || null
+              : null
+
+            // 4) API 软删第一位成员卡，再读详情：应 200 且容错。
+            const deletedFirst = await lApi(`/characters/${firstCardId}`, { method: 'DELETE' })
+            const detailAfterOne = await lApi(`/chats/${chatId}`)
+            const onePayload = detailAfterOne && detailAfterOne.payload ? detailAfterOne.payload : null
+            // GET /chats/{id} 形状：{chat:{...members/aliveMemberCount/cards}, messages:[...]}
+            const oneChat = onePayload && onePayload.chat ? onePayload.chat : null
+            const membersAfterOne = oneChat && Array.isArray(oneChat.members) ? oneChat.members : []
+            const aliveAfterOne =
+              oneChat && typeof oneChat.aliveMemberCount === 'number' ? oneChat.aliveMemberCount : null
+            const cardsAfterOne = oneChat && Array.isArray(oneChat.cards) ? oneChat.cards.length : null
+            const memberMarkedDeleted = membersAfterOne.some(
+              (member) => member.cardId === firstCardId && member.deleted === true,
+            )
+            const aliveMember = membersAfterOne.find((member) => member.deleted !== true) || null
+            const aliveMemberName = aliveMember ? aliveMember.name : null
+            groupDeletionEvidence.memberDeleted = {
+              deleteStatus: deletedFirst ? deletedFirst.status : null,
+              detailStatus: detailAfterOne ? detailAfterOne.status : null,
+              memberMarkedDeleted,
+              aliveAfterOne,
+              cardsAfterOne,
+              firstSpeaker,
+              aliveMemberName,
+            }
+
+            // 5) UI：重进聊天页，页头已删除成员应标注「（已删除）」并灰显。
+            frame = await appGoto(`/chats/${chatId}`)
+            if (frame) await lWaitChatShell(frame, 25000)
+            const markerShown = frame
+              ? await waitFor(async () => /（已删除）|\(已删除\)/.test(await bodyText(frame)), 20000)
+              : false
+            const markerNodes = frame
+              ? await frame
+                  .evaluate(() => {
+                    const nodes = Array.from(document.querySelectorAll('.chat-members .chat-member-avatar'))
+                    return nodes
+                      .map((node) => {
+                        const text = `${node.getAttribute('title') || ''} ${node.getAttribute('aria-label') || ''}`.trim()
+                        const style = getComputedStyle(node)
+                        return { text, opacity: style.opacity, className: String(node.className), filter: style.filter }
+                      })
+                      .filter((node) => /已删除/.test(node.text) || /deleted/.test(node.className))
+                  })
+                  .catch(() => [])
+              : []
+            const greyed = markerNodes.some(
+              (node) => Number(node.opacity) < 1 || /(?:^|\s)(?:is-)?deleted|disabled/.test(node.className),
+            )
+            groupDeletionEvidence.uiDeleted = { markerShown, markerNodes, greyed }
+            await shot(page, '140-l-member-deleted.png')
+            const l1Ok = Boolean(
+              detailAfterOne &&
+                detailAfterOne.status === 200 &&
+                oneChat &&
+                oneChat.mode === 'group' &&
+                memberMarkedDeleted &&
+                aliveAfterOne === 1 &&
+                cardsAfterOne === 1,
+            )
+            if (detailAfterOne && detailAfterOne.status === 200 && aliveAfterOne === null) {
+              skipRest(0, '详情缺少 aliveMemberCount/deleted 字段（owner: app-auth，task-63 未部署）')
+            } else if (!l1Ok) {
+              check(groupDeletionCheckNames[0], false, `status=${detailAfterOne && detailAfterOne.status} members=${clip(membersAfterOne)} alive=${aliveAfterOne} cards=${cardsAfterOne}；owner: app-auth`)
+              markStep(0)
+              skipRest(1, 'L1 详情容错未通过，跳过后续依赖项')
+            } else {
+              check(groupDeletionCheckNames[0], true, `status=200 aliveMemberCount=${aliveAfterOne} cards=${cardsAfterOne}`)
+              markStep(0)
+              check(
+                groupDeletionCheckNames[1],
+                markerShown && greyed,
+                `marker=${markerShown} greyed=${greyed} nodes=${clip(markerNodes)}${markerShown ? '' : '；owner: cards-client 页头标记'}`,
+              )
+              markStep(1)
+              await shot(page, '141-l-member-grey.png')
+
+              // 6) 删成员后继续发言：发言人必须切换到存活成员。
+              const secondSend = await sendInChat(frame, '（E2E 群聊）刚才那位还在吗？')
+              const detailAfterSend = await lApi(`/chats/${chatId}`)
+              const sendPayload = detailAfterSend && detailAfterSend.payload ? detailAfterSend.payload : null
+              const assistantsAfter = assistantsOf(sendPayload)
+              const secondSpeaker = assistantsAfter.length
+                ? assistantsAfter[assistantsAfter.length - 1].speakerName || null
+                : null
+              const secondSpeakerUi =
+                ((await frame.locator('.bubble-row.assistant .bubble-speaker-name').last().innerText().catch(() => '')) || '').trim()
+              const switchOk = Boolean(secondSend.saved && secondSpeaker && secondSpeaker === aliveMemberName && secondSpeakerUi === secondSpeaker)
+              groupDeletionEvidence.speakerSwitch = {
+                saved: secondSend.saved,
+                debug: secondSend.debug,
+                firstSpeaker,
+                secondSpeaker,
+                secondSpeakerUi,
+                aliveMemberName,
+                switchOk,
+              }
+              check(
+                groupDeletionCheckNames[2],
+                switchOk,
+                `saved=${secondSend.saved} first=${clip(firstSpeaker)} second=${clip(secondSpeaker)} ui=${clip(secondSpeakerUi)} alive=${clip(aliveMemberName)}`,
+              )
+              markStep(2)
+              await shot(page, '142-l-speaker-switch.png')
+
+              // 7) 删掉剩下那位成员：详情仍 200，aliveMemberCount=0。
+              await lApi(`/characters/${secondCardId}`, { method: 'DELETE' })
+              const detailAfterAll = await lApi(`/chats/${chatId}`)
+              const allPayload = detailAfterAll && detailAfterAll.payload ? detailAfterAll.payload : null
+              const allChat = allPayload && allPayload.chat ? allPayload.chat : null
+              const aliveAfterAll =
+                allChat && typeof allChat.aliveMemberCount === 'number' ? allChat.aliveMemberCount : null
+              const allMembers = allChat && Array.isArray(allChat.members) ? allChat.members : []
+              const allDeleted = allMembers.length === 2 && allMembers.every((member) => member.deleted === true)
+              groupDeletionEvidence.allDeleted = {
+                status: detailAfterAll ? detailAfterAll.status : null,
+                aliveAfterAll,
+                allMembers,
+                allDeleted,
+              }
+              check(
+                groupDeletionCheckNames[3],
+                Boolean(detailAfterAll && detailAfterAll.status === 200 && allChat && allChat.mode === 'group' && aliveAfterAll === 0 && allDeleted),
+                `status=${detailAfterAll && detailAfterAll.status} aliveMemberCount=${aliveAfterAll} deletedFlags=${clip(allMembers.map((member) => Boolean(member.deleted)))}`,
+              )
+              markStep(3)
+
+              // 8) UI 只读 + 直接 POST messages 应 409 CHAT_NO_MEMBERS。
+              frame = await appGoto(`/chats/${chatId}`)
+              if (frame) await lWaitChatShell(frame, 25000)
+              const hintShown = frame
+                ? await waitFor(async () => /群聊成员已全部删除|无法继续发言/.test(await bodyText(frame)), 20000)
+                : false
+              let inputDisabled = false
+              let sendDisabled = false
+              let regenerateDisabled = null
+              let regenerateAbsent = false
+              let readonlyText = null
+              if (frame) {
+                const input = frame.locator('textarea[aria-label="聊天输入框"]').first()
+                inputDisabled = await input.isDisabled().catch(() => false)
+                const placeholder = await input.getAttribute('placeholder').catch(() => null)
+                if (/群聊成员已全部删除/.test(String(placeholder || ''))) inputDisabled = true
+                sendDisabled = await frame
+                  .locator('button[aria-label="发送消息"]')
+                  .first()
+                  .isDisabled()
+                  .catch(() => false)
+                const readonly = frame.locator('.chat-readonly').first()
+                readonlyText = (await readonly.count().catch(() => 0))
+                  ? ((await readonly.innerText().catch(() => '')) || '').trim()
+                  : null
+                const regen = frame.locator('.bubble-actions button', { hasText: /重新生成/ }).first()
+                const regenCount = await regen.count().catch(() => 0)
+                regenerateAbsent = regenCount === 0
+                regenerateDisabled = regenCount ? await regen.isDisabled().catch(() => false) : null
+              }
+              const postBlocked = await lApi(`/chats/${chatId}/messages`, { method: 'POST', body: { text: '（E2E）全员删除后还能说话吗？' } })
+              const postPayload = postBlocked && postBlocked.payload ? postBlocked.payload : {}
+              const postCode = postPayload.code || (postPayload.error && postPayload.error.code) || null
+              const postOk = Boolean(postBlocked && postBlocked.status === 409 && postCode === 'CHAT_NO_MEMBERS')
+              groupDeletionEvidence.readonly = {
+                hintShown,
+                inputDisabled,
+                sendDisabled,
+                regenerateDisabled,
+                regenerateAbsent,
+                readonlyText,
+                postStatus: postBlocked ? postBlocked.status : null,
+                postCode,
+              }
+              check(
+                groupDeletionCheckNames[4],
+                hintShown && Boolean(readonlyText) && inputDisabled && sendDisabled && (regenerateAbsent || regenerateDisabled === true) && postOk,
+                `hint=${hintShown} text=${clip(readonlyText)} inputDisabled=${inputDisabled} sendDisabled=${sendDisabled} regenAbsent=${regenerateAbsent} POST=${postBlocked && postBlocked.status}/${clip(postCode)}`,
+              )
+              markStep(4)
+              await shot(page, '143-l-no-members.png')
+
+              // 9) /chats 列表仍包含该群聊；DELETE 群聊 204 且列表回落。
+              const listBeforeDelete = await lApi('/chats')
+              const listItems =
+                listBeforeDelete && listBeforeDelete.payload && Array.isArray(listBeforeDelete.payload.items)
+                  ? listBeforeDelete.payload.items
+                  : []
+              const listedBefore = listItems.some((item) => item.id === chatId)
+              const deleteChat = await lApi(`/chats/${chatId}`, { method: 'DELETE' })
+              const listAfterDelete = await lApi('/chats')
+              const afterItems =
+                listAfterDelete && listAfterDelete.payload && Array.isArray(listAfterDelete.payload.items)
+                  ? listAfterDelete.payload.items
+                  : []
+              const listedAfter = afterItems.some((item) => item.id === chatId)
+              groupDeletionEvidence.list = {
+                listedBefore,
+                deleteStatus: deleteChat ? deleteChat.status : null,
+                listedAfter,
+              }
+              check(
+                groupDeletionCheckNames[5],
+                Boolean(listedBefore && deleteChat && deleteChat.status === 204 && !listedAfter),
+                `listedBefore=${listedBefore} DELETE=${deleteChat && deleteChat.status} listedAfter=${listedAfter}`,
+              )
+              markStep(5)
+              await shot(page, '144-l-chat-deleted.png')
+            }
+          }
+        }
+      }
+
+      const lConsole = consoleErrors.slice(lConsoleStart).filter((text) => !/Failed to load resource/.test(text))
+      groupDeletionEvidence.console = lConsole
+      if (!groupDeletionEvidence.steps.includes(6)) {
+        check(groupDeletionCheckNames[6], lConsole.length === 0, lConsole.length ? clip(lConsole) : 'clean')
+        markStep(6)
+      }
+      for (let index = 0; index < groupDeletionCheckNames.length; index += 1) {
+        if (!groupDeletionEvidence.steps.includes(index)) skip(groupDeletionCheckNames[index], '前置步骤未执行')
+      }
     }
   }
 

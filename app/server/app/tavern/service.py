@@ -319,25 +319,61 @@ def speaker_name_map(chat):
             for item in (getattr(chat, "members", None) or []) if isinstance(item, dict)}
 
 
+DELETED_MEMBER_NAME = "已删除角色"
+
+
+def _alive_card(db, owner, card_id):
+    card = db.get(CharacterCard, card_id) if card_id else None
+    if card is None or card.owner_id != owner or card.deleted_at is not None:
+        return None
+    return card
+
+
+def member_views(db, owner, chat):
+    """Group members in snapshot order, flagging cards that were deleted.
+
+    Deleted members keep their snapshot name (fallback「已删除角色」) so history,
+    detail and export remain usable after a card is removed.
+    """
+    if (getattr(chat, "mode", "single") or "single") != "group":
+        return []
+    views = []
+    for index, member in enumerate(getattr(chat, "members", None) or []):
+        if not isinstance(member, dict):
+            continue
+        card_id = str(member.get("cardId") or "")
+        card = _alive_card(db, owner, card_id)
+        if card is not None:
+            views.append({"cardId": card.id, "name": card.name,
+                          "avatarPath": card.avatar_path or None,
+                          "order": int(member.get("order", index)), "deleted": False})
+        else:
+            name = str(member.get("name") or "").strip() or DELETED_MEMBER_NAME
+            views.append({"cardId": card_id, "name": name,
+                          "avatarPath": member.get("avatarPath") or None,
+                          "order": int(member.get("order", index)), "deleted": True})
+    return views
+
+
+def alive_members(db, owner, chat):
+    return [view for view in member_views(db, owner, chat) if not view["deleted"]]
+
+
 def chat_cards(db, owner, chat):
+    """Alive cards of a chat; group chats tolerate deleted members (possibly none)."""
     if (getattr(chat, "mode", "single") or "single") != "group":
         return [card_or_404(db, owner, chat.card_id)]
     cards = []
-    for member in (getattr(chat, "members", None) or []):
-        card_id = member.get("cardId") if isinstance(member, dict) else None
-        if not card_id:
-            continue
-        card = db.get(CharacterCard, card_id)
-        if card is None or card.owner_id != owner or card.deleted_at is not None:
-            raise Problem("RESOURCE_NOT_FOUND", "群聊中有角色卡已被删除", 404)
-        cards.append(card)
-    if not cards:
-        raise Problem("RESOURCE_NOT_FOUND", "这段群聊没有可用成员", 404)
+    for view in alive_members(db, owner, chat):
+        card = _alive_card(db, owner, view["cardId"])
+        if card is not None:
+            cards.append(card)
     return cards
 
 
 def chat_card(db, owner, chat):
-    return chat_cards(db, owner, chat)[0]
+    cards = chat_cards(db, owner, chat)
+    return cards[0] if cards else None
 
 
 def member_entry(card, order):
@@ -345,9 +381,9 @@ def member_entry(card, order):
             "avatarPath": card.avatar_path or None, "order": order}
 
 
-def group_speaker(db, chat):
-    """Next speaker: members[assistant_count % member_count]."""
-    members = [item for item in (getattr(chat, "members", None) or []) if isinstance(item, dict)]
+def group_speaker(db, owner, chat):
+    """Next speaker: alive_members[assistant_count % alive_count] (None if all deleted)."""
+    members = alive_members(db, owner, chat)
     if not members:
         return None
     index = assistant_count(db, chat) % len(members)

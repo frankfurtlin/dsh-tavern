@@ -48,6 +48,7 @@ export interface TavernMember{
   name:string
   order?:number
   avatarPath?:string|null
+  deleted?:boolean
 }
 
 export interface TavernChat{
@@ -58,6 +59,7 @@ export interface TavernChat{
   title:string
   modelName?:string|null
   characterName?:string|null
+  aliveMemberCount?:number|null
   lastMessage?:string|null
   sampling?:ChatSampling|null
   createdAt?:string
@@ -79,7 +81,13 @@ export interface TavernMessage{
   updatedAt?:string
 }
 
-export interface ChatDetail{chat:TavernChat;messages:TavernMessage[];latestSequence?:number;hasMore?:boolean}
+export interface ChatDetail{
+  chat:TavernChat
+  messages:TavernMessage[]
+  cards?:Array<TavernCharacter|null>|null
+  latestSequence?:number
+  hasMore?:boolean
+}
 
 export type WorldInfoPosition='before_char'|'after_char'|'before_example'|'at_depth'
 
