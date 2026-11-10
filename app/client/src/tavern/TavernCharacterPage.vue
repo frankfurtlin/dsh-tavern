@@ -11,6 +11,7 @@ import {
  updateWorldInfo,createWorldInfo,getPrompt,updatePrompt,
  type TavernCharacter,TavernChat,WorldInfoEntry,WorldInfoInput,WorldInfoPosition,WorldInfoPreview,TavernPrompt,
 } from './api'
+import LoadState from './LoadState.vue'
 
 const route=useRoute(),router=useRouter(),store=useApp(),scope=useRequestScope()
 const cardId=computed(()=>String(route.params.id||''))
@@ -163,6 +164,12 @@ async function startChat(){
 
 function openChat(chat:TavernChat){void router.push('/chats/'+encodeURIComponent(chat.id))}
 
+function editSettings(){
+  if(typeof document==='undefined')return
+  const target=document.getElementById('character-settings')
+  target?.scrollIntoView({behavior:'smooth',block:'start'})
+}
+
 const infoEditor=reactive({open:false,id:'',keys:'',content:'',position:'before_char' as WorldInfoPosition,depth:4,constant:false,probability:1,order:100,enabled:true})
 function resetInfo(){infoEditor.open=false;infoEditor.id='';infoEditor.keys='';infoEditor.content='';infoEditor.position=prompt.worldInfoPosition||storedPosition();infoEditor.depth=4;infoEditor.constant=false;infoEditor.probability=1;infoEditor.order=100;infoEditor.enabled=true}
 function openInfo(){resetInfo();infoEditor.open=true}
@@ -244,8 +251,7 @@ onUnmounted(()=>{if(avatarUrl.value)URL.revokeObjectURL(avatarUrl.value)})
 
 <template>
  <section class="tavern-character" aria-label="角色详情">
-  <p v-if="error" class="error" role="alert">{{error}}<button class="inline-link" type="button" @click="load">重试</button></p>
-  <p v-if="loading" class="tavern-loading" role="status">正在打开角色卡…</p>
+  <LoadState v-if="loading||error" :loading="loading" :error="error" loading-text="正在打开角色卡…" @retry="load"/>
 
   <template v-else-if="card">
    <header class="character-hero">
@@ -264,7 +270,7 @@ onUnmounted(()=>{if(avatarUrl.value)URL.revokeObjectURL(avatarUrl.value)})
    </header>
    <p v-if="exportError" class="error" role="alert">{{exportError}}</p>
 
-   <section class="character-section" aria-label="角色设定">
+   <section id="character-settings" class="character-section" aria-label="角色设定">
     <h2 class="section-title">角色设定</h2>
     <p v-if="saveError" class="error" role="alert">{{saveError}}</p>
     <p v-if="saveNotice" class="tavern-notice" role="status">{{saveNotice}}</p>
@@ -399,13 +405,19 @@ onUnmounted(()=>{if(avatarUrl.value)URL.revokeObjectURL(avatarUrl.value)})
      </li>
     </ul>
    </section>
+
+   <div class="character-mobile-actions" aria-label="角色操作">
+    <button type="button" class="primary" :disabled="startingChat" @click="startChat">{{startingChat?'正在创建…':'开新聊天'}}</button>
+    <button type="button" :disabled="exporting" @click="exportCard">{{exporting?'导出中…':'导出卡'}}</button>
+    <button type="button" @click="editSettings">编辑设定</button>
+   </div>
   </template>
  </section>
 </template>
 
 <style scoped>
 .tavern-character{width:100%;max-width:820px;margin:0 auto;padding:20px clamp(14px,3vw,28px) 72px;display:flex;flex-direction:column;gap:26px}
-.tavern-loading{color:var(--quiet);text-align:center;padding:48px 0}
+.character-mobile-actions{display:none}
 .character-hero{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
 .character-avatar{width:84px;height:84px;flex:none;border-radius:20px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--wash);color:var(--accent);font-family:var(--font-serif);font-size:34px}
 .character-avatar img{width:100%;height:100%;object-fit:cover}
@@ -453,5 +465,26 @@ onUnmounted(()=>{if(avatarUrl.value)URL.revokeObjectURL(avatarUrl.value)})
 .chat-history-item:hover{border-color:var(--accent)}
 .chat-history-title{font-size:15px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chat-history-meta{font-size:12px;color:var(--quiet);flex:none}
+@media(max-width:767px){
+ .tavern-character{padding-bottom:110px;gap:22px}
+ .character-hero{gap:12px}
+ .character-avatar{width:64px;height:64px;font-size:26px;border-radius:16px}
+ .character-hero-copy{min-width:0}
+ .character-hero-copy h1{font-size:22px}
+ .character-hero-actions{display:none}
+ .character-mobile-actions{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:20;gap:8px;padding:10px 14px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--edge);background:var(--canvas)}
+ .character-mobile-actions button{flex:1;display:inline-flex;align-items:center;justify-content:center;min-height:44px;font-size:14px}
+ .form-actions button{min-height:44px}
+ .section-head{flex-wrap:wrap;align-items:flex-start;gap:8px}
+ .world-info-item{flex-direction:column;gap:8px}
+ .world-info-actions{flex-direction:row;justify-content:flex-end;gap:8px}
+ .world-info-actions button,.section-head button{min-height:44px;padding:0 12px}
+ .preview-form{flex-direction:column}
+ .preview-form input,.preview-form button{width:100%}
+ .history-actions{display:grid;grid-template-columns:1fr 1fr;width:100%}
+ .import-chat-button,.history-actions .primary{justify-content:center;width:100%}
+ .chat-history-item{min-height:48px;gap:8px}
+ .chat-history-meta{display:none}
+}
 @media(max-width:620px){.form-pair{grid-template-columns:1fr}.character-hero-actions{width:100%}.character-hero-actions button{flex:1;justify-content:center}}
 </style>

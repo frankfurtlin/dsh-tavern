@@ -2,6 +2,7 @@ import {beforeEach,afterEach,describe,it,expect,vi} from 'vitest'
 import {defineComponent,h} from 'vue'
 import TavernRegexPage from './TavernRegexPage.vue'
 import {createRegexScript,deleteRegexScript,listRegexScripts,updateRegexScript} from '../characters/api'
+import LoadState from './LoadState.vue'
 import {compileRender,descendants,flush,node,provideSfc,renderer,text,type Host} from '../test/host-renderer'
 
 const harness=vi.hoisted(()=>({message:vi.fn()}))
@@ -15,6 +16,7 @@ vi.mock('../characters/api',()=>({
   deleteRegexScript:vi.fn(),
 }))
 compileRender(TavernRegexPage,new URL('./TavernRegexPage.vue',import.meta.url))
+compileRender(LoadState,new URL('./LoadState.vue',import.meta.url))
 
 const rule={id:'r1',name:'省略号收敛',pattern:'…+',replacement:'……',enabled:true,order:10}
 let app:ReturnType<typeof renderer.createApp>|undefined,host:Host

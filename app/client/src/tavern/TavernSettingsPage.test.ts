@@ -2,6 +2,7 @@ import {beforeEach,afterEach,describe,it,expect,vi} from 'vitest'
 import {defineComponent,h} from 'vue'
 import TavernSettingsPage from './TavernSettingsPage.vue'
 import {listPersonas} from '../characters/api'
+import LoadState from './LoadState.vue'
 import {compileRender,descendants,flush,node,provideSfc,renderer,text,type Host} from '../test/host-renderer'
 
 const harness=vi.hoisted(()=>({message:vi.fn()}))
@@ -12,6 +13,7 @@ vi.mock('../characters/PersonaControl.vue',()=>({default:defineComponent({props:
 vi.mock('./TavernPresetsPanel.vue',()=>({default:defineComponent({setup:()=>()=>h('section',{'aria-label':'预设管理'},'预设面板')})}))
 vi.mock('../characters/api',()=>({listPersonas:vi.fn()}))
 compileRender(TavernSettingsPage,new URL('./TavernSettingsPage.vue',import.meta.url))
+compileRender(LoadState,new URL('./LoadState.vue',import.meta.url))
 
 let app:ReturnType<typeof renderer.createApp>|undefined,host:Host
 function mount(){

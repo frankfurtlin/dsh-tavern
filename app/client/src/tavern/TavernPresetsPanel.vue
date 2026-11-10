@@ -153,7 +153,7 @@ onUnmounted(()=>{disposed=true})
 .presets-panel{display:flex;flex-direction:column;gap:10px}
 .panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .panel-head h2{font-size:17px;margin:0;font-family:var(--font-serif)}
-.panel-add{display:inline-flex;align-items:center;gap:6px;min-height:40px}
+.panel-add{display:inline-flex;align-items:center;gap:6px;min-height:44px}
 .panel-hint{margin:0;color:var(--quiet);font-size:13px;line-height:1.6}
 .panel-muted{color:var(--quiet);font-size:14px;margin:0}
 .preset-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
@@ -161,7 +161,7 @@ onUnmounted(()=>{disposed=true})
 .preset-name{margin:0 0 4px;font-size:15px;display:flex;gap:8px;align-items:center}
 .preset-meta{margin:0;font-size:12px;color:var(--quiet)}
 .preset-actions{display:flex;gap:6px;flex-wrap:wrap;flex:none}
-.preset-actions button{min-height:36px;font-size:13px}
+.preset-actions button{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-height:40px;padding:0 12px;border:1px solid var(--edge);border-radius:9px;background:var(--canvas);color:var(--quiet);font-size:13px;cursor:pointer}
 .danger-text{color:#b42318}
 .preset-form{display:flex;flex-direction:column;gap:10px;border:1px dashed var(--edge);border-radius:12px;padding:14px;margin-top:6px}
 .preset-form h3{margin:0;font-size:15px;font-family:var(--font-serif)}
@@ -169,5 +169,13 @@ onUnmounted(()=>{disposed=true})
 .form-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .form-actions{display:flex;gap:8px}
 .check{flex-direction:row!important;align-items:center;gap:8px!important}
+@media(max-width:767px){
+ .preset-item{flex-direction:column;align-items:stretch;gap:10px}
+ .preset-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px}
+ .preset-actions button{min-height:44px;width:100%}
+ .preset-form input,.preset-form select,.preset-form textarea{width:100%}
+ .preset-form .form-actions{position:sticky;bottom:calc(10px + env(safe-area-inset-bottom));background:var(--canvas);border-top:1px solid var(--edge);margin:2px -12px -6px;padding:8px 12px 4px}
+ .preset-form .form-actions button{flex:1;min-height:44px}
+}
 @media(max-width:620px){.form-row{grid-template-columns:1fr}.preset-item{flex-direction:column;align-items:stretch}}
 </style>

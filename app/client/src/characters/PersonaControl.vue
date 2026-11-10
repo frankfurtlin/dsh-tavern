@@ -133,9 +133,14 @@ onMounted(()=>{void load()})
 .persona-head small{color:var(--quiet);font-size:12px}
 .persona-row{display:flex;gap:10px;align-items:end;flex-wrap:wrap}
 .persona-row label{flex:1;min-width:200px;margin:0}
-.persona-row button{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:4px 12px;font-size:13px}
+.persona-row button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:4px 12px;font-size:13px}
 .persona-description{margin:0;color:var(--quiet);font-size:13px;line-height:1.7;overflow-wrap:anywhere}
 .persona-editor{display:grid;gap:8px}
 .persona-editor label{margin:0}
-@media(max-width:767px){.persona-row{display:grid;grid-template-columns:1fr 1fr}.persona-row label{grid-column:1/-1}}
+@media(max-width:767px){
+ .persona-row{display:grid;grid-template-columns:1fr 1fr}
+ .persona-row label{grid-column:1/-1;min-width:0}
+ .persona-row button{width:100%;min-height:44px}
+ .persona-editor input,.persona-editor textarea{width:100%}
+}
 </style>

@@ -4,16 +4,19 @@ import {BookMarked,Brush,Download,UserRound} from 'lucide-vue-next'
 import PersonaControl from '../characters/PersonaControl.vue'
 import {listPersonas,type Persona} from '../characters/api'
 import TavernPresetsPanel from './TavernPresetsPanel.vue'
+import LoadState from './LoadState.vue'
 
 const DEFAULT_PERSONA_KEY='tavern:default-persona'
 const personaId=ref<string|null>(null)
 const personas=ref<Persona[]>([])
 const personaError=ref('')
+const personasLoading=ref(true)
 const defaultPersonaId=ref<string>('')
 
 const defaultPersonaName=computed(()=>personas.value.find(item=>item.id===defaultPersonaId.value)?.name||'')
 
 async function loadPersonas(){
+  personasLoading.value=true;personaError.value=''
   try{
     personas.value=await listPersonas()
     if(defaultPersonaId.value&&!personas.value.some(item=>item.id===defaultPersonaId.value)){
@@ -22,7 +25,7 @@ async function loadPersonas(){
     }
   }catch(e){
     personaError.value=(e as Error).message||'人设暂时无法读取。'
-  }
+  }finally{personasLoading.value=false}
 }
 
 function chooseDefault(event:Event){
@@ -45,16 +48,18 @@ onMounted(()=>{
 
   <section class="settings-section" aria-label="人设（我是谁）">
    <h2><UserRound :size="18"/>人设（我是谁）</h2>
-   <PersonaControl v-model="personaId"/>
-   <p class="section-hint">人设会在对话中以「你的对话对象」注入；在这里创建和管理多个人设。</p>
-   <label class="default-persona">默认人设
-    <select :value="defaultPersonaId" aria-label="默认人设" @change="chooseDefault">
-     <option value="">不设置</option>
-     <option v-for="persona in personas" :key="persona.id" :value="persona.id">{{persona.name}}</option>
-    </select>
-   </label>
-   <p class="section-hint">默认人设会作为新聊天的初始选择（当前版本在聊天页仍可随时切换）。</p>
-   <p v-if="personaError" class="error" role="alert">{{personaError}}</p>
+   <LoadState v-if="personasLoading||personaError" :loading="personasLoading" :error="personaError" loading-text="正在读取人设…" @retry="loadPersonas"/>
+   <template v-else>
+    <PersonaControl v-model="personaId"/>
+    <p class="section-hint">人设会在对话中以「你的对话对象」注入；在这里创建和管理多个人设。</p>
+    <label class="default-persona">默认人设
+     <select :value="defaultPersonaId" aria-label="默认人设" @change="chooseDefault">
+      <option value="">不设置</option>
+      <option v-for="persona in personas" :key="persona.id" :value="persona.id">{{persona.name}}</option>
+     </select>
+    </label>
+    <p class="section-hint">默认人设会作为新聊天的初始选择（当前版本在聊天页仍可随时切换）。</p>
+   </template>
   </section>
 
   <section class="settings-section" aria-label="预设">
@@ -98,4 +103,12 @@ h1{font-family:var(--font-serif);font-size:28px;margin:0 0 8px}
 .settings-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .settings-back{display:inline-flex;min-height:44px;align-items:center;color:var(--accent)}
 .settings-footer small{color:var(--quiet)}
+@media(max-width:767px){
+ .tavern-settings{padding-bottom:96px;gap:22px}
+ .settings-section h2{font-size:16px}
+ .default-persona{max-width:none;width:100%}
+ .default-persona select,.settings-section input,.settings-section textarea,.settings-section select{width:100%}
+ .settings-footer{position:sticky;bottom:0;background:var(--canvas);border-top:1px solid var(--edge);padding:10px 0 calc(6px + env(safe-area-inset-bottom));margin:0 -14px;padding-left:14px;padding-right:14px}
+ .settings-back{flex:1;justify-content:center;min-height:44px;border:1px solid var(--accent);border-radius:10px;background:var(--accent);color:#fff;text-decoration:none}
+}
 </style>

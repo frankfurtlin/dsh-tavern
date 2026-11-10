@@ -2,6 +2,7 @@ import {beforeEach,afterEach,describe,it,expect,vi} from 'vitest'
 import {defineComponent,onUnmounted} from 'vue'
 import TavernChatsPage from './TavernChatsPage.vue'
 import {listChats} from './api'
+import LoadState from './LoadState.vue'
 import {compileRender,descendants,flush,node,provideSfc,renderer,text,type Host} from '../test/host-renderer'
 
 const harness=vi.hoisted(()=>({push:vi.fn()}))
@@ -13,6 +14,7 @@ vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});
 vi.mock('./api',()=>({listChats:vi.fn(),tavernAvatarUrl:(cardId:string)=>'/avatar/'+cardId}))
 
 compileRender(TavernChatsPage,new URL('./TavernChatsPage.vue',import.meta.url))
+compileRender(LoadState,new URL('./LoadState.vue',import.meta.url))
 
 const chats=[
   {id:'group-1',cardId:'',title:'群聊',mode:'group',members:[{cardId:'c1',name:'林渡'},{cardId:'c2',name:'阿青'}],lastMessage:'雨停了',lastMessageAt:'2026-02-02T10:00:00'},

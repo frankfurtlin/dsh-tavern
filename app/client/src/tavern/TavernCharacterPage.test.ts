@@ -2,6 +2,7 @@ import {beforeEach,afterEach,describe,it,expect,vi} from 'vitest'
 import {defineComponent,h,onUnmounted} from 'vue'
 import TavernCharacterPage from './TavernCharacterPage.vue'
 import {getPrompt,importChats,previewWorldInfo,updatePrompt} from './api'
+import LoadState from './LoadState.vue'
 import {compileRender,descendants,flush,node,provideSfc,renderer,text,type Host} from '../test/host-renderer'
 
 const harness=vi.hoisted(()=>({route:{params:{id:'c1'}},push:vi.fn()}))
@@ -28,6 +29,7 @@ vi.mock('./api',()=>({
   updatePrompt:vi.fn(),
 }))
 compileRender(TavernCharacterPage,new URL('./TavernCharacterPage.vue',import.meta.url))
+compileRender(LoadState,new URL('./LoadState.vue',import.meta.url))
 
 const card={id:'c1',name:'林渡',description:'雨夜侦探',tags:['悬疑'],hasAvatar:false}
 
