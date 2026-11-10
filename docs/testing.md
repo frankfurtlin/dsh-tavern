@@ -437,7 +437,7 @@ R 重新生成 1 + S2 采样发送 1）。P3 只点击工具条不发送，不�
 - **L6 列表与删除**：`GET /tavern/chats` 仍包含该群聊（不报错），`DELETE /chats/{id}` → 204，
   再查列表已回落；L7 本组 console clean。
 
-预期（task-63/64 全部部署时）：**60 PASS / 0 FAIL / 0 SKIP**（53 + L 组 7 项；L 组只做一次
+预期（task-63/64/65 全部部署时）：**66 PASS / 0 FAIL / 0 SKIP**（53 + L 组 7 项；L 组只做一次
 「单删 + 全员删除」闭环，真实生成 +2，全量总计 8 次）。未部署时 L 组依赖项记 SKIP 并注明
 `owner: app-auth`（详情容错/aliveMemberCount/409）或 `owner: cards-client`（已删除标记/只读 UI）。
 
@@ -525,3 +525,87 @@ L 组证据（`report.native.groupDeletion`）：
 
 清理：`cards=0 / chats=0 / messages=0 / world_info=0 / personas=0 / presets=1`（内置默认），
 `card-avatar-*.png`、`tavern-card-*.png` 已删；3099 无监听、隔离 HOME 已删。未 commit。
+
+## 搜索与移动端断言（N 组 / task-67）
+
+命令：`bash scripts/check.sh --instance`（N 组随 `--cards` 运行，可用 `DSH_TAVERN_ONLY=pol` 单独跑）
+
+| # | 断言 | 关键证据 |
+|---|------|---------|
+| N1 | 聊天内搜索：命中计数 >0，上/下一处切换计数变化，命中消息 `.chat-search-hit` 高亮且滚动可见 | `report.native.polish.search`（open/total/first/afterNext/afterPrev/hitVisible/hint） |
+| N2 | 无命中显示「没有匹配」；Esc 关闭搜索且输入框草稿保留 | `report.native.polish.search`（noMatch/closed/draftKept） |
+| N3 | 移动端 390×844：composer 在视口内且点击命中不被遮挡 | `report.native.polish.mobile`（composer/viewport/composerHit） |
+| N4 | 移动端发送/搜索触摸目标 ≥40×40、聊天名 ellipsis、页面无横向溢出 | `report.native.polish.mobile`（send/search/nameStyle/docOverflow） |
+| N5 | index.html viewport meta 含 `viewport-fit=cover` | `report.native.polish.viewport.meta` |
+| N6 | 搜索/移动端 console 无报错 | `report.native.polish.console` |
+
+数据准备：卡详情「导入酒馆聊天」导入 `chat-search.jsonl`（6 条消息，其中 3 条含「茶」），不触发生成；
+搜索词「茶」预期 3 条命中，无命中词用「绝无此词-ZZZ」。
+
+预期（task-65 全部部署时）：**66 PASS / 0 FAIL / 0 SKIP**（既有 60 + N 组 6；真实生成次数不变）。
+截图：150-search-hit.png、151-search-nomatch.png、152-mobile-chat.png、153-mobile-compose.png。
+
+## 实测记录（N，2026-11-06）
+
+命令：`bash scripts/check.sh --instance`（systemd-run 独立 cgroup，隔离 3099 + 生产 app 8001/8810 + 生产网关）
+
+结果：**66 PASS / 0 FAIL / 0 SKIP**（既有 60 项 + N 组 6 项），`report.ok=true`；静态检查 7 PASS / 0 FAIL / 1 SKIP。
+报告 `/tmp/dsh-tavern-native/check/report.json`（startedAt 2026-11-06T01:40:11Z）；截图 150–153。
+真实生成次数与上一轮一致（C 1 + C2 停止 1 + R 1 + S2 1 + L 2）。
+
+N 组证据（`report.native.polish`）：
+
+- N1 搜索：搜索按钮展开 `.chat-search[role=search]`，输入「茶」→ 计数 `1/4`（6 条导入消息中 4 条含茶），
+  「下一个匹配」→ `2/4` 且 `.bubble-row.chat-search-hit` 1 条、`data-message-id=…` 且滚动到 `.chat-log` 可视区；
+  「上一个匹配」回到 `1/4`；hint「仅搜索已加载消息」存在。
+- N2 无命中 + Esc：输入「绝无此词-ZZZ」→ 计数文本「没有匹配」；Esc 后搜索条关闭，composer 草稿原样保留。
+- N3 移动端（390×844）：`form.chat-compose` bottom=844（=视口高），textarea 中点 `elementFromPoint` 命中 composer 内元素，
+  未被底部导航遮挡。
+- N4 触摸目标/溢出：发送按钮 80×44、搜索按钮 44×44（均 ≥40×40）；`.chat-name` computed `text-overflow:ellipsis`、
+  `overflow:hidden`、`white-space:nowrap`；`.bubble-speaker-name` 的 ellipsis 规则在 CSSOM 中命中；
+  `documentElement.scrollWidth-innerWidth=0`、`.chat-log` 横向溢出 0。
+- N5 viewport：`meta[name=viewport]` = `width=device-width,initial-scale=1,viewport-fit=cover`。
+- N6 console：新开移动页 + 桌面本组均无报错。
+
+数据准备路径：卡详情「导入酒馆聊天」导入 `chat-search.jsonl`（6 条消息，4 条含「茶」）→ 自动进入
+`/chats/<id>`，不触发生成。清理时该导入会话随 `world.tavern_chats/messages` 一并删除。
+
+本轮 harness 修复：搜索高亮类（`.chat-search-hit`）只在点击「下一个/上一个」后写入命中 id 才出现，
+首版在输入后立即断言导致 `hitCount=0` → 改为先切一次再断言高亮与滚动；CSSOM 的 ellipsis 规则需递归
+（媒体查询内嵌规则）才能命中，已改为递归扫描。
+
+## 实测记录（打磨 2 收尾 / task-67，2026-11-10）
+
+两轮都跑同一份 harness（隔离实例与生产实例各一遍，均先清库）：
+
+| 轮次 | 命令 / 入口 | 结果 | 报告 |
+| --- | --- | --- | --- |
+| 隔离全量 | `bash scripts/check.sh --instance`（systemd-run 独立 cgroup，3099 + 生产 app 8001/8810 + 生产网关） | **66 PASS / 0 FAIL / 0 SKIP**，`report.ok=true` | `/tmp/dsh-tavern-native/check/report.json`（startedAt 2026-11-10T02:37:38Z） |
+| 生产冒烟 | `node verify.mjs --url "http://127.0.0.1:3080/?token=…" --out /tmp/dsh-tavern-native/prod-pol2b --fixtures /tmp/dsh-tavern-native/cards` | **66 PASS / 0 FAIL / 0 SKIP**，`report.ok=true` | `/tmp/dsh-tavern-native/prod-pol2b/report.json`（startedAt 2026-11-10T02:52:50Z） |
+
+两轮证据一致：G 组两条群聊回复均为 `http=200`、约 7.0s，发言人 林小满 → 顾清和（轮转）；
+L 组删第一位成员后 `firstSpeaker=林小满`、`aliveMemberName=顾清和`，删成员后的发言 `http=200` 且落库
+`afterAssistantCount=2`、发言人 `顾清和`；C 组流式仍有 ≥2 个不同长度（生产轮 distinct=4）；L2 页头节点级断言
+`className` 含 `deleted` + `opacity=0.45` + 文本含「已删除」（去重 title/aria-label 后）通过。
+
+本轮 harness 修复（均为时序/选择器，未放宽任何断言）：
+
+1. **C 组自足**：只用 `DSH_TAVERN_ONLY=c,g,l` 这类目标化跑时 N 组不执行、首页没有卡，导致「点卡无跳转」假失败。
+   新增 `ensureFixtureCard()`：卡片缺失时回首页用 `input[aria-label="导入角色卡文件"]` 补导入 `v2-png.png` 并等卡名出现。
+2. **点卡入口**：卡片点击处理器在内层 `button.tavern-card-open`（点外层 `div.tavern-card` 中心可能落空），
+   改为优先点该按钮；3 次重试间回首页重新定位卡片；卡片列表搜索/导入后短暂重渲染时先等卡片出现再点。
+3. **发送可靠性**：G/L 组发送前 `waitFor` 发送按钮 `isDisabled()===false`（刚进聊天或上一条收尾时按钮 disabled，
+   force click 会静默丢弃）；`page.on('response')` 捕获 `POST /tavern/chats/<id>/messages` 的 httpStatus；
+   6–8s 无 POST 时退化为 DOM click 并记录 `clickPath`。
+4. **L3 断言收紧**：必须同时满足「本次发送 POST 200 + 服务端 assistant 条数增加且文本变化 + speakerName=存活成员」
+   才 PASS（以 GET `/chats/{id}` 落库为准，UI 只校验展示，避免历史消息未加载完时的假通过/假失败）。
+5. **挂起归因**：G/L 组在 30s 无首个 delta 时旁路调用 `gatewayProbe()`（直连 3080 `/tavern-agent/v1/stream`，
+   16 tokens），把结果写进 `report.native.group.replies[].stallProbe`。本轮两轮全绿、未触发探针；
+   此前（2026-11-06 prod-pol2）曾出现一次「POST 200 但 180s 无 delta」，复跑即恢复，判为上游偶发，
+   若再现可用该探针区分「整网关挂起」与「单请求卡住」。
+6. **L2 页头断言**：改为节点级三条件（class 含 `deleted` + opacity<0.6 + 文本含「已删除」，title/aria-label 去重），
+   不再因「文本拼接重复」误报。
+
+清库核对：`world.character_cards=0`、`world.tavern_chats=0`、`world.tavern_messages=0`、
+`world.tavern_world_info=0`、`world.tavern_personas=0`、`world.tavern_presets` 仅内置「默认」1 条；
+`app/data/private/*/card-avatar-*.png`、`tavern-card-*.png` 已删；隔离 3099 无监听、`/tmp/dsh-tavern-native/instance` 已删。

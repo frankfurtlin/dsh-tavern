@@ -303,6 +303,42 @@ try {
   const fixtureCard = manifest && Array.isArray(manifest.cards) ? manifest.cards.find((card) => card.format === 'png-v2') || manifest.cards[0] : null
   const cardName = (fixtureCard && fixtureCard.name) || '林小满'
 
+  // 生成卡住时旁路探网关：用来区分「整个网关/模型服务挂起」与「单个请求卡住」。
+  // 只读 app/.env 的 DSH_AGENT_SECRET，不写任何状态；结果只进详情，不改变断言。
+  async function gatewayProbe(timeoutMs = 15000) {
+    let secret = ''
+    try {
+      const raw = await readFile(new URL('./app/.env', import.meta.url), 'utf8')
+      const match = raw.match(/^DSH_AGENT_SECRET=(.+)$/m) || raw.match(/^DSH_TAVERN_AGENT_SECRET=(.+)$/m)
+      if (match) secret = match[1].trim()
+    } catch {
+      return { ok: false, error: 'no-secret' }
+    }
+    if (!secret) return { ok: false, error: 'no-secret' }
+    const started = Date.now()
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const response = await fetch('http://127.0.0.1:3080/tavern-agent/v1/stream', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system: '你是测试助手',
+          messages: [{ role: 'user', content: '只回复两个字：你好' }],
+          maxTokens: 16,
+        }),
+        signal: controller.signal,
+      })
+      let chars = 0
+      for await (const chunk of response.body) chars += chunk.length
+      return { ok: response.ok, status: response.status, ms: Date.now() - started, chars }
+    } catch (error) {
+      return { ok: false, error: error && error.name === 'AbortError' ? `timeout>${timeoutMs}ms` : String(error && error.message), ms: Date.now() - started }
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
   async function findCard(name) {
     const frameNow = fnow()
     if (!frameNow) return null
@@ -390,14 +426,40 @@ try {
   async function openChat() {
     const frameNow = fnow()
     if (!frameNow) return null
-    const card = await findCard(cardName)
+    // 列表在搜索/导入后会短暂重渲染（卡片数可能瞬时为 0）：等卡片出现再点，避免误判「点卡无效」。
+    let card = await findCard(cardName)
+    if (!card) {
+      await waitFor(async () => Boolean(await findCard(cardName)), 12000)
+      card = await findCard(cardName)
+    }
     if (!card) return null
-    await card.click({ force: true }).catch(async () => {
-      await card.evaluate((el) => el.click()).catch(() => {})
-    })
     // 原生交互：点卡直接进最近聊天（没有则自动新建）→ /chats/<id>；若落在详情页再点「开新聊天」。
-    let chatFrame = await waitFrameUrl(/\/chats\/[0-9a-zA-Z_-]+/, 25000)
+    // 卡片刚渲染/图片未就绪时 force click 可能丢事件：12s 未跳转则重试（最多 3 次）。
+    let chatFrame = null
     let detail = null
+    // 卡片的点击处理器挂在内层 button.tavern-card-open 上；点外层 div 的中心未必落在按钮里，
+    // 因此优先点真实按钮，找不到再退回整卡点击（每轮都重试，最多 3 次）。
+    for (let attempt = 0; attempt < 3 && !chatFrame; attempt += 1) {
+      if (attempt > 0) {
+        await page.waitForTimeout(800)
+        // 第一次没跳转时：回到首页并重新定位卡片，排除「面板刚挂载/卡片被重渲染」导致的点击丢失。
+        await appGoto('/')
+        await page.waitForTimeout(400)
+        const refreshed = await findCard(cardName)
+        if (refreshed) card = refreshed
+      }
+      const openButton = card.locator('.tavern-card-open').first()
+      if (await openButton.count().catch(() => 0)) {
+        await openButton.click({ force: true }).catch(async () => {
+          await openButton.evaluate((el) => el.click()).catch(() => {})
+        })
+      } else {
+        await card.click({ force: true }).catch(async () => {
+          await card.evaluate((el) => el.click()).catch(() => {})
+        })
+      }
+      chatFrame = await waitFrameUrl(/\/chats\/[0-9a-zA-Z_-]+/, attempt === 0 ? 25000 : 12000)
+    }
     if (!chatFrame) {
       detail = await waitFrameUrl(/\/characters\/[0-9a-zA-Z_-]+/, 6000)
       if (detail) {
@@ -450,6 +512,22 @@ try {
     return ((await row.innerText().catch(() => '')) || '').trim()
   }
 
+  // C 组自足：目标分组单独跑（例如 DSH_TAVERN_ONLY=c,g,l）时 N 组不会导入卡，
+  // 这里按需补导入 fixture，避免「首页没有卡」被误判成点卡无效。
+  async function ensureFixtureCard() {
+    if (await findCard(cardName)) return true
+    await appGoto('/')
+    const frameNow = fnow()
+    if (!frameNow) return false
+    const input = frameNow
+      .locator('input[type=file][aria-label="导入角色卡文件"], .tavern-import input[type=file], input[type=file]')
+      .first()
+    if (!(await input.count().catch(() => 0))) return false
+    await input.setInputFiles(path.join(fixturesDir, 'v2-png.png')).catch(() => {})
+    await waitFor(async () => Boolean(await findCard(cardName)), 20000)
+    return Boolean(await findCard(cardName))
+  }
+
   // ── C. 聊天 + 流式 ───────────────────────────────────────────────────────
   const chatEvidence = { chatUrl: null, cardUrl: null, userShown: false, samples: [], distinct: 0, growing: false, saved: false, persisted: false }
   report.native.chat = chatEvidence
@@ -462,12 +540,45 @@ try {
       skip('assistant 文本流式增长（≥2 个不同长度）', blockedReason)
       skip('刷新后消息仍在（落库）', blockedReason)
     } else {
-      const opened = await openChat()
+      const apiTrace = []
+      const traceResponse = (response) => {
+        const url = response.url()
+        if (!/\/tavern\/api\//.test(url)) return
+        if (apiTrace.length < 40) apiTrace.push(`${response.status()} ${url.replace(/^.*\/tavern\/api\/reader\/v1\/tavern/, '')}`)
+      }
+      page.on('response', traceResponse)
+      page.on('pageerror', (error) => {
+        if (apiTrace.length < 45) apiTrace.push(`PAGEERROR ${String(error && error.message).slice(0, 120)}`)
+      })
+      chatEvidence.apiTrace = apiTrace
+      const cardReady = await ensureFixtureCard()
+      chatEvidence.cardReady = cardReady
+      const opened = cardReady ? await openChat() : null
+      page.off('response', traceResponse)
       chatFrame = opened && opened.chatFrame ? opened.chatFrame : null
       cardUrl = opened && opened.detail ? opened.detail.url() : null
       chatEvidence.chatUrl = chatFrame ? chatFrame.url() : null
       chatEvidence.cardUrl = cardUrl
-      check('点卡进入角色页并可开新聊天', Boolean(chatFrame), chatFrame ? `detail=${cardUrl} chat=${chatFrame.url()}` : `点卡后没有进入 /chats/<id>（detail=${cardUrl}；owner: cards-client 角色页/聊天路由）`)
+      if (!chatFrame) {
+        const failFrame = fnow()
+        const failBody = failFrame ? (await bodyText(failFrame)).replace(/\s+/g, ' ').slice(0, 300) : ''
+        const cardCount = failFrame ? await failFrame.locator('.tavern-card').count().catch(() => 0) : 0
+        const openCount = failFrame ? await failFrame.locator('.tavern-card-open').count().catch(() => 0) : 0
+        chatEvidence.clickFail = {
+          url: failFrame ? failFrame.url() : null,
+          cardCount,
+          openCount,
+          body: failBody,
+        }
+        await shot(page, '92-c-card-click-fail.png')
+      }
+      check(
+        '点卡进入角色页并可开新聊天',
+        Boolean(chatFrame),
+        chatFrame
+          ? `detail=${cardUrl} chat=${chatFrame.url()}`
+          : `点卡后没有进入 /chats/<id>（detail=${cardUrl} url=${chatEvidence.clickFail && chatEvidence.clickFail.url} cards=${chatEvidence.clickFail && chatEvidence.clickFail.cardCount} opens=${chatEvidence.clickFail && chatEvidence.clickFail.openCount} body=${clip(chatEvidence.clickFail && chatEvidence.clickFail.body, 160)} api=${clip((chatEvidence.apiTrace || []).join(' ; '), 260)}；owner: cards-client 角色页/聊天路由）`,
+      )
       if (chatFrame) {
         const input = chatFrame.locator('textarea[aria-label="聊天输入框"], textarea[placeholder*="说"]').first()
         if (!(await input.count().catch(() => 0))) {
@@ -726,13 +837,37 @@ try {
           await input.fill(text).catch(() => {})
           const beforeRows = await groupChatFrame.locator('.bubble-row.assistant').count().catch(() => 0)
           const sendButton = groupChatFrame.locator('button[aria-label="发送消息"], button[type="submit"]').first()
+          // 刚进聊天或上一条还在收尾时发送按钮是 disabled 的，force click 会被静默丢弃 → 先等可用。
+          await waitFor(async () => {
+            if (!(await sendButton.count().catch(() => 0))) return false
+            return !(await sendButton.isDisabled().catch(() => false))
+          }, 20000)
+          let httpStatus = null
+          const onResponse = (response) => {
+            if (/\/tavern\/chats\/[^/]+\/messages/.test(response.url()) && response.request().method() === 'POST') {
+              httpStatus = response.status()
+            }
+          }
+          page.on('response', onResponse)
           const startedAt = Date.now()
+          let clickPath = 'click'
           if (await sendButton.count().catch(() => 0)) await sendButton.click({ force: true }).catch(() => {})
-          else await input.press('Enter').catch(() => {})
+          else {
+            clickPath = 'enter'
+            await input.press('Enter').catch(() => {})
+          }
+          // 6s 内没有 POST 响应 → 点击可能落空，退化为 DOM click 再试一次，并记录 clickPath 便于归因。
+          await page.waitForTimeout(6000)
+          if (httpStatus === null) {
+            clickPath += '+domClick'
+            await sendButton.evaluate((el) => el.click()).catch(() => {})
+          }
           let stable = 0
           let lastText = ''
           let finalText = ''
+          let stallProbe = null
           while (Date.now() - startedAt < 180000) {
+            if (!stallProbe && !lastText && Date.now() - startedAt > 30000) stallProbe = await gatewayProbe(15000)
             const rows = groupChatFrame.locator('.bubble-row.assistant')
             const count = await rows.count().catch(() => 0)
             const row = count > beforeRows ? rows.nth(count - 1) : null
@@ -754,11 +889,24 @@ try {
             }
             await page.waitForTimeout(250)
           }
+          page.off('response', onResponse)
           const lastRow = await lastAssistantRow(groupChatFrame)
           const speaker = lastRow
             ? ((await lastRow.locator('.bubble-speaker-name').first().innerText().catch(() => '')) || '').trim()
             : ''
-          return { text: finalText || lastText, speaker, elapsedMs: Date.now() - startedAt }
+          // 超时/失败时把 UI 错误提示与状态文案一起带回，便于判断是网关挂起还是前端没渲染。
+          const alertText = ((await groupChatFrame.locator('[role=alert]').allTextContents().catch(() => [])) || []).join(' | ')
+          const statusText = ((await groupChatFrame.locator('.chat-status').allTextContents().catch(() => [])) || []).join(' | ')
+          return {
+            text: finalText || lastText,
+            speaker,
+            elapsedMs: Date.now() - startedAt,
+            httpStatus,
+            clickPath,
+            alertText,
+            statusText,
+            stallProbe,
+          }
         }
 
         // G2：第一条 → members[0]
@@ -775,7 +923,7 @@ try {
         check(
           groupCheckNames[1],
           g2Ok,
-          `speaker=${clip(reply1 && reply1.speaker)} 期望=${clip(detailMembers[0])} apiSpeaker=${clip(apiSpeaker1)} text=${clip(reply1 && reply1.text, 80)} elapsed=${reply1 && reply1.elapsedMs}ms`,
+          `speaker=${clip(reply1 && reply1.speaker)} 期望=${clip(detailMembers[0])} apiSpeaker=${clip(apiSpeaker1)} text=${clip(reply1 && reply1.text, 80)} elapsed=${reply1 && reply1.elapsedMs}ms http=${reply1 && reply1.httpStatus} path=${reply1 && reply1.clickPath} alert=${clip(reply1 && reply1.alertText, 60)} status=${clip(reply1 && reply1.statusText, 40)} probe=${clip(JSON.stringify(reply1 && reply1.stallProbe))}`,
         )
         markStep(1)
         await shot(page, '132-g-reply-first.png')
@@ -912,9 +1060,25 @@ try {
   // G 组结束后 iframe 停在 /chats 列表：把聊天页还回 C 组创建的单聊（C2/R/P/T 依赖 chatFrame）。
   if (groupEvidence.enabled && chatEvidence.chatUrl) {
     const restorePath = new URL(chatEvidence.chatUrl).pathname.replace(/^\/tavern/, '') || '/'
-    const restored = await appGoto(restorePath)
+    let restored = await appGoto(restorePath)
     if (restored) {
       await waitChatRendered(restored, 25000)
+      let loaded = await waitFor(
+        async () => (await restored.locator('article.bubble-row.assistant').count().catch(() => 0)) > 0,
+        20000,
+      )
+      if (!loaded) {
+        const again = await appGoto(restorePath)
+        if (again) {
+          await waitChatRendered(again, 25000)
+          loaded = await waitFor(
+            async () => (await again.locator('article.bubble-row.assistant').count().catch(() => 0)) > 0,
+            20000,
+          )
+          if (loaded) restored = again
+        }
+      }
+      report.native.restore = { ok: loaded, url: restored.url() }
       chatFrame = restored
     }
   }
@@ -930,7 +1094,13 @@ try {
       const regenAgain = chatFrame.getByRole('button', { name: /重新生成|重生成|重新回复/ }).first()
       const regenReady = await waitFor(async () => (await regenAgain.count().catch(() => 0)) > 0, 20000)
       if (!regenReady) {
-        skip('停止生成按钮出现、可点且不报错', '聊天页没有「重新生成」按钮，无法制造流式（owner: cards-client ChatPage）')
+        const c2Url = chatFrame && typeof chatFrame.url === 'function' ? chatFrame.url() : '(no-frame)'
+        const c2Rows = chatFrame ? await chatFrame.locator('article.bubble-row').count().catch(() => -1) : -1
+        const c2Restore = report.native.restore ? JSON.stringify(report.native.restore) : '{}'
+        skip(
+          '停止生成按钮出现、可点且不报错',
+          `聊天页没有「重新生成」按钮，无法制造流式（owner: cards-client ChatPage）；debug url=${c2Url} rows=${c2Rows} restore=${c2Restore}`,
+        )
       } else {
         await regenAgain.click({ force: true }).catch(() => {})
         const stopLocator = chatFrame.locator('button[aria-label*="停止"], button:has-text("停止")').first()
@@ -2681,17 +2851,42 @@ try {
               await input.fill(text).catch(() => {})
               const before = await frameNow.locator('.bubble-row.assistant').count().catch(() => 0)
               const sendButton = frameNow.locator('button[aria-label="发送消息"]').first()
+              // 发送按钮在「刚进聊天/上一条还在收尾」时是 disabled 的，force click 会被静默丢弃。
+              await waitFor(async () => {
+                if (!(await sendButton.count().catch(() => 0))) return false
+                return !(await sendButton.isDisabled().catch(() => false))
+              }, 20000)
+              let httpStatus = null
+              const onResponse = (response) => {
+                if (/\/tavern\/chats\/[^/]+\/messages/.test(response.url()) && response.request().method() === 'POST') {
+                  httpStatus = response.status()
+                }
+              }
+              page.on('response', onResponse)
+              const started = Date.now()
+              let clickPath = 'click'
               await sendButton.click({ force: true }).catch(() => {})
-              const started = await waitFor(
-                async () => (await frameNow.locator('.bubble-row.assistant').count().catch(() => 0)) > before,
-                7000,
-              )
-              if (!started) await sendButton.evaluate((element) => element.click()).catch(() => {})
+              await waitFor(async () => httpStatus !== null, 8000)
+              if (httpStatus === null) {
+                clickPath += '+domClick'
+                await sendButton.evaluate((element) => element.click()).catch(() => {})
+                await waitFor(async () => httpStatus !== null, 8000)
+              }
+              page.off('response', onResponse)
+              // 等 assistant 气泡出现（最多 90s）；30s 仍无气泡时旁路探网关，作为「上游挂起」证据。
+              let stallProbe = null
+              const deadline = Date.now() + 90000
+              while (Date.now() < deadline) {
+                const count = await frameNow.locator('.bubble-row.assistant').count().catch(() => 0)
+                if (count > before) break
+                if (!stallProbe && Date.now() - started > 30000) stallProbe = await gatewayProbe(15000)
+                await page.waitForTimeout(600)
+              }
               // 群聊气泡没有 .bubble-meta（small 为空），完成判定用「无 pending + 文本连续两次稳定」。
               let saved = false
               let previousText = ''
-              const deadline = Date.now() + 180000
-              while (Date.now() < deadline) {
+              const settleDeadline = Date.now() + 90000
+              while (Date.now() < settleDeadline) {
                 const rows = await frameNow.locator('.bubble-row').count().catch(() => 0)
                 const pending = await frameNow.locator('.bubble-pending').count().catch(() => 0)
                 const textNow =
@@ -2717,8 +2912,11 @@ try {
                 meta: ((await frameNow.locator('.bubble-row.assistant small').last().innerText().catch(() => '')) || '').trim(),
                 before,
                 replyLength: replyText.length,
+                httpStatus,
+                clickPath,
+                stallProbe,
               }
-              return { saved, replyText, debug }
+              return { saved, replyText, debug, httpStatus, clickPath, stallProbe }
             }
             const assistantsOf = (payload) =>
               payload && Array.isArray(payload.messages) ? payload.messages.filter((item) => item.role === 'assistant') : []
@@ -2768,7 +2966,11 @@ try {
                     const nodes = Array.from(document.querySelectorAll('.chat-members .chat-member-avatar'))
                     return nodes
                       .map((node) => {
-                        const text = `${node.getAttribute('title') || ''} ${node.getAttribute('aria-label') || ''}`.trim()
+                        // title 与 aria-label 常是同一文案，去重后再断言，避免「林小满（已删除） 林小满（已删除）」误判。
+                        const parts = Array.from(
+                          new Set([node.getAttribute('title') || '', node.getAttribute('aria-label') || ''].filter(Boolean)),
+                        )
+                        const text = parts.join(' | ').trim()
                         const style = getComputedStyle(node)
                         return { text, opacity: style.opacity, className: String(node.className), filter: style.filter }
                       })
@@ -2776,10 +2978,16 @@ try {
                   })
                   .catch(() => [])
               : []
+            const markerOk = markerNodes.some(
+              (node) =>
+                /已删除/.test(node.text || '') &&
+                /(?:^|\s)deleted(?:\s|$)/.test(node.className || '') &&
+                Number(node.opacity) < 0.6,
+            )
             const greyed = markerNodes.some(
               (node) => Number(node.opacity) < 1 || /(?:^|\s)(?:is-)?deleted|disabled/.test(node.className),
             )
-            groupDeletionEvidence.uiDeleted = { markerShown, markerNodes, greyed }
+            groupDeletionEvidence.uiDeleted = { markerShown, markerOk, markerNodes, greyed }
             await shot(page, '140-l-member-deleted.png')
             const l1Ok = Boolean(
               detailAfterOne &&
@@ -2801,26 +3009,65 @@ try {
               markStep(0)
               check(
                 groupDeletionCheckNames[1],
-                markerShown && greyed,
-                `marker=${markerShown} greyed=${greyed} nodes=${clip(markerNodes)}${markerShown ? '' : '；owner: cards-client 页头标记'}`,
+                markerOk && greyed,
+                `marker=${markerShown} markerOk=${markerOk} greyed=${greyed} nodes=${clip(markerNodes)}${markerOk ? '' : '；owner: cards-client 页头标记'}`,
               )
               markStep(1)
               await shot(page, '141-l-member-grey.png')
 
-              // 6) 删成员后继续发言：发言人必须切换到存活成员。
+              // 6) 删成员后继续发言：发言人必须切换到存活成员（以服务端落库为准，UI 只校验展示）。
+              // 注意：UI 在发送瞬间可能仍在加载历史消息，不能只看「最后一条 assistant 气泡」判定完成，
+              // 否则会读到删除前那条回复造成假失败。这里轮询服务端，要求 assistant 条数增加且文本变化。
+              const preSendDetail = await lApi(`/chats/${chatId}`)
+              const preSendPayload = preSendDetail && preSendDetail.payload ? preSendDetail.payload : null
+              const assistantsBeforeSend = assistantsOf(preSendPayload)
+              const beforeAssistantCount = assistantsBeforeSend.length
+              const beforeLastText = beforeAssistantCount
+                ? String(assistantsBeforeSend[beforeAssistantCount - 1].text || '')
+                : ''
               const secondSend = await sendInChat(frame, '（E2E 群聊）刚才那位还在吗？')
-              const detailAfterSend = await lApi(`/chats/${chatId}`)
-              const sendPayload = detailAfterSend && detailAfterSend.payload ? detailAfterSend.payload : null
-              const assistantsAfter = assistantsOf(sendPayload)
-              const secondSpeaker = assistantsAfter.length
-                ? assistantsAfter[assistantsAfter.length - 1].speakerName || null
-                : null
+              let assistantsAfter = []
+              let secondSpeaker = null
+              let lastTextAfter = ''
+              const sendDeadline = Date.now() + 180000
+              while (Date.now() < sendDeadline) {
+                const detail = await lApi(`/chats/${chatId}`)
+                const payload = detail && detail.payload ? detail.payload : null
+                const list = assistantsOf(payload)
+                const lastText = list.length ? String(list[list.length - 1].text || '') : ''
+                if (list.length > beforeAssistantCount && lastText && lastText !== beforeLastText) {
+                  assistantsAfter = list
+                  secondSpeaker = list[list.length - 1].speakerName || null
+                  lastTextAfter = lastText
+                  break
+                }
+                await page.waitForTimeout(700)
+              }
+              const expectedRows =
+                (preSendPayload && Array.isArray(preSendPayload.messages) ? preSendPayload.messages.length : 0) + 2
+              await waitFor(
+                async () => (await frame.locator('.bubble-row').count().catch(() => 0)) >= expectedRows,
+                30000,
+              )
               const secondSpeakerUi =
                 ((await frame.locator('.bubble-row.assistant .bubble-speaker-name').last().innerText().catch(() => '')) || '').trim()
-              const switchOk = Boolean(secondSend.saved && secondSpeaker && secondSpeaker === aliveMemberName && secondSpeakerUi === secondSpeaker)
+              // 必须看到本次发送的 POST 200 + 服务端落库 + 发言人=存活成员，三者缺一不可。
+              const switchOk = Boolean(
+                secondSend.httpStatus === 200 &&
+                  secondSpeaker &&
+                  secondSpeaker === aliveMemberName &&
+                  secondSpeakerUi === secondSpeaker,
+              )
               groupDeletionEvidence.speakerSwitch = {
-                saved: secondSend.saved,
-                debug: secondSend.debug,
+                saved: Boolean(secondSpeaker),
+                debug: {
+                  ...secondSend.debug,
+                  beforeAssistantCount,
+                  afterAssistantCount: assistantsAfter.length,
+                  replyLength: lastTextAfter.length,
+                  expectedRows,
+                  rowsNow: await frame.locator('.bubble-row').count().catch(() => 0),
+                },
                 firstSpeaker,
                 secondSpeaker,
                 secondSpeakerUi,
@@ -2830,7 +3077,7 @@ try {
               check(
                 groupDeletionCheckNames[2],
                 switchOk,
-                `saved=${secondSend.saved} first=${clip(firstSpeaker)} second=${clip(secondSpeaker)} ui=${clip(secondSpeakerUi)} alive=${clip(aliveMemberName)}`,
+                `http=${secondSend.httpStatus} path=${secondSend.clickPath} probe=${clip(JSON.stringify(secondSend.stallProbe))} saved=${secondSend.saved} first=${clip(firstSpeaker)} second=${clip(secondSpeaker)} ui=${clip(secondSpeakerUi)} alive=${clip(aliveMemberName)}`,
               )
               markStep(2)
               await shot(page, '142-l-speaker-switch.png')
@@ -2949,6 +3196,369 @@ try {
       for (let index = 0; index < groupDeletionCheckNames.length; index += 1) {
         if (!groupDeletionEvidence.steps.includes(index)) skip(groupDeletionCheckNames[index], '前置步骤未执行')
       }
+    }
+  }
+
+
+  // ── N. 搜索 + 移动端打磨（task-67；搜索仅已加载消息、390×844 适配）──────────
+  const polishCheckNames = [
+    '聊天内搜索：命中计数 >0，上/下一处切换计数变化且命中消息高亮可见',
+    '搜索无命中显示「没有匹配」，Esc 关闭搜索后输入草稿保留',
+    '移动端（390×844）composer 在视口内且点击命中不被遮挡',
+    '移动端发送/搜索触摸目标 ≥40×40，聊天名 ellipsis，页面无横向溢出',
+    'index.html viewport meta 含 viewport-fit=cover',
+    '搜索/移动端 console 无报错',
+  ]
+  const polishEvidence = {
+    enabled: false,
+    chatId: null,
+    messages: 0,
+    search: null,
+    mobile: null,
+    viewport: null,
+    console: null,
+    steps: [],
+  }
+  report.native.polish = polishEvidence
+  if (groupOn('pol')) {
+    if (nativeBlocked) {
+      for (const name of polishCheckNames) skip(name, blockedReason)
+    } else {
+      polishEvidence.enabled = true
+      const polConsoleStart = consoleErrors.length
+      const polDone = new Set()
+      const polRecord = (index, ok, detail) => {
+        if (polDone.has(index)) return
+        check(polishCheckNames[index], ok, detail)
+        polDone.add(index)
+        polishEvidence.steps.push(index)
+      }
+      const polSkipRemaining = (from, detail) => {
+        for (let index = from; index < polishCheckNames.length; index += 1) {
+          if (polDone.has(index)) continue
+          skip(polishCheckNames[index], detail)
+          polDone.add(index)
+          polishEvidence.steps.push(index)
+        }
+      }
+      const polApi = async (pathname, options = {}) => {
+        const frameNow = fnow()
+        if (!frameNow) return null
+        return frameNow
+          .evaluate(
+            async ([pathAndQuery, opts]) => {
+              try {
+                const response = await fetch('/tavern/api/reader/v1/tavern' + pathAndQuery, {
+                  credentials: 'include',
+                  method: opts.method || 'GET',
+                  headers: opts.body ? { 'Content-Type': 'application/json' } : undefined,
+                  body: opts.body ? JSON.stringify(opts.body) : undefined,
+                })
+                const text = await response.text()
+                let payload = null
+                try {
+                  payload = text ? JSON.parse(text) : null
+                } catch {
+                  payload = { raw: String(text).slice(0, 200) }
+                }
+                return { status: response.status, payload }
+              } catch (error) {
+                return { status: 0, error: String(error) }
+              }
+            },
+            [pathname, options],
+          )
+          .catch(() => null)
+      }
+      let mobilePage = null
+      try {
+        // 1) 准备一个 ≥4 条消息的聊天：卡详情「导入酒馆聊天」导入 chat-search.jsonl（不触发生成）。
+        let importedChatId = null
+        await appGoto('/')
+        const homeFrame = fnow()
+        if (homeFrame) {
+          const cardImport = homeFrame.locator('input[aria-label="导入角色卡文件"]').first()
+          const hasCardImport = await waitFor(async () => (await cardImport.count().catch(() => 0)) > 0, 20000)
+          if (hasCardImport) {
+            const cardCount = await homeFrame.locator('.tavern-card').count().catch(() => 0)
+            if (cardCount === 0) {
+              await cardImport.setInputFiles(path.join(fixturesDir, 'v2-png.png')).catch(() => {})
+              await waitFor(async () => (await homeFrame.locator('.tavern-card').count().catch(() => 0)) > 0, 20000)
+            }
+            const edit = homeFrame.locator('.tavern-card-edit').first()
+            if ((await edit.count().catch(() => 0)) > 0) {
+              await edit.click({ force: true }).catch(() => {})
+              const detail = await waitFrameUrl(/\/characters\/[0-9a-zA-Z_-]+/, 15000)
+              if (detail) {
+                const chatImport = detail.locator('input[aria-label="导入酒馆聊天 JSONL"]').first()
+                const hasChatImport = await waitFor(async () => (await chatImport.count().catch(() => 0)) > 0, 20000)
+                if (hasChatImport) {
+                  await chatImport.setInputFiles(path.join(fixturesDir, 'chat-search.jsonl')).catch(() => {})
+                  const chatLanded = await waitFrameUrl(/\/chats\/[0-9a-zA-Z_-]+/, 25000)
+                  if (chatLanded) {
+                    const matched = (new URL(chatLanded.url()).pathname || '').match(/\/chats\/([0-9a-zA-Z_-]+)/)
+                    importedChatId = matched ? matched[1] : null
+                    await waitChatRendered(chatLanded, 20000)
+                  }
+                }
+              }
+            }
+          }
+        }
+        const detailApi = importedChatId ? await polApi(`/chats/${importedChatId}`) : null
+        const messageCount =
+          detailApi && detailApi.payload && Array.isArray(detailApi.payload.messages)
+            ? detailApi.payload.messages.length
+            : 0
+        polishEvidence.chatId = importedChatId
+        polishEvidence.messages = messageCount
+        if (!importedChatId || messageCount < 4) {
+          throw new Error(
+            `SKIP: 无法准备 ≥4 条消息的聊天（chatId=${importedChatId} messages=${messageCount}；导入入口/ST JSONL 导入不可用，owner: cards-client）`,
+          )
+        }
+
+        // 2) N1 搜索命中 + 上/下一处 + 高亮滚动
+        const searchFrame = fnow()
+        const searchButton = searchFrame.locator('button[aria-label="搜索聊天内容"]').first()
+        const hasSearchButton = await waitFor(async () => (await searchButton.count().catch(() => 0)) > 0, 20000)
+        if (!hasSearchButton) {
+          polSkipRemaining(0, '聊天页没有「搜索聊天内容」按钮（owner: cards-client 搜索 UI 未交付）')
+        } else {
+          await searchButton.click({ force: true }).catch(() => {})
+          const panel = searchFrame.locator('.chat-search[role="search"]').first()
+          const searchInput = panel.locator('input[aria-label="搜索聊天内容输入"]').first()
+          const countLocator = panel.locator('.chat-search-count').first()
+          const searchInfo = {
+            open: false,
+            total: 0,
+            first: '',
+            hitCount: 0,
+            hitId: null,
+            hitVisible: false,
+            afterNext: '',
+            afterPrev: '',
+            hint: false,
+          }
+          searchInfo.open = await waitFor(
+            async () => (await panel.count().catch(() => 0)) > 0 && (await panel.isVisible().catch(() => false)),
+            15000,
+          )
+          await searchInput.fill('茶').catch(() => {})
+          const countOk = await waitFor(async () => {
+            const text = ((await countLocator.innerText().catch(() => '')) || '').trim()
+            const matched = text.match(/^(\d+)\/(\d+)$/)
+            if (!matched) return false
+            searchInfo.total = Number(matched[2])
+            return searchInfo.total > 0
+          }, 10000)
+          searchInfo.first = ((await countLocator.innerText().catch(() => '')) || '').trim()
+          // 「下一个匹配」会写入命中 id 并滚动；高亮类只在高亮目标上出现，先切一次再断言。
+          const nextButton = panel.locator('button[aria-label="下一个匹配"]').first()
+          const prevButton = panel.locator('button[aria-label="上一个匹配"]').first()
+          if ((await nextButton.count().catch(() => 0)) > 0) {
+            await nextButton.click({ force: true }).catch(() => {})
+            await page.waitForTimeout(450)
+            searchInfo.afterNext = ((await countLocator.innerText().catch(() => '')) || '').trim()
+          }
+          searchInfo.hitCount = await searchFrame.locator('article.bubble-row.chat-search-hit').count().catch(() => 0)
+          if (searchInfo.hitCount === 1) {
+            const hitRow = searchFrame.locator('article.bubble-row.chat-search-hit').first()
+            searchInfo.hitId = (await hitRow.getAttribute('data-message-id').catch(() => null)) || null
+            const hitBox = await hitRow.boundingBox().catch(() => null)
+            const logBox = await searchFrame.locator('.chat-log').first().boundingBox().catch(() => null)
+            searchInfo.hitVisible = Boolean(
+              hitBox && logBox && hitBox.y + hitBox.height > logBox.y && hitBox.y < logBox.y + logBox.height,
+            )
+          }
+          if ((await prevButton.count().catch(() => 0)) > 0) {
+            await prevButton.click({ force: true }).catch(() => {})
+            await page.waitForTimeout(450)
+            searchInfo.afterPrev = ((await countLocator.innerText().catch(() => '')) || '').trim()
+          }
+          searchInfo.hint = /仅搜索已加载消息/.test(((await panel.innerText().catch(() => '')) || ''))
+          polishEvidence.search = searchInfo
+          polRecord(
+            0,
+            searchInfo.open &&
+              countOk &&
+              searchInfo.hitCount === 1 &&
+              searchInfo.hitVisible &&
+              Boolean(searchInfo.afterNext) &&
+              searchInfo.afterNext !== searchInfo.first &&
+              searchInfo.afterPrev === searchInfo.first &&
+              searchInfo.hint,
+            `open=${searchInfo.open} count=${clip(searchInfo.first)} total=${searchInfo.total} hit=${searchInfo.hitCount} visible=${searchInfo.hitVisible} next=${clip(searchInfo.afterNext)} prev=${clip(searchInfo.afterPrev)} hint=${searchInfo.hint}`,
+          )
+          await shot(page, '150-search-hit.png')
+
+          // 3) N2 无命中 + Esc 关闭 + 草稿保留
+          const draftText = `草稿保留检查-${Date.now().toString().slice(-4)}`
+          const composer = searchFrame.locator('textarea[aria-label="聊天输入框"]').first()
+          await composer.fill(draftText).catch(() => {})
+          await searchInput.fill('绝无此词-ZZZ').catch(() => {})
+          const noMatch = await waitFor(
+            async () => /没有匹配/.test(((await countLocator.innerText().catch(() => '')) || '')),
+            10000,
+          )
+          await searchInput.press('Escape').catch(() => {})
+          const searchClosed = await waitFor(
+            async () => (await panel.count().catch(() => 0)) === 0 || !(await panel.isVisible().catch(() => false)),
+            8000,
+          )
+          const draftValue = ((await composer.inputValue().catch(() => '')) || '')
+          const draftKept = draftValue === draftText
+          await composer.fill('').catch(() => {})
+          polRecord(1, noMatch && searchClosed && draftKept, `noMatch=${noMatch} closed=${searchClosed} draftKept=${draftKept}`)
+          await shot(page, '151-search-nomatch.png')
+
+          // 4) N3/N4 移动端 390×844
+          mobilePage = await context.newPage()
+          await mobilePage.setViewportSize({ width: 390, height: 844 }).catch(() => {})
+          const mobileErrors = []
+          mobilePage.on('console', (message) => {
+            if (message.type() === 'error') mobileErrors.push(message.text())
+          })
+          mobilePage.on('pageerror', (error) => mobileErrors.push(String(error && error.message ? error.message : error)))
+          const appOrigin = new URL(searchFrame.url()).origin
+          await mobilePage
+            .goto(`${appOrigin}/tavern/chats/${importedChatId}`, { waitUntil: 'domcontentloaded' })
+            .catch(() => {})
+          await waitFor(
+            async () => /说点什么|正在加载聊天|正在打开/.test(((await mobilePage.locator('body').innerText().catch(() => '')) || '')),
+            30000,
+          )
+          const composerReady = await waitFor(
+            async () => (await mobilePage.locator('form.chat-compose').count().catch(() => 0)) > 0,
+            25000,
+          )
+          const mobileInfo = await mobilePage
+            .evaluate(() => {
+              const rect = (el) => {
+                if (!el) return null
+                const box = el.getBoundingClientRect()
+                return { x: box.x, y: box.y, w: box.width, h: box.height, bottom: box.bottom, right: box.right }
+              }
+              const composer = document.querySelector('form.chat-compose')
+              const input = document.querySelector('textarea[aria-label="聊天输入框"]')
+              const send = document.querySelector('button.chat-send')
+              const search = document.querySelector('button[aria-label="搜索聊天内容"]')
+              const name = document.querySelector('.chat-name')
+              const log = document.querySelector('.chat-log')
+              const style = name ? getComputedStyle(name) : null
+              let speakerRule = false
+              const scanRules = (rules) => {
+                for (const rule of rules) {
+                  if (rule.cssRules) scanRules(Array.from(rule.cssRules))
+                  if (
+                    rule.selectorText &&
+                    rule.selectorText.includes('.bubble-speaker-name') &&
+                    /text-overflow:\s*ellipsis/.test(rule.cssText)
+                  ) {
+                    speakerRule = true
+                  }
+                }
+              }
+              for (const sheet of Array.from(document.styleSheets)) {
+                try {
+                  scanRules(Array.from(sheet.cssRules || []))
+                } catch {
+                  /* cross-origin sheet */
+                }
+              }
+              let composerHit = null
+              if (input && composer) {
+                const box = input.getBoundingClientRect()
+                const el = document.elementFromPoint(box.x + Math.min(box.width / 2, 24), box.y + box.height / 2)
+                composerHit = Boolean(el && (composer === el || composer.contains(el)))
+              }
+              return {
+                viewport: { w: window.innerWidth, h: window.innerHeight },
+                composer: rect(composer),
+                input: rect(input),
+                send: rect(send),
+                search: rect(search),
+                name: rect(name),
+                composerHit,
+                nameStyle: style
+                  ? {
+                      textOverflow: style.textOverflow,
+                      overflow: style.overflow,
+                      whiteSpace: style.whiteSpace,
+                      scrollW: name ? name.scrollWidth : null,
+                      clientW: name ? name.clientWidth : null,
+                    }
+                  : null,
+                speakerRule,
+                docOverflow: document.documentElement.scrollWidth - window.innerWidth,
+                logOverflow: log ? log.scrollWidth - log.clientWidth : null,
+                viewportMeta: (document.querySelector('meta[name="viewport"]') || {}).content || '',
+              }
+            })
+            .catch(() => null)
+          polishEvidence.mobile = mobileInfo
+          const composerInView = Boolean(
+            composerReady &&
+              mobileInfo &&
+              mobileInfo.composer &&
+              mobileInfo.input &&
+              mobileInfo.composer.bottom <= mobileInfo.viewport.h + 1 &&
+              mobileInfo.input.y >= 0,
+          )
+          const composerVisible = composerInView && mobileInfo && mobileInfo.composerHit === true
+          polRecord(
+            2,
+            composerVisible,
+            `ready=${composerReady} composer=${clip(mobileInfo && mobileInfo.composer)} viewport=${clip(mobileInfo && mobileInfo.viewport)} hit=${mobileInfo && mobileInfo.composerHit}`,
+          )
+          const touchOk = Boolean(
+            mobileInfo &&
+              mobileInfo.send &&
+              mobileInfo.search &&
+              mobileInfo.send.w >= 40 &&
+              mobileInfo.send.h >= 40 &&
+              mobileInfo.search.w >= 40 &&
+              mobileInfo.search.h >= 40,
+          )
+          const ellipsisOk = Boolean(
+            mobileInfo &&
+              mobileInfo.nameStyle &&
+              (mobileInfo.nameStyle.textOverflow === 'ellipsis' ||
+                (mobileInfo.nameStyle.scrollW || 0) > (mobileInfo.nameStyle.clientW || 0) ||
+                mobileInfo.speakerRule),
+          )
+          const noOverflow = Boolean(mobileInfo && mobileInfo.docOverflow <= 1 && (mobileInfo.logOverflow === null || mobileInfo.logOverflow <= 1))
+          polRecord(
+            3,
+            touchOk && ellipsisOk && noOverflow,
+            `touch=${touchOk} send=${clip(mobileInfo && mobileInfo.send)} search=${clip(mobileInfo && mobileInfo.search)} ellipsis=${ellipsisOk}(${clip(mobileInfo && mobileInfo.nameStyle)}) speakerRule=${mobileInfo && mobileInfo.speakerRule} overflow=${clip(mobileInfo && { doc: mobileInfo.docOverflow, log: mobileInfo.logOverflow })}`,
+          )
+          const viewportMeta = (mobileInfo && mobileInfo.viewportMeta) || ''
+          polishEvidence.viewport = { meta: viewportMeta, ok: /viewport-fit\s*=\s*cover/.test(viewportMeta) }
+          polRecord(4, polishEvidence.viewport.ok, clip(viewportMeta))
+          const mobileFile = path.join(outDir, '152-mobile-chat.png')
+          await mobilePage.screenshot({ path: mobileFile, fullPage: false }).catch(() => {})
+          report.screenshots.push(mobileFile)
+          const mobileFile2 = path.join(outDir, '153-mobile-compose.png')
+          await mobilePage.screenshot({ path: mobileFile2, fullPage: false }).catch(() => {})
+          report.screenshots.push(mobileFile2)
+          const mobileConsole = [...mobileErrors, ...consoleErrors.slice(polConsoleStart)].filter(
+            (text) => !/Failed to load resource/.test(text),
+          )
+          polishEvidence.console = mobileConsole
+          polRecord(5, mobileConsole.length === 0, mobileConsole.length ? clip(mobileConsole) : 'clean')
+        }
+      } catch (error) {
+        const message = String(error && error.message ? error.message : error)
+        if (/^SKIP:/.test(message)) {
+          polSkipRemaining(polDone.size ? Math.max(...polDone) + 1 : 0, message.replace(/^SKIP:\s*/, ''))
+        } else {
+          polSkipRemaining(polDone.size ? Math.max(...polDone) + 1 : 0, `N 组异常：${message}`)
+        }
+      } finally {
+        if (mobilePage) await mobilePage.close().catch(() => {})
+      }
+      polSkipRemaining(0, 'N 组未执行（跳过）')
     }
   }
 

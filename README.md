@@ -19,7 +19,7 @@
 - 应用目录：本仓库 `app/`，由四个 systemd 单元跑在回环地址上：
   - `dsh-tavern-api.service` → `127.0.0.1:8001`（FastAPI / uvicorn；聊天 SSE 在**请求线程**里直连 DSH 网关）
   - `dsh-tavern-web.service` → `127.0.0.1:8810`（`app/client/dist` 静态站）
-  - `dsh-tavern-worker.service` → 文本任务 worker（2.0 聊天不用任务队列，SSE 在请求线程里跑）
+  - `dsh-tavern-worker.service` → 旧任务队列 worker；2.0 生成在 API 请求线程里同步完成，host 已 **停用并 disable**（进程会因新 worker.py 无 main 循环而退出，勿重启）
   - `dsh-tavern-world-worker.service` → 旧 story worker；P3 删掉 `app.world.worker` 后已由 host **停用并 disable**（旧单元文件仍可查到，但不再启动）
 - 公开入口只有 `https://dsh.frankfurtlin.top/tavern/`（受 DSH 登录保护）。
   插件内部只连 `127.0.0.1`，不额外开端口
@@ -207,7 +207,7 @@ node verify.mjs --url "http://127.0.0.1:3080/?token=..." \
   代码（旧 API `/worlds`、`/world-chats`、`/books`、`/play-controls` 全部 404）；
   `books`、`world.lines`、`world_chat_sessions` 等 51 张旧表已按备份 **DROP**（备份
   `/root/workspace/.backups/dsh-tavern/story_between-pre-p3-20261105-081109.dump`）。
-  `dsh-tavern-world-worker` 已停用并 disable（其模块 `app.world.worker` 随 P3 删除）。
+  `dsh-tavern-world-worker` 已停用并 disable（其模块 `app.world.worker` 随 P3 删除）；`dsh-tavern-worker` 也已停用并 disable（新 `app/worker.py` 只剩 adapter_for，无后台循环）。
 - **群聊限制**：成员卡被删（软删）后再打开该群聊会 404（无级联清理）；
   群聊 JSONL 可以导出但**不能导回成群聊**（导入接口只建单聊）；群聊轮转顺序
   固定按成员顺序，暂不支持指定/随机/权重。

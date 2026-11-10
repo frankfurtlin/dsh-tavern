@@ -635,8 +635,9 @@ secret 读不到时：打印告警、继续转发但**不带**可信头，应用
 | --- | --- |
 | `dsh-tavern-api.service` | `app/venv/bin/python -m uvicorn app.main:app --port 8001` |
 | `dsh-tavern-web.service` | `/usr/bin/python3.11 app/deploy/static_server.py`（`:8810`） |
-| `dsh-tavern-worker.service` | `app/venv/bin/python -m app.worker`（2.0 聊天不再依赖任务队列） |
+| `dsh-tavern-worker.service` | 旧任务队列 worker；2.0 生成在请求线程同步完成，host 已停止并 `disable`（新 `app/worker.py` 无 main 循环） |
 | `dsh-tavern-world-worker.service` | 已停止并 `disable`（模块随 P3 删除；单元文件仍在 /etc/systemd/system，不再启动） |
+| 实际运行 | 只有 `dsh-tavern-api`（uvicorn）+ `dsh-tavern-web`（静态 dist）；两个 worker 单元均已 disable |
 
 ## 风险 / 待验证
 

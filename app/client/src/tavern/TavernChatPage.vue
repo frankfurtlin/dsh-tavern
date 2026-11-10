@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed,nextTick,onMounted,onUnmounted,ref,watch} from 'vue'
 import {useRoute,useRouter} from 'vue-router'
-import {ArrowLeft,ChevronLeft,ChevronRight,Download,Pencil,RefreshCw,Send,Square,Trash2,X} from 'lucide-vue-next'
+import {ArrowLeft,ChevronDown,ChevronLeft,ChevronRight,ChevronUp,Download,Pencil,RefreshCw,Search,Send,Square,Trash2,X} from 'lucide-vue-next'
 import {authorizationHeaders} from '../api'
 import {useApp} from '../stores/app'
 import {useRequestScope} from '../platform/request-scope'
@@ -10,6 +10,7 @@ import {saveBlob,safeFileName} from '../platform/download'
 import {streamChat} from './sse'
 import Sheet from '../components/Sheet.vue'
 import {clearChatContextSnapshot,patchChatContextSnapshot,setChatContextSnapshot} from './context-snapshot'
+import {keyboardBottomOffset} from './mobile'
 
 const route=useRoute(),router=useRouter(),store=useApp(),scope=useRequestScope()
 const chatId=computed(()=>String(route.params.id||''))
@@ -40,6 +41,13 @@ const sampling=ref({temperature:0.8,topP:0.95,maxTokens:1024,stopText:''})
 const hasMore=ref(false)
 const loadingEarlier=ref(false)
 const log=ref<HTMLElement|null>(null)
+const searchOpen=ref(false)
+const searchQuery=ref('')
+const searchIndex=ref(0)
+const searchHitId=ref('')
+const searchInput=ref<HTMLInputElement|null>(null)
+const keyboardOffset=ref(0)
+let searchPulseTimer:ReturnType<typeof setTimeout>|undefined
 let abort:AbortController|null=null
 let mounted=true
 const PAGE_SIZE=200
@@ -63,6 +71,56 @@ const nextSpeaker=computed(()=>{
   return members[assistantCount.value%members.length]??null
 })
 const canRegenerate=computed(()=>!streaming.value&&!allMembersDeleted.value&&messages.value.length>0&&messages.value[messages.value.length-1]?.role==='assistant')
+const searchHits=computed<TavernMessage[]>(()=>{
+  const query=searchQuery.value.trim().toLowerCase()
+  if(!query)return []
+  return messages.value.filter(message=>messageText(message).toLowerCase().includes(query))
+})
+const searchCountLabel=computed(()=>{
+  if(!searchQuery.value.trim())return ''
+  if(!searchHits.value.length)return '没有匹配'
+  return `${searchIndex.value+1}/${searchHits.value.length}`
+})
+
+function toggleSearch(){
+  if(searchOpen.value){closeSearch();return}
+  searchOpen.value=true
+  void nextTick(()=>searchInput.value?.focus())
+}
+
+function closeSearch(){
+  searchOpen.value=false
+  searchQuery.value=''
+  searchIndex.value=0
+  searchHitId.value=''
+  if(searchPulseTimer!==undefined){clearTimeout(searchPulseTimer);searchPulseTimer=undefined}
+}
+
+function scrollToSearchHit(id:string){
+  const root=log.value as (HTMLElement&{querySelector?:(selector:string)=>Element|null})|null
+  const target=root?.querySelector?.(`[data-message-id="${id}"]`)
+  target?.scrollIntoView?.({block:'center',behavior:'smooth'})
+}
+
+function stepSearch(delta:number){
+  const hits=searchHits.value
+  if(!hits.length)return
+  searchIndex.value=(searchIndex.value+delta+hits.length)%hits.length
+  const target=hits[searchIndex.value]!
+  searchHitId.value=target.id
+  if(searchPulseTimer!==undefined)clearTimeout(searchPulseTimer)
+  searchPulseTimer=setTimeout(()=>{searchHitId.value='';searchPulseTimer=undefined},1500)
+  scrollToSearchHit(target.id)
+}
+
+watch(searchQuery,()=>{searchIndex.value=0;searchHitId.value=''})
+
+function syncKeyboardOffset(){
+  if(typeof window==='undefined')return
+  const viewport=window.visualViewport
+  keyboardOffset.value=viewport?keyboardBottomOffset(window.innerHeight,viewport.height):0
+  scrollToBottom()
+}
 
 function avatarFor(cardId?:string|null){
   return cardId?groupAvatars.value[cardId]??'':('')
@@ -352,12 +410,31 @@ function goBack(){
 
 watch(chatId,()=>void load())
 watch([messages,character],()=>{publishSnapshot();ensureGroupAvatars()})
-onMounted(()=>void load())
-onUnmounted(()=>{mounted=false;clearChatContextSnapshot(chatId.value);abort?.abort();abort=null;for(const url of Object.values(groupAvatars.value))URL.revokeObjectURL(url);groupAvatars.value={}})
+onMounted(()=>{
+  void load()
+  if(typeof window!=='undefined'&&window.visualViewport){
+    window.visualViewport.addEventListener('resize',syncKeyboardOffset)
+    window.visualViewport.addEventListener('scroll',syncKeyboardOffset)
+    syncKeyboardOffset()
+  }
+})
+onUnmounted(()=>{
+  mounted=false
+  if(typeof window!=='undefined'&&window.visualViewport){
+    window.visualViewport.removeEventListener('resize',syncKeyboardOffset)
+    window.visualViewport.removeEventListener('scroll',syncKeyboardOffset)
+  }
+  if(searchPulseTimer!==undefined){clearTimeout(searchPulseTimer);searchPulseTimer=undefined}
+  clearChatContextSnapshot(chatId.value)
+  abort?.abort()
+  abort=null
+  for(const url of Object.values(groupAvatars.value))URL.revokeObjectURL(url)
+  groupAvatars.value={}
+})
 </script>
 
 <template>
- <section class="tavern-chat" aria-label="聊天">
+ <section class="tavern-chat" aria-label="聊天" :style="{'--chat-keyboard-offset':keyboardOffset+'px'}">
   <header class="chat-top">
    <button type="button" class="chat-icon" aria-label="返回角色卡" @click="goBack"><ArrowLeft :size="20"/></button>
    <div class="chat-title">
@@ -374,6 +451,7 @@ onUnmounted(()=>{mounted=false;clearChatContextSnapshot(chatId.value);abort?.abo
     </div>
    </div>
    <div class="chat-menu">
+    <button type="button" class="chat-icon" aria-label="搜索聊天内容" :aria-expanded="searchOpen" @click="toggleSearch"><Search :size="19"/></button>
     <button type="button" class="chat-icon" aria-label="聊天菜单" @click="exportMenuOpen=!exportMenuOpen"><Download :size="19"/></button>
     <div v-if="exportMenuOpen" class="chat-menu-pop" role="menu">
      <button type="button" role="menuitem" :disabled="!!exporting" @click="exportChat('jsonl')">{{exporting==='jsonl'?'导出中…':'导出聊天 (JSONL)'}}</button>
@@ -384,6 +462,15 @@ onUnmounted(()=>{mounted=false;clearChatContextSnapshot(chatId.value);abort?.abo
    <span class="chat-status" role="status">{{streaming?'正在回复…':(streamError?'出错':'')}}</span>
   </header>
 
+  <div v-if="searchOpen" class="chat-search" role="search">
+   <input ref="searchInput" v-model="searchQuery" type="search" placeholder="搜索聊天内容" aria-label="搜索聊天内容输入" @keydown.esc.stop.prevent="closeSearch">
+   <span class="chat-search-count" role="status">{{searchCountLabel}}</span>
+   <button type="button" class="chat-search-step" aria-label="上一个匹配" :disabled="!searchHits.length" @click="stepSearch(-1)"><ChevronUp :size="16"/>上一个</button>
+   <button type="button" class="chat-search-step" aria-label="下一个匹配" :disabled="!searchHits.length" @click="stepSearch(1)"><ChevronDown :size="16"/>下一个</button>
+   <button type="button" class="chat-search-step" aria-label="关闭搜索" @click="closeSearch"><X :size="16"/>关闭</button>
+   <small class="chat-search-hint">仅搜索已加载消息</small>
+  </div>
+
   <p v-if="allMembersDeleted" class="chat-readonly" role="status">群聊成员已全部删除，无法继续发言</p>
   <p v-if="error" class="error" role="alert">{{error}}<button class="inline-link" type="button" @click="load()">重试</button></p>
   <p v-if="loading" class="chat-loading" role="status">正在加载聊天…</p>
@@ -393,7 +480,7 @@ onUnmounted(()=>{mounted=false;clearChatContextSnapshot(chatId.value);abort?.abo
     <button type="button" :disabled="loadingEarlier" @click="loadEarlier">{{loadingEarlier?'加载中…':'加载更早消息'}}</button>
    </div>
    <p v-if="!messages.length&&!streaming" class="chat-empty">还没有消息，说点什么开始吧。</p>
-   <article v-for="message in messages" :key="message.id" class="bubble-row" :class="message.role">
+   <article v-for="message in messages" :key="message.id" :data-message-id="message.id" class="bubble-row" :class="[message.role,{'chat-search-hit':searchHitId===message.id}]">
     <div v-if="isGroup&&message.role==='assistant'" class="bubble-speaker">
      <span class="bubble-speaker-avatar">
       <img v-if="speakerAvatarFor(message)" :src="speakerAvatarFor(message)" alt="">
@@ -503,6 +590,13 @@ onUnmounted(()=>{mounted=false;clearChatContextSnapshot(chatId.value);abort?.abo
 .chat-title-form input{min-height:38px;width:min(46vw,260px)}
 .chat-title-form button{min-height:38px;padding:0 12px}
 .chat-status{font-size:12px;color:var(--quiet);min-width:64px;text-align:right}
+.chat-search{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 12px;border-bottom:1px solid var(--edge);background:var(--canvas)}
+.chat-search input{flex:1;min-width:140px;min-height:40px;padding:6px 10px}
+.chat-search-count{min-width:48px;font-size:12px;color:var(--quiet);text-align:center;font-variant-numeric:tabular-nums}
+.chat-search-step{display:inline-flex;align-items:center;gap:2px;min-height:40px;padding:0 8px;border:1px solid var(--edge);border-radius:9px;background:var(--paper);color:var(--ink);font-size:12px;cursor:pointer}
+.chat-search-step:disabled{opacity:.45;cursor:not-allowed}
+.chat-search-hint{flex-basis:100%;font-size:11px;color:var(--quiet);text-align:right}
+.chat-search-hit .bubble{box-shadow:0 0 0 2px var(--accent);transition:box-shadow .25s ease}
 .chat-members{display:flex;justify-content:center;gap:-2px;margin-top:2px}
 .chat-member-avatar{width:20px;height:20px;margin-left:-6px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--wash);color:var(--accent);font-size:11px;border:1px solid var(--paper)}
 .chat-member-avatar:first-child{margin-left:0}
@@ -533,11 +627,26 @@ onUnmounted(()=>{mounted=false;clearChatContextSnapshot(chatId.value);abort?.abo
 .swipe-controls{display:inline-flex;align-items:center;gap:2px}
 .swipe-count{font-size:12px;min-width:34px;text-align:center}
 .chat-stream-error{margin:0 auto;max-width:860px;width:100%}
-.chat-compose{position:sticky;bottom:0;display:flex;gap:8px;align-items:flex-end;padding:10px clamp(12px,3vw,24px);padding-bottom:calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--edge);background:var(--paper);max-width:860px;width:100%;margin:0 auto}
+.chat-compose{position:sticky;bottom:0;display:flex;gap:8px;align-items:flex-end;padding:10px clamp(12px,3vw,24px);padding-bottom:calc(10px + env(safe-area-inset-bottom) + var(--chat-keyboard-offset,0px));border-top:1px solid var(--edge);background:var(--paper);max-width:860px;width:100%;margin:0 auto}
 .chat-compose textarea{flex:1;min-height:46px;max-height:160px;resize:none;padding:11px 12px;font-size:15px;line-height:1.5}
 .chat-send,.chat-stop{display:flex;align-items:center;gap:6px;min-height:46px;padding:0 16px;border-radius:12px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer;white-space:nowrap}
 .chat-stop{background:var(--canvas);color:var(--ink);border-color:var(--edge)}
 .chat-send:disabled{opacity:.45;cursor:not-allowed}
 .inline-link{min-height:0;padding:0 6px;border:0;background:transparent;color:var(--accent);text-decoration:underline;cursor:pointer;display:inline-flex;align-items:center}
 @media(min-width:900px){.chat-compose{position:sticky}.tavern-chat{max-width:900px;margin:0 auto;width:100%}}
+@media(max-width:767px){
+ .chat-top{grid-template-columns:auto minmax(0,1fr) auto auto;gap:4px;padding-left:var(--safe-left,10px);padding-right:var(--safe-right,10px)}
+ .chat-title{min-width:0}
+ .chat-name{max-width:100%;font-size:16px}
+ .chat-members{justify-content:center;max-width:100%;overflow:hidden}
+ .chat-status{min-width:0;font-size:11px}
+ .chat-menu{flex-shrink:0}
+ .chat-menu-pop{top:46px}
+ .bubble-speaker{max-width:100%}
+ .bubble-speaker-name{display:block;max-width:min(56vw,240px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .bubble-actions button{min-height:40px}
+ .chat-compose{gap:6px}
+ .chat-send,.chat-stop{min-height:44px;padding:0 12px}
+ .chat-search{padding:6px 10px}
+}
 </style>
