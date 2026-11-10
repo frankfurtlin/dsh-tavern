@@ -40,6 +40,8 @@ class CharacterCard(WorldOwned, WorldBase):
     preset_id: Mapped[str | None] = mapped_column(String(32), index=True)
     companion: Mapped[bool] = mapped_column(Boolean, default=False)
     memory_task_id: Mapped[str | None] = mapped_column(String(32))
+    # P4 preset cards: stable slug for the bundled cards; NULL for user imports.
+    builtin_slug: Mapped[str | None] = mapped_column(String(40))
 
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

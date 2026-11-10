@@ -54,6 +54,8 @@ def card_out(card):
         "hasAvatar": bool(card.avatar_path),
         "presetId": card.preset_id,
         "companion": bool(card.companion),
+        "builtin": bool(card.builtin_slug),
+        "builtinSlug": card.builtin_slug,
         "chatTarget": target,
         "createdAt": card.created_at.isoformat(),
         "updatedAt": card.updated_at.isoformat(),
@@ -81,6 +83,8 @@ def update_card(db, owner, card, values):
 
 
 def list_cards(db, owner, q=""):
+    from . import presets
+    presets.ensure_preset_cards(db, owner)
     query = select(CharacterCard).where(CharacterCard.owner_id == owner, CharacterCard.deleted_at.is_(None))
     if q:
         pattern = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"

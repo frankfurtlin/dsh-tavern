@@ -167,7 +167,10 @@ onUnmounted(()=>{clearTimeout(debounce);for(const url of Object.values(avatars.v
       <span v-else>{{initial(card)}}</span>
      </span>
      <span class="tavern-card-copy">
-      <span class="tavern-card-name">{{card.name}}</span>
+      <span class="tavern-card-name-row">
+       <span class="tavern-card-name">{{card.name}}</span>
+       <span v-if="card.builtin" class="tavern-card-preset">预设</span>
+      </span>
       <span class="tavern-card-desc">{{card.description||'还没有简介'}}</span>
       <span class="tavern-card-meta">
        <span v-if="card.lastChatAt">最近聊天 {{new Date(card.lastChatAt).toLocaleDateString('zh-CN')}}</span>
@@ -218,6 +221,9 @@ onUnmounted(()=>{clearTimeout(debounce);for(const url of Object.values(avatars.v
 .tavern-avatar img{width:100%;height:100%;object-fit:cover;display:block}
 .tavern-card-copy{display:flex;flex-direction:column;min-width:0;gap:4px;flex:1}
 .tavern-card-name{font-family:var(--font-serif);font-size:18px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tavern-card-name-row{display:flex;align-items:center;gap:6px;min-width:0}
+.tavern-card-name-row .tavern-card-name{flex:0 1 auto;min-width:0}
+.tavern-card-preset{flex:none;font-size:11px;line-height:1.6;padding:0 6px;border:1px solid var(--accent);border-radius:6px;color:var(--accent);background:var(--wash);white-space:nowrap;letter-spacing:.02em}
 .tavern-card-desc{font-size:13px;line-height:1.5;color:var(--quiet);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.9em}
 .tavern-card-meta{display:flex;flex-wrap:wrap;gap:8px;font-size:12px;color:var(--quiet)}
 .tavern-tags{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}

@@ -11,6 +11,9 @@ os.environ.setdefault("JWT_SIGNING_SECRET", "isolated-test-secret-never-used-for
 os.environ.setdefault("PROVIDER_MASTER_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
 os.environ["AI_MODE"] = "mock"
 os.environ.setdefault("INTERACTIVE_WORLD_ENABLED", "true")
+# Preset-card seeding is opt-in per test (tests/test_preset_cards.py re-enables
+# it) so the many tests that assert exact card-library contents stay isolated.
+os.environ.setdefault("PRESET_CARDS_ENABLED", "0")
 from app.config import settings
 from app.db import engine, Base, SessionLocal
 from app.main import app

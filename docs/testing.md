@@ -717,3 +717,69 @@ L 组 140/142、G 组 130–132、C/R/E 证据（90/91/92/94/95/101/102/152）�
 清理核对：`world.tavern_messages=0`、`tavern_chats=0`、`tavern_world_info=0`、`character_cards=0`、
 `tavern_personas=0`、`tavern_presets=1`（内置「默认」）、`regex_scripts=0`；`card-avatar-*.png`、
 `tavern-card-*.png` 已删；3099 无监听、`/tmp/dsh-tavern-native/instance` 已删除。未 commit。
+
+## 预设角色卡断言（R 组 / task-76，预制 5 张内置卡）
+
+前置：每次跑前清库（SQL 见文末清理模板），R 组在流程最前执行（A 之后、O 之前）——新库首次进入卡库会触发服务端种子。
+产品未部署时（卡库不足 5 张）整组 6 项记 SKIP 并标 owner（app-auth 种子 / cards-client 徽标），不误报 FAIL。
+
+| # | 断言 | 证据 |
+| --- | --- | --- |
+| R1 | 首次进入卡库自动出现 5 张预设卡（玄净/裴聿/奈芙尔/沈砚/唐团团），均带「预设」徽标、头像 `<img>` naturalWidth>0，非预设卡不误标 | `report.native.builtinCards`（names/cards） |
+| R2 | 玄净详情 creator 行显示「预设 · Foreverse Team（CC BY 4.0）」，「开新聊天」进入 `/chats/<id>` | `builtinCards.detail`（creator/chatId） |
+| R3 | 聊天首条 assistant 气泡 = 开场白（≥10 字、不含 `<div`/`<style`/`<p>` 等标签原文），R 组 console 无报错 | `builtinCards.opening`（text/length/rawTag/console） |
+| R4 | 发送「你好」触发真实生成：POST messages 200、assistant 新增且文本变化（≠开场白）、刷新后仍在 | `builtinCards.reply`（length/httpStatus/persisted/text） |
+| R5 | 删除沈砚（详情页「删除角色卡」+确认）→ 卡库剩 4 张，刷新仍 4 张（不重灌） | `builtinCards.deletion`（confirm/afterDelete/afterReload） |
+| R6 | 390×844 视口：卡库「预设」徽标可见、无横向溢出、仍为两列 | `builtinCards.mobile`（badge/overflow/columns/boxes） |
+
+预期（task-73/74 全部部署）：**76 + 6 = 82 PASS / 0 FAIL / 0 SKIP**（Lead 任务书写的 81 按 5 项估算；R 组按 R1–R6 六项落表，实际以此为准）。
+真实生成次数 +1（R4）。截图：170-preset-home.png、171-preset-detail.png、172-preset-opening.png、
+173-preset-reply.png、174-preset-deleted.png、175-preset-mobile.png（复制到 `docs/screenshots/native-presets/`）。
+
+R 组收尾只删除**预设卡**及其聊天（按 `builtin`/`builtinSlug` 过滤；软删后种子不会重灌），
+不会动后续分组导入的角色卡/聊天——早期版本曾误删全部卡导致 S2 等后续分组受影响，已修正。
+
+## 实测记录（打磨 5 / task-76，2026-11-10）
+
+两轮验收（先清库，均真实生成）：
+
+- 隔离全量：`bash scripts/check.sh --instance`（systemd-run 独立 cgroup，3099 + 生产 app 8001/8810 + 生产网关）
+  → **82 PASS / 0 FAIL / 0 SKIP**，`ok=true`，报告 `/tmp/dsh-tavern-native/check/report.json`
+  （startedAt `2026-11-10T12:02:24Z`）。
+- 生产冒烟 prod-pol5：`node verify.mjs --url "http://127.0.0.1:3080/?token=…" --out /tmp/dsh-tavern-native/prod-pol5 --fixtures /tmp/dsh-tavern-native/cards`
+  → **82 PASS / 0 FAIL / 0 SKIP**，`ok=true`，报告 `/tmp/dsh-tavern-native/prod-pol5/report.json`
+  （startedAt `2026-11-10T12:20:15Z`）。
+
+R 组证据（两轮一致）：
+
+- R1 种子 5 张：`names=["唐团团","沈砚","奈芙尔","裴聿","玄净"]`、`missing=[] extra=[]`、`presetFlagged` 5 张、
+  `notFlagged=[]`、`avatars=true`（等 `naturalWidth>0` 后再断言）。
+- R2 玄净详情 `creator="预设 · Foreverse Team（CC BY 4.0）"`，「开新聊天」进入 `/chats/<id>`。
+- R3 首条开场白 `openingLen=629`，`rawTag=false`（无 HTML 标签原文），R 组 console clean。
+- R4 真实回复 113 字，`http=200`、`persisted=true`、文本 ≠ 开场白。
+- R5 删除沈砚 → `afterDelete=["唐团团","奈芙尔","裴聿","玄净"]`，新开页面重新加载 `/tavern/` 后
+  `afterReload` 仍为这 4 张（`fresh` 记录 URL/卡数/api，证明软删不重灌）。
+- R6 390×844：`badge=true`、`overflow=0`、`columns=2`。
+
+harness 侧修复（未放宽断言，只修时序/定位）：
+
+- R4 完成判据改为「assistant 新增 + ≥10 字 + ≠开场白 + 无 `.bubble-pending` + `.chat-status` 不含『正在回复/生成/写』
+  + 文本连续两次稳定」再 reload 校验（原为捕获到流式半截就 reload，会 persisted=false）。
+- R1 先等 5 张头像 `naturalWidth>0`（玄净头像 402KB blob 慢）。
+- R5 用页面内 API 取沈砚 id 后直达 `/characters/<id>`（不依赖首页列表渲染）；页面内 fetch 加
+  AbortController 8s + 外层 `Promise.race` 12s 超时；「刷新仍 4 张」改为新开页面加载 `/tavern/` 验证
+  （避免主 iframe `location.reload()` 在隔离实例偶发卡在启动占位）。
+- R 组收尾 fetch 也加超时，避免应用/代理挂起把整轮跑死。
+- M1「管理成员」弹层先等 `.member-pick-row`>0 且不含「正在加载角色卡」。
+
+截图精选：`docs/screenshots/native-presets/`（24 张，2.4MB）：R 组 170–175、O 组 160–166、N 组 150/152、
+M 组 145、L 组 140、G 组 130/132、C/E 证据（90/91/92/93/100/101/110/112）。
+
+清理核对：`world.tavern_messages=0`、`tavern_chats=0`、`tavern_world_info=0`、`character_cards=0`（物理删，
+软删行需 `DELETE FROM world.character_cards` 否则种子不重灌）、`tavern_personas=0`、
+`tavern_presets=1`（内置「默认」）、`regex_scripts=0`；`card-avatar-*.png`、`tavern-card-*.png` 已删；
+3099 无监听、`/tmp/dsh-tavern-native/instance` 已删除。未 commit。
+
+剩余风险：真实生成依赖 DSH 网关与上游模型（`opencode-go/deepseek-v4.1-flash`），偶发上游超时会在
+S2-3/G2 等真实生成断言上表现为「DSH 模型网关不可用，未收到回复」；本轮两轮均未复现（隔离 run1 曾出现一次，
+重跑即恢复），harness 对 S2-3 已捕获 SSE 错误尾部写入 `report.native.sampling.send.sseTail` 便于归因。

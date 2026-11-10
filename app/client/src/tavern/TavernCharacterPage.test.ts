@@ -152,4 +152,43 @@ describe('TavernCharacterPage',()=>{
     expect(body).toContain('关键词「雨」')
     expect(body).toContain('常驻')
   })
+
+describe('TavernCharacterPage preset card',()=>{
+  it('labels builtin cards with the preset attribution line',async()=>{
+    const apiModule=await import('./api')
+    vi.mocked(apiModule.getCharacter).mockResolvedValue({...card,builtin:true,builtinSlug:'foreverse-rin'} as never)
+    mount();await flush()
+    expect(text(host)).toContain('预设 · Foreverse Team（CC BY 4.0）')
+  })
+
+  it('shows the original creator for non-builtin cards',async()=>{
+    const apiModule=await import('./api')
+    vi.mocked(apiModule.getCharacter).mockResolvedValue({...card,creator:'Alice'} as never)
+    mount();await flush()
+    expect(text(host)).toContain('Alice')
+    expect(text(host)).not.toContain('Foreverse')
+  })
+
+  it('warns that deleted preset cards are not restored',async()=>{
+    const apiModule=await import('./api')
+    vi.mocked(apiModule.getCharacter).mockResolvedValue({...card,builtin:true} as never)
+    mount();await flush()
+    const del=descendants(host,item=>item.tag==='button'&&text(item).trim()==='删除角色卡')[0]
+    del!.props.onClick?.()
+    await flush()
+    expect(window.confirm).toHaveBeenCalledTimes(1)
+    expect(String(vi.mocked(window.confirm).mock.calls[0][0])).toContain('预设角色删除后不会自动恢复。')
+    expect(apiModule.deleteCharacter).not.toHaveBeenCalled()
+  })
+
+  it('does not add the preset warning for ordinary cards',async()=>{
+    const apiModule=await import('./api')
+    vi.mocked(apiModule.getCharacter).mockResolvedValue(card as never)
+    mount();await flush()
+    const del=descendants(host,item=>item.tag==='button'&&text(item).trim()==='删除角色卡')[0]
+    del!.props.onClick?.()
+    await flush()
+    expect(String(vi.mocked(window.confirm).mock.calls[0][0])).not.toContain('预设角色删除后不会自动恢复。')
+  })
+})
 })

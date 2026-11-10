@@ -46,6 +46,14 @@ def migrate():
         conn.execute(text("ALTER TABLE world.tavern_chats ADD COLUMN IF NOT EXISTS members jsonb NOT NULL DEFAULT '[]'::jsonb"))
         conn.execute(text("ALTER TABLE world.tavern_chats ALTER COLUMN card_id DROP NOT NULL"))
         conn.execute(text("ALTER TABLE world.tavern_messages ADD COLUMN IF NOT EXISTS speaker_card_id varchar(32)"))
+        # P4 preset cards: bundled cards are seeded per owner and marked by slug;
+        # the partial unique index keeps the lazy seed idempotent (soft-deleted
+        # rows still occupy their slug so a deleted preset card is not re-seeded).
+        conn.execute(text("ALTER TABLE world.character_cards ADD COLUMN IF NOT EXISTS builtin_slug varchar(40)"))
+        conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_character_cards_builtin_slug "
+            "ON world.character_cards (owner_id, builtin_slug) WHERE builtin_slug IS NOT NULL"
+        ))
         # P2 presets: one built-in 「默认」 per owner; duplicated rows from the
         # earlier lazy-create race are collapsed here (idempotent).
         conn.execute(text("ALTER TABLE world.tavern_presets ADD COLUMN IF NOT EXISTS builtin boolean NOT NULL DEFAULT false"))
