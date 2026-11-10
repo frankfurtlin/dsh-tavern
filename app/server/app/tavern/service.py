@@ -99,6 +99,8 @@ def card_summary(card):
         "tags": list(card.tags or []),
         "creator": card.creator,
         "source": card.source,
+        "builtin": bool(card.builtin_slug),
+        "builtinSlug": card.builtin_slug,
         "hasAvatar": bool(card.avatar_path),
         "createdAt": iso(card.created_at),
         "updatedAt": iso(card.updated_at),

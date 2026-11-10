@@ -111,4 +111,18 @@ describe('TavernCharactersPage group selection',()=>{
     expect(listCharacters).toHaveBeenCalledTimes(2)
     expect(text(host)).toContain('角色A')
   })
+
+describe('TavernCharactersPage preset badge',()=>{
+  it('marks builtin cards with a compact preset badge only',async()=>{
+    vi.mocked(listCharacters).mockResolvedValue([
+      {...cards[0],builtin:true,builtinSlug:'foreverse-rin'},
+      {...cards[1],builtin:false},
+    ] as never)
+    mount();await flush()
+    const badges=descendants(host,item=>String(item.props.class||'').includes('tavern-card-preset'))
+    expect(badges).toHaveLength(1)
+    expect(text(badges[0]).trim()).toBe('预设')
+    expect(text(host)).not.toContain('Foreverse')
+  })
+})
 })

@@ -59,6 +59,29 @@
    单个聊天可在聊天页「采样参数」里覆盖；「输出替换规则」页维护账号级正则（回复落库前生效，刷新后可见替换结果；
    旧任务会应用），导入导出说明也在设置页。
 
+## 预设角色卡
+
+新账号第一次打开酒馆（第一次加载角色卡库）时，会自动出现 5 张**预设角色卡**
+（不需要导入；种子在首次列卡时懒创建，资产缺失也不影响卡库）：
+
+| 名称 | slug | 说明 |
+| --- | --- | --- |
+| 玄净 | `xuanjing` | 归墟剑宗剑尊、东峰之主，剑修界的「霜声剑主」 |
+| 裴聿 | `peiyu` | 大理寺少卿，长安官场称「阎罗笔」 |
+| 奈芙尔 | `naifuer` | 黑沙氏族战争祭司，白鬃战猫族裔，被俘押送途中 |
+| 沈砚 | `shenyan` | 砚台资本创始人，前沈氏建材三少爷 |
+| 唐团团 | `tangtuantuan` | 「团团面包屋」老板娘，23 岁 |
+
+- 点卡即可直接开聊（开场白、角色设定、世界书都已随卡导入）。
+- 卡库/卡详情会带「预设」徽标（`builtin`），说明它来自内置种子。
+- 删除预设卡后**不会自动恢复**（种子按 `builtin_slug` 只补缺失的 slug，
+  已存在或被软删的都跳过）；想找回只能清库/换新账号，或自行重新导入。
+- 来源：[foreverse-app/character-card-skills](https://github.com/foreverse-app/character-card-skills)，
+  作者 **Foreverse Team**（[foreverse.app](https://foreverse.app)），
+  内容许可 **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**。
+- 我们做了两处格式修改：**HTML/CSS 文本转纯文本**、**头像裁成 512×512 方形缩略图**；
+  卡片内容除此之外未改动。逐卡来源与署名见 [CREDITS.md](CREDITS.md)。
+
 ## 它由哪几块组成
 
 | 文件 | 作用 |
@@ -68,6 +91,7 @@
 | `lib/index.js` | host 半：注册 `prefix /tavern` 反向代理（旧 `/story` 为 302 兼容别名）；先过 DSH 登录闸门；`/api/**`、`/health/**` → 8001 并附加可信头，其余 → 8810 静态站。另外注册 `prefix /tavern-agent` 模型网关，给应用服务端调 DSH 真生成 |
 | `client.js` | client 半：注册侧栏行（`sidebar.panellist` 座位）+ 主面板（`main` 座位，`key=tavern`）；工具条 + 同源 iframe（`tavern/`）；记住应用最后的路由以便切面板后恢复 |
 | `app/` | 酒馆 2.0 应用本体（Vue 前端 + FastAPI 后端）：`tavern/` 模块（角色/单聊/群聊/聊天历史/世界书/prompt/SSE）、`cards/` 角色卡解析与导出。旧 story 域代码已在 P3 删除 |
+| `CREDITS.md` | 第三方内容署名：5 张预设角色卡的来源 URL、作者、CC BY 4.0 许可与修改说明 |
 | `docs/contract.md` | 与应用侧的集成契约（路由分流、可信头、P2、UI 座位、网关字段、应用 API/SSE/swipe）——**先读它再改代码** |
 | `docs/architecture.md` | 实现架构：请求链路、网关、原生酒馆数据模型与 prompt 组装、面板结构、配置、风险 |
 | `docs/step6-native-tavern.md` | 酒馆 2.0 的设计与验收清单（当前设计） |

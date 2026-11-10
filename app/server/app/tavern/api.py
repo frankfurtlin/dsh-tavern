@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import AliasChoices, Field
 from sqlalchemy import func, select, update
 
-from ..cards import exporting, parse, personas
+from ..cards import exporting, parse, personas, presets
 from ..cards import service as card_service
 from ..cards.models import CharacterCard
 from ..db import get_db
@@ -319,6 +319,9 @@ def _history_item(row, names):
 def list_characters(q: str = Query(default="", max_length=100),
                     sort: str = Query(default="recent"),
                     user=Depends(current_user), db=Depends(get_db)):
+    # Bundled preset cards are seeded lazily so the card library is never empty
+    # for a fresh account; failures are logged inside and never block the list.
+    presets.ensure_preset_cards(db, user.id)
     rows = list(db.scalars(select(CharacterCard).where(
         CharacterCard.owner_id == user.id, CharacterCard.deleted_at.is_(None))))
     if q.strip():

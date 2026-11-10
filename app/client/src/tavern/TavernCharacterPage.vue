@@ -236,7 +236,8 @@ async function removeInfo(entry:WorldInfoEntry){
   }catch(e){worldError.value=(e as Error).message||'删除世界书失败，请稍后重试。'}
 }
 async function removeCard(){
-  if(!window.confirm('删除这张角色卡？聊天记录会一并隐藏。删除后相关群聊仍保留，但该角色将显示为已删除。'))return
+  const preset=card.value?.builtin?' 预设角色删除后不会自动恢复。':''
+  if(!window.confirm('删除这张角色卡？聊天记录会一并隐藏。删除后相关群聊仍保留，但该角色将显示为已删除。'+preset))return
   try{
     await deleteCharacter(cardId.value)
     store.message('角色卡已删除。')
@@ -261,6 +262,7 @@ onUnmounted(()=>{if(avatarUrl.value)URL.revokeObjectURL(avatarUrl.value)})
     </span>
     <div class="character-hero-copy">
      <h1>{{card.name}}</h1>
+     <p v-if="card.builtin||card.creator" class="character-creator">{{card.builtin?'预设 · Foreverse Team（CC BY 4.0）':card.creator}}</p>
      <p class="character-tags">{{card.tags.length?card.tags.join(' · '):'未添加标签'}}<span v-if="card.chatCount"> · {{card.chatCount}} 次聊天</span></p>
     </div>
     <div class="character-hero-actions">
@@ -422,6 +424,7 @@ onUnmounted(()=>{if(avatarUrl.value)URL.revokeObjectURL(avatarUrl.value)})
 .character-avatar{width:84px;height:84px;flex:none;border-radius:20px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--wash);color:var(--accent);font-family:var(--font-serif);font-size:34px}
 .character-avatar img{width:100%;height:100%;object-fit:cover}
 .character-hero-copy{flex:1;min-width:180px}.character-hero-copy h1{margin:0 0 4px;font-size:26px;font-family:var(--font-serif)}
+.character-creator{margin:2px 0 0;font-size:12.5px;color:var(--quiet);letter-spacing:.01em}
 .character-tags{margin:0;color:var(--quiet);font-size:13px}
 .character-hero-actions{display:flex;gap:8px;flex-wrap:wrap}
 .character-section{border-top:1px solid var(--edge);padding-top:22px}

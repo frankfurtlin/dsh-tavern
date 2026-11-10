@@ -193,7 +193,7 @@ iframe → 父（主动，节流）：
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `GET` | `/characters` | 卡列表；`q` 名字搜索、`sort=recent\|name\|created`；返回 `chatCount`/`lastChatAt` |
+| `GET` | `/characters` | 卡列表；`q` 名字搜索、`sort=recent\|name\|created`；返回 `chatCount`/`lastChatAt`；首次读取时按 owner 自动种子 5 张内置预设卡 |
 | `POST` | `/characters/imports` | multipart `file`（PNG/JSON）→ `{card}`（201） |
 | `GET` | `/characters/{id}` | `{card, prompt, worldInfoCount}` |
 | `PATCH` | `/characters/{id}` | 改 name/description/personality/scenario/firstMessage/systemPrompt/postHistoryInstructions/tags/alternateGreetings |
@@ -230,6 +230,16 @@ iframe → 父（主动，节流）：
 列表/导出仍可用，`chat.members[*].deleted=true`、`aliveMemberCount` 给出存活数，
 `cards` 只含存活卡；0 存活时发消息/重新生成 → 409 `CHAT_NO_MEMBERS`。
 群聊 JSONL 导入未支持（导入接口只建单聊）。
+
+内置预设卡（4.0 打磨）：服务端随包携带 5 张 CC BY 4.0 角色卡（玄净/裴聿/奈芙尔/
+沈砚/唐团团，资产在 `app/server/app/cards/presets/`，来源与修改见其 `MANIFEST.json`）。
+每个 owner 首次读取卡库（`GET /characters` 或旧 `/character-cards`）时惰性种子：
+按 `character_cards.builtin_slug` 幂等补齐（advisory lock + 部分唯一索引
+`uq_character_cards_builtin_slug`），头像/开场白/世界书与手动导入一致；已存在
+（**含已软删**）的 slug 跳过，因此用户删除预设卡后不会被重灌；资产缺失或单张解析
+失败只记 `preset_card_seed_failed` 日志并跳过，不阻断列表。卡片对象新增
+`builtin: bool` 与 `builtinSlug: string|null`（用户导入卡为 `false`/`null`；
+`GET /characters` 列表项与卡片详情均返回该字段）。
 
 旧卡片空间 API 仍挂载但 2.0 UI 不再使用：`/character-cards/**`（15 条，含
 `lore`/`context-preview`/`companion`）、`/presets`、`/regex-scripts`（设置页仍用）、

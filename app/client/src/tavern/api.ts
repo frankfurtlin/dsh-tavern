@@ -17,6 +17,8 @@ export interface TavernCharacter{
   exampleDialogue?:string|null
   tags:string[]
   creator?:string|null
+  builtin?:boolean
+  builtinSlug?:string|null
   hasAvatar:boolean
   avatarUrl?:string|null
   lastChatAt?:string|null

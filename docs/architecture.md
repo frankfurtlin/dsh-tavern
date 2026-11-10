@@ -241,6 +241,16 @@ sticky 顶栏（「酒馆」品牌、返回角色卡、标题、设置入口）�
 | `app/server/app/tavern/service.py` | 序列化、归属校验（`owner_id`）、导入卡、swipe 内容读取、消息/聊天 CRUD 辅助、预设读取/删除（内置默认不可删） |
 | `app/server/app/tavern/models.py` | `world.tavern_chats`、`world.tavern_messages`、`world.tavern_world_info`、`world.tavern_presets`（`WorldBase` + `WorldOwned`，由 `app.world.migrate` 的 `create_all` 建表，不需要 reader alembic revision） |
 | `app/server/app/cards/parse.py`、`exporting.py` | SillyTavern 卡解析（PNG 内嵌 JSON / JSON，v1/v2/v3，`character_book`）与导出（PNG + JSON） |
+| `app/server/app/cards/presets.py`、`presets/` | 内置预设角色卡种子：`MANIFEST.json` + 5 张 ST v2 JSON/PNG（CC BY 4.0，署名见 `CREDITS.md`）；`ensure_preset_cards(db, owner)` 按 `builtin_slug` 补种 |
+
+**预设角色卡种子**：新账号第一次列卡时，`cards/service.py:list_cards` 先调用
+`cards/presets.py:ensure_preset_cards(db, owner)`——在 advisory lock 下读
+`presets/MANIFEST.json`，按 `builtin_slug` 只补**缺失**的 slug（已存在或已软删的
+都跳过，因此删除后不会被重灌）；每张卡用 `parse.parse_card` + `service.import_card`
+入库（头像写 private 存储、`lore` 自动导入），并写
+`world.character_cards.builtin_slug`（`varchar(40)`，与 `owner_id` 组成 partial
+unique index）。`card_out` 输出 `builtin`/`builtinSlug`，前端据此显示「预设」徽标。
+资产缺失或单卡解析失败只记结构化日志、不阻断列表，返回已成功的部分。
 
 ### 数据模型
 

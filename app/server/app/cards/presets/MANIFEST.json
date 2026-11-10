@@ -1,0 +1,50 @@
+{
+ "source_repo": "https://github.com/foreverse-app/character-card-skills",
+ "source_url": "https://github.com/foreverse-app/character-card-skills",
+ "license": "CC BY 4.0",
+ "license_url": "https://creativecommons.org/licenses/by/4.0/",
+ "attribution": "Character cards by Foreverse Team (foreverse.app), content licensed CC BY 4.0.",
+ "modifications": "Text fields converted from HTML/CSS to plain text; avatar illustrations center-cropped to a 512x512 square thumbnail; card data otherwise unchanged.",
+ "cards": [
+  {
+   "slug": "xuanjing",
+   "name": "玄净",
+   "author": "Foreverse Team",
+   "source": "https://github.com/foreverse-app/character-card-skills/blob/main/cards/zh/xuanjing/xuanjing.v2.json",
+   "json": "xuanjing.json",
+   "avatar": "xuanjing.png"
+  },
+  {
+   "slug": "peiyu",
+   "name": "裴聿",
+   "author": "Foreverse Team",
+   "source": "https://github.com/foreverse-app/character-card-skills/blob/main/cards/zh/peiyu/peiyu.v2.json",
+   "json": "peiyu.json",
+   "avatar": "peiyu.png"
+  },
+  {
+   "slug": "naifuer",
+   "name": "奈芙尔",
+   "author": "Foreverse Team",
+   "source": "https://github.com/foreverse-app/character-card-skills/blob/main/cards/zh/naifuer/naifuer.v2.json",
+   "json": "naifuer.json",
+   "avatar": "naifuer.png"
+  },
+  {
+   "slug": "shenyan",
+   "name": "沈砚",
+   "author": "Foreverse Team",
+   "source": "https://github.com/foreverse-app/character-card-skills/blob/main/cards/zh/shenyan/shenyan.v2.json",
+   "json": "shenyan.json",
+   "avatar": "shenyan.png"
+  },
+  {
+   "slug": "tangtuantuan",
+   "name": "唐团团",
+   "author": "Foreverse Team",
+   "source": "https://github.com/foreverse-app/character-card-skills/blob/main/cards/zh/tangtuantuan/tangtuantuan.v2.json",
+   "json": "tangtuantuan.json",
+   "avatar": "tangtuantuan.png"
+  }
+ ]
+}

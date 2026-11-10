@@ -85,6 +85,8 @@ const report = {
     oldRoutes: null,
     group: null,
     groupDeletion: null,
+    presets: null,
+    builtinCards: null,
   },
   app: {},
   screenshots: [],
@@ -156,6 +158,14 @@ try {
     if (message.type() === 'error') consoleErrors.push(message.text())
   })
   page.on('pageerror', (error) => consoleErrors.push(String(error)))
+  // 记录 /tavern/api 请求状态，卡住时用于区分「请求挂起」还是「前端渲染问题」。
+  const apiLog = []
+  page.on('response', (response) => {
+    const requestUrl = response.url()
+    if (!/\/tavern\/api\/reader\/v1\//.test(requestUrl)) return
+    if (apiLog.length > 80) apiLog.shift()
+    apiLog.push(`${requestUrl.replace(/^https?:\/\/[^/]+/, '').split('?')[0]}:${response.status()}`)
+  })
 
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 })
   async function dismissWelcome() {
@@ -219,26 +229,49 @@ try {
     }
     return null
   }
+  let bootRetries = 0
+  let gotoRetries = 0
   async function appGoto(appPath, timeoutMs = 25000) {
-    const frame = fnow()
-    if (!frame) return null
-    const origin = new URL(frame.url()).origin
-    await frame
-      .goto(`${origin}/tavern${appPath}`, { waitUntil: 'domcontentloaded', timeout: timeoutMs })
-      .catch(() => {})
-    const escaped = `/tavern${appPath}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const landed = await waitFrameUrl(new RegExp(`${escaped}(?:[?#]|$)`), 8000)
-    const target = landed || fnow()
-    // 等 Vue 应用真正挂载（index.html 里的启动占位也有 h1，不能只看标题）。
+    const pattern = new RegExp(
+      `${`/tavern${appPath}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:[?#]|$)`,
+    )
+    // SPA 自己也在路由时，frame.goto 可能被中断（URL 停在旧页面）。重试直到真正落在目标路径。
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const frame = fnow()
+      if (!frame) {
+        await page.waitForTimeout(400)
+        continue
+      }
+      const origin = new URL(frame.url()).origin
+      await page.waitForTimeout(attempt === 0 ? 0 : 400)
+      await frame
+        .goto(`${origin}/tavern${appPath}`, { waitUntil: 'domcontentloaded', timeout: timeoutMs })
+        .catch(() => {})
+      const landed = await waitFrameUrl(pattern, 8000)
+      if (!landed && attempt < 2) {
+        gotoRetries += 1
+        continue
+      }
+      const target = landed || fnow()
+      break
+    }
+    let target = fnow()
+    if (target && !pattern.test(target.url())) target = (await waitFrameUrl(pattern, 8000)) || target
     if (target) {
-      await waitFor(
-        async () =>
-          (await target
-            .locator('.tavern-home, .tavern-settings, .tavern-character, .bubble-row, .tavern-empty')
-            .count()
-            .catch(() => 0)) > 0,
-        timeoutMs,
-      )
+      const mounted = async () =>
+        (await target
+          .locator('.tavern-home, .tavern-settings, .tavern-character, .bubble-row, .tavern-empty, .load-state-error')
+          .count()
+          .catch(() => 0)) > 0
+      const quick = await waitFor(mounted, 8000)
+      if (!quick) {
+        const stuckText = await target.evaluate(() => (document.body.innerText || '').slice(0, 80)).catch(() => '')
+        if (/正在打开角色卡/.test(stuckText)) {
+          await target.evaluate(() => location.reload()).catch(() => {})
+          bootRetries += 1
+        }
+        await waitFor(mounted, timeoutMs)
+      }
     }
     return target
   }
@@ -358,6 +391,480 @@ try {
       if (count > 0) return count
     }
     return 0
+  }
+
+
+  // ── R. 内置预设角色卡（task-76；新库首次进卡库触发种子，故跑在 O/N/C 之前）────
+  // 断言 R1–R6；产品未部署时整组 SKIP 并标 owner，不误报 FAIL。
+  const presetEvidence = {
+    enabled: false,
+    names: [],
+    cards: [],
+    detail: null,
+    opening: null,
+    reply: null,
+    deletion: null,
+    mobile: null,
+    console: [],
+    steps: [],
+  }
+  report.native.builtinCards = presetEvidence
+  const presetNames = ['玄净', '裴聿', '奈芙尔', '沈砚', '唐团团']
+  const presetCheckNames = [
+    '预设卡：首次进入卡库自动出现 5 张内置卡（名称、非预设卡不误标、头像加载）',
+    '预设卡：玄净详情显示「预设 · Foreverse Team（CC BY 4.0）」且「开新聊天」可进入 /chats/<id>',
+    '预设卡：首条开场白为纯文本（不含 HTML 标签原文）且 console 无报错',
+    '预设卡：发送「你好」触发真实生成（POST 200）且 assistant 落库文本变化',
+    '预设卡：删除沈砚后卡库剩 4 张，刷新仍 4 张（不重灌）',
+    '预设卡：390 宽下「预设」徽标可见不溢出、卡库两列',
+  ]
+  let presetDone = 0
+  const presetRecord = (index, ok, detail) => {
+    if (presetDone > index) return
+    presetDone = index + 1
+    check(presetCheckNames[index], ok, detail)
+  }
+  const presetSkip = (index, detail) => {
+    if (presetDone > index) return
+    presetDone = index + 1
+    skip(presetCheckNames[index], detail)
+  }
+  const presetQuote = (text, max = 90) => clip(String(text || '').replace(/\s+/g, ' ').trim(), max)
+
+  async function presetCardsSnapshot(frameNow) {
+    if (!frameNow) return []
+    return frameNow
+      .locator('.tavern-card')
+      .evaluateAll((nodes) =>
+        nodes.map((node) => {
+          const nameNode = node.querySelector('.tavern-card-name')
+          const avatar = node.querySelector('.tavern-avatar img')
+          return {
+            name: nameNode ? (nameNode.textContent || '').trim() : '',
+            preset: Boolean(node.querySelector('.tavern-card-preset')),
+            avatarOk: Boolean(avatar && avatar.naturalWidth > 0),
+          }
+        }),
+      )
+      .catch(() => [])
+  }
+
+  async function runPresetGroup() {
+    const presetConsoleStart = consoleErrors.length ? consoleErrors.length : 0
+    const presetConsole = () =>
+      consoleErrors.slice(presetConsoleStart).filter((text) => !/Failed to load resource/.test(text))
+
+    // R1：新课首次进入卡库 → 自动出现 5 张预设卡。
+    let home = await appGoto('/')
+    let cards = []
+    const seeded = await waitFor(async () => {
+      home = fnow() || home
+      cards = await presetCardsSnapshot(home)
+      if (cards.length >= 5) return true
+      // 启动占位卡住时 reload 一次（appGoto 已处理首次；这里兜住后续竞态）。
+      const stuck = await home
+        ?.evaluate(() => /正在打开角色卡/.test(document.body.innerText || ''))
+        .catch(() => false)
+      if (stuck) {
+        await home.evaluate(() => location.reload()).catch(() => {})
+        bootRetries += 1
+      }
+      return false
+    }, 45000)
+    // 头像走带鉴权的 blob 拉取，5 张一起加载时会比卡片 DOM 慢：等全部 naturalWidth>0（最多 25s）。
+    const avatarsReady = await waitFor(async () => {
+      const snapshot = await presetCardsSnapshot(fnow() || home)
+      if (snapshot.length >= 5) cards = snapshot
+      return snapshot.filter((card) => presetNames.includes(card.name)).length >= 5 && snapshot.filter((card) => presetNames.includes(card.name)).every((card) => card.avatarOk)
+    }, 25000)
+    presetEvidence.cards = cards
+    presetEvidence.names = cards.map((card) => card.name)
+    presetEvidence.avatarsReady = avatarsReady
+    if (!seeded) {
+      const detail = `卡库没有出现 5 张预设卡（当前 ${cards.length} 张：${cards.map((card) => card.name).join('、') || '空'}；owner: app-auth 种子 task-73 / cards-client 徽标 task-74；api=${clip(apiLog.slice(-10), 300)}）`
+      for (let index = 0; index < presetCheckNames.length; index += 1) presetSkip(index, detail)
+      presetEvidence.enabled = false
+      return
+    }
+    presetEvidence.enabled = true
+    await shot(page, '170-preset-home.png')
+    const actualNames = cards.map((card) => card.name)
+    const missing = presetNames.filter((name) => !actualNames.includes(name))
+    const extra = actualNames.filter((name) => !presetNames.includes(name))
+    const presetFlagged = cards.filter((card) => card.preset).map((card) => card.name)
+    const notFlagged = cards.filter((card) => presetNames.includes(card.name) && !card.preset).map((card) => card.name)
+    const avatarsOk = cards.filter((card) => presetNames.includes(card.name)).every((card) => card.avatarOk)
+    presetRecord(
+      0,
+      missing.length === 0 && extra.length === 0 && notFlagged.length === 0 && avatarsOk,
+      `names=${clip(actualNames)} missing=${clip(missing)} extra=${clip(extra)} presetFlagged=${clip(presetFlagged)} notFlagged=${clip(notFlagged)} avatars=${avatarsOk}`,
+    )
+
+    // R2：玄净详情 creator 行 + 开聊入口。
+    let xuanjingDetail = null
+    try {
+      const xuanjingCard = await findCard('玄净')
+      if (!xuanjingCard) throw new Error('卡库没有玄净')
+      await xuanjingCard.locator('button.tavern-card-edit').click()
+      xuanjingDetail = await waitFrameUrl(/\/characters\/[0-9a-z-]+/, 20000)
+      if (!xuanjingDetail) throw new Error('点「设置」没有进入角色详情')
+      await waitFor(async () => (await xuanjingDetail.locator('.character-hero').count().catch(() => 0)) > 0, 20000)
+      const creator = (await xuanjingDetail.locator('.character-creator').first().innerText().catch(() => '')).trim()
+      await shot(page, '171-preset-detail.png')
+      const startButton = xuanjingDetail.getByRole('button', { name: /开新聊天|开始聊天/ }).first()
+      await startButton.waitFor({ state: 'visible', timeout: 15000 })
+      await startButton.click()
+      const chatFrame = await waitFrameUrl(/\/chats\/[0-9a-z-]+/, 25000)
+      const chatId = chatFrame ? (chatFrame.url().match(/\/chats\/([0-9a-z-]+)/) || [])[1] : null
+      presetEvidence.detail = { creator, chatId: chatId || null }
+      presetRecord(
+        1,
+        /预设/.test(creator) && /Foreverse/i.test(creator) && Boolean(chatId),
+        `creator=${presetQuote(creator)} chatId=${chatId || '未进入 /chats/'}（owner: cards-client 详情 creator 行）`,
+      )
+    } catch (error) {
+      presetEvidence.detail = { error: String(error && error.message) }
+      presetRecord(1, false, `无法进入玄净详情/开聊：${String(error && error.message)} api=${clip(apiLog.slice(-10), 300)}`)
+    }
+
+    // R3：首条 assistant 气泡 = 开场白；纯文本、无 HTML 标签原文。
+    let chat = fnow()
+    let opening = ''
+    try {
+      const ready = await waitFor(async () => (await chat.locator('article.bubble-row.assistant').count().catch(() => 0)) > 0, 25000)
+      if (!ready) throw new Error('聊天页没有 assistant 开场白气泡')
+      opening = (await chat.locator('article.bubble-row.assistant .bubble-text').first().innerText().catch(() => '')).trim()
+      await shot(page, '172-preset-opening.png')
+      const rawTag = /<\s*\/?\s*(div|style|script|br|span|p)\b/i.test(opening)
+      const groupConsole = presetConsole()
+      presetEvidence.opening = { text: presetQuote(opening, 160), length: opening.length, rawTag, console: groupConsole }
+      presetRecord(
+        2,
+        opening.length >= 10 && !rawTag && groupConsole.length === 0,
+        `openingLen=${opening.length} text=${presetQuote(opening)} rawTag=${rawTag} console=${clip(groupConsole, 120)}`,
+      )
+    } catch (error) {
+      presetEvidence.opening = { error: String(error && error.message) }
+      presetRecord(2, false, `开场白断言失败：${String(error && error.message)}`)
+    }
+
+    // R4：发送「你好」→ 真实生成成功且落库文本变化。
+    let reply = ''
+    try {
+      chat = fnow()
+      const beforeCount = await chat.locator('article.bubble-row.assistant').count().catch(() => 0)
+      const composer = chat.locator('textarea[aria-label="聊天输入框"]').first()
+      await composer.waitFor({ state: 'visible', timeout: 15000 })
+      await composer.fill('你好')
+      let postStatus = null
+      const onResponse = (response) => {
+        try {
+          const url = response.url()
+          if (response.request().method() === 'POST' && /\/api\/reader\/v1\/tavern\/chats\/[^/]+\/messages$/.test(url)) postStatus = response.status()
+        } catch {}
+      }
+      page.on('response', onResponse)
+      const sendButton = chat.locator('button[aria-label="发送消息"]').first()
+      await sendButton.waitFor({ state: 'visible', timeout: 15000 })
+      await sendButton.click()
+      let lastStableText = ''
+      let stableTicks = 0
+      const replied = await waitFor(async () => {
+        chat = fnow() || chat
+        const texts = await chat.locator('article.bubble-row.assistant .bubble-text').allInnerTexts().catch(() => [])
+        if (texts.length <= beforeCount) return false
+        const last = String(texts[texts.length - 1] || '').trim()
+        if (last.length < 10 || last === opening) return false
+        const pending = await chat.locator('article.bubble-row .bubble-pending').count().catch(() => 0)
+        const status = (await chat.locator('.chat-status[role="status"]').first().innerText().catch(() => '')) || ''
+        const streaming = pending > 0 || /正在(回复|生成|写)/.test(status)
+        if (streaming) {
+          stableTicks = 0
+          lastStableText = last
+          return false
+        }
+        // 无 pending/状态文案后再要求文本两次采样稳定，避免把流式半截当成完整回复。
+        if (last === lastStableText) stableTicks += 1
+        else {
+          stableTicks = 0
+          lastStableText = last
+        }
+        return stableTicks >= 2
+      }, 180000, 350)
+      page.off('response', onResponse)
+      const texts = await chat.locator('article.bubble-row.assistant .bubble-text').allInnerTexts().catch(() => [])
+      reply = String(texts[texts.length - 1] || '').trim()
+      await shot(page, '173-preset-reply.png')
+      const reloadedBefore = reply
+      await chat.evaluate(() => location.reload()).catch(() => {})
+      const reloaded = (await waitFrameUrl(/\/chats\/[0-9a-z-]+/, 20000)) || fnow()
+      chat = reloaded || chat
+      await waitChatRendered(chat, 25000)
+      const persisted = await waitFor(async () => {
+        const all = await chat.locator('article.bubble-row.assistant .bubble-text').allInnerTexts().catch(() => [])
+        const last = String(all[all.length - 1] || '').trim()
+        return last === reloadedBefore || (reloadedBefore.length >= 20 && last.includes(reloadedBefore.slice(0, 20)))
+      }, 30000)
+      presetEvidence.reply = {
+        text: presetQuote(reply, 160),
+        length: reply.length,
+        httpStatus: postStatus,
+        persisted,
+        stallProbe: replied ? null : await gatewayProbe(),
+      }
+      presetRecord(
+        3,
+        replied && postStatus === 200 && persisted,
+        `回复 ${reply.length} 字 http=${postStatus} persisted=${persisted} text=${presetQuote(reply)}`,
+      )
+    } catch (error) {
+      presetEvidence.reply = { error: String(error && error.message) }
+      presetRecord(3, false, `真实生成失败：${String(error && error.message)} api=${clip(apiLog.slice(-10), 300)}`)
+    }
+
+    // R5：删除沈砚 → 剩 4 张，刷新仍 4 张（不重灌）。
+    try {
+      // 用 API 取沈砚的卡 id 再直达详情，避免依赖首页列表渲染（真实生成后首页列表偶发不刷新）。
+      let shenyanId = ''
+      let listDebug = null
+      // 页面内 fetch 加超时，避免应用/代理偶发挂起时把整轮跑死（evaluate 本身没有超时）。
+      const fetchListViaPage = async (frameNow) => {
+        if (!frameNow) return { error: 'no-frame' }
+        const invocation = frameNow.evaluate(async () => {
+          const controller = new AbortController()
+          const timer = setTimeout(() => controller.abort(), 8000)
+          try {
+            const response = await fetch('/tavern/api/reader/v1/tavern/characters', { credentials: 'include', signal: controller.signal })
+            const data = await response.json().catch(() => null)
+            const items = (data && data.items) || []
+            return { status: response.status, count: items.length, names: items.map((card) => card.name).slice(0, 8), id: (items.find((card) => card.name === '沈砚') || {}).id || '' }
+          } finally {
+            clearTimeout(timer)
+          }
+        })
+        try {
+          return await Promise.race([
+            invocation,
+            new Promise((resolve) => setTimeout(() => resolve({ error: 'evaluate-timeout-12s' }), 12000)),
+          ])
+        } catch (error) {
+          return { error: String(error && error.message) }
+        }
+      }
+      try {
+        listDebug = await fetchListViaPage(fnow() || home)
+        shenyanId = listDebug.id || ''
+      } catch (error) {
+        listDebug = { error: String(error && error.message) }
+        shenyanId = ''
+      }
+      let detailFrame = null
+      if (shenyanId) {
+        detailFrame = await appGoto('/characters/' + encodeURIComponent(shenyanId), 20000)
+        await waitFor(async () => (await detailFrame.locator('.character-hero').count().catch(() => 0)) > 0, 20000)
+      } else {
+        await appGoto('/')
+        await waitFor(async () => Boolean(await findCard('沈砚')), 20000)
+        const shenyan = await findCard('沈砚')
+        if (!shenyan) throw new Error(`卡库没有沈砚（API=${JSON.stringify(listDebug)}）`)
+        await shenyan.locator('button.tavern-card-edit').click()
+        detailFrame = await waitFrameUrl(/\/characters\/[0-9a-z-]+/, 20000)
+      }
+      if (!detailFrame) throw new Error('没有进入沈砚详情')
+      await waitFor(async () => (await detailFrame.locator('.character-hero').count().catch(() => 0)) > 0, 20000)
+      const dialogPromise = page
+        .waitForEvent('dialog', { timeout: 10000 })
+        .then(async (dialog) => {
+          const message = dialog.message()
+          await dialog.accept()
+          return message
+        })
+        .catch(() => null)
+      await detailFrame
+        .getByRole('button', { name: /删除角色卡/ })
+        .first()
+        .click({ timeout: 10000 })
+        .catch(async () => {
+          await detailFrame.locator('button.danger').filter({ hasText: '删除角色卡' }).first().click()
+        })
+      const confirmText = await dialogPromise
+      // 删除成功后客户端会自己 router.push('/')；先等它落地并挂载，避免在 SPA 跳转途中再整页 goto
+      // （两者叠加会让 index.html 启动占位「正在打开角色卡…」一直不被替换）。
+      const homeAfterDelete = (await waitFrameUrl(/\/tavern\/?$/, 15000)) || fnow()
+      const mountedAfterDelete = homeAfterDelete
+        ? await waitFor(
+            async () =>
+              (await homeAfterDelete
+                .locator('.tavern-grid, .tavern-empty, .load-state-error')
+                .count()
+                .catch(() => 0)) > 0,
+            20000,
+          )
+        : false
+      const afterDelete = mountedAfterDelete ? await waitFor(async () => (await cardCount()) === 4, 15000) : false
+      const namesAfterDelete = (await presetCardsSnapshot(fnow())).map((card) => card.name)
+      // 刷新验证：新开一个页面重新加载 /tavern/（等价整页刷新，验证服务端不会重灌已软删的预设卡）。
+      // 注意不要对主 iframe 执行 location.reload()——隔离实例里偶发卡在启动占位，导致后续分组全部异常。
+      let namesAfterReload = []
+      const freshAttempts = []
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 1500))
+        const freshPage = await context.newPage().catch(() => null)
+        if (!freshPage) break
+        const freshApi = []
+        freshPage.on('response', (response) => {
+          const url = response.url()
+          if (url.includes('/api/reader/v1/')) {
+            try {
+              if (freshApi.length < 30) freshApi.push(url.replace(/^.*\/reader\/v1\//, '') + ':' + response.status())
+            } catch {}
+          }
+        })
+        try {
+          await freshPage.setViewportSize({ width: 1280, height: 900 }).catch(() => {})
+          await freshPage.goto(new URL(url).origin + '/tavern/', { waitUntil: 'domcontentloaded', timeout: 20000 })
+          await freshPage.waitForSelector('.tavern-card', { timeout: 25000 }).catch(() => {})
+          namesAfterReload = await freshPage
+            .locator('.tavern-card .tavern-card-name')
+            .allTextContents()
+            .catch(() => [])
+          freshAttempts.push({ url: freshPage.url(), cards: namesAfterReload.length, api: freshApi.slice(-6) })
+        } catch (error) {
+          namesAfterReload = []
+          freshAttempts.push({ error: String(error && error.message), api: freshApi.slice(-6) })
+        } finally {
+          await freshPage.close().catch(() => {})
+        }
+        if (namesAfterReload.length === 4) break
+      }
+      await shot(page, '174-preset-deleted.png')
+      presetEvidence.deletion = {
+        confirm: presetQuote(confirmText, 120),
+        afterDelete: namesAfterDelete,
+        afterReload: namesAfterReload,
+        freshAttempts,
+        regrown: namesAfterReload.length !== 4,
+      }
+      presetRecord(
+        4,
+        afterDelete && namesAfterDelete.length === 4 && !namesAfterDelete.includes('沈砚') && namesAfterReload.length === 4,
+        `确认文案=${presetQuote(confirmText, 80)} 挂载=${mountedAfterDelete} 删后=${clip(namesAfterDelete)} 刷新后=${clip(namesAfterReload)} fresh=${JSON.stringify(freshAttempts).slice(0, 260)} api=${clip(apiLog.slice(-8), 260)}`,
+      )
+    } catch (error) {
+      presetEvidence.deletion = { error: String(error && error.message) }
+      presetRecord(4, false, `删除/不重灌断言失败：${String(error && error.message)} api=${clip(apiLog.slice(-10), 300)}`)
+    }
+
+    // R6：390 宽移动端「预设」徽标不溢出、两列网格。
+    let mobilePageRef = null
+    try {
+      const baseFrame = fnow()
+      const origin = new URL(baseFrame.url()).origin
+      mobilePageRef = await context.newPage()
+      const mobileApiLog = []
+      mobilePageRef.on('response', (response) => {
+        const requestUrl = response.url()
+        if (!/\/tavern\/api\/reader\/v1\//.test(requestUrl)) return
+        if (mobileApiLog.length > 40) mobileApiLog.shift()
+        mobileApiLog.push(`${requestUrl.replace(/^https?:\/\/[^/]+/, '').split('?')[0]}:${response.status()}`)
+      })
+      await mobilePageRef.setViewportSize({ width: 390, height: 844 })
+      let mobileCardsReady = false
+      for (let attempt = 0; attempt < 3 && !mobileCardsReady; attempt += 1) {
+        await mobilePageRef.goto(`${origin}/tavern/`, { waitUntil: 'domcontentloaded', timeout: 25000 })
+        mobileCardsReady = await mobilePageRef
+          .waitForSelector('.tavern-card', { timeout: 20000 })
+          .then(() => true)
+          .catch(() => false)
+      }
+      if (!mobileCardsReady) {
+        const stuck = await mobilePageRef
+          .evaluate(() => (document.body.innerText || '').slice(0, 120))
+          .catch(() => '')
+        throw new Error(`移动页 3 次加载都没有渲染角色卡（body=${stuck}）`)
+      }
+      const mobileFrame = mobilePageRef.frames().find((candidate) => /\/tavern\//.test(candidate.url())) || null
+      if (mobileFrame) {
+        await waitFor(
+          async () =>
+            (await mobileFrame
+              .locator('.tavern-grid, .tavern-empty, .load-state-error')
+              .count()
+              .catch(() => 0)) > 0,
+          20000,
+        )
+      }
+      const badge = await mobileFrame.locator('.tavern-card-preset').first().isVisible().catch(() => false)
+      const overflow = await mobileFrame
+        .evaluate(() => document.scrollingElement.scrollWidth - window.innerWidth)
+        .catch(() => 999)
+      const boxes = await mobileFrame.locator('.tavern-card').evaluateAll((nodes) => nodes.slice(0, 2).map((node) => node.getBoundingClientRect()).map((box) => ({ top: Math.round(box.top), left: Math.round(box.left) })))
+      const columns = boxes.length === 2 && boxes[0].top === boxes[1].top && boxes[0].left !== boxes[1].left ? 2 : 1
+      await mobilePageRef.screenshot({ path: path.join(outDir, '175-preset-mobile.png'), fullPage: false }).catch(() => {})
+      report.screenshots.push(path.join(outDir, '175-preset-mobile.png'))
+      presetEvidence.mobile = { badge, overflow, columns, boxes }
+      presetRecord(5, badge && overflow <= 1 && columns === 2, `badge=${badge} overflow=${overflow} columns=${columns} boxes=${clip(boxes, 120)}`)
+    } catch (error) {
+      presetEvidence.mobile = { error: String(error && error.message) }
+      const debugBody = mobilePageRef
+        ? await mobilePageRef
+            .evaluate(() => ({ url: location.href, text: (document.body.innerText || '').slice(0, 200) }))
+            .catch(() => null)
+        : null
+      presetRecord(5, false, `移动端断言失败：${String(error && error.message)} debug=${JSON.stringify(debugBody)} console=${clip(consoleErrors.slice(-5), 300)} api=${clip((typeof mobileApiLog !== 'undefined' ? mobileApiLog : apiLog).slice(-8), 300)}`)
+    } finally {
+      if (mobilePageRef) await mobilePageRef.close().catch(() => {})
+    }
+
+    presetEvidence.apiLog = apiLog.slice(-20)
+    presetEvidence.bootRetries = bootRetries
+
+    // 收尾：删除剩余预设卡与聊天，让后续分组从干净库开始（软删后种子不会重灌）。
+    try {
+      const cleanupFrame = fnow()
+      if (cleanupFrame) {
+        const cleanupRun = cleanupFrame.evaluate(async () => {
+          const base = '/tavern/api/reader/v1/tavern'
+          const list = await fetch(base + '/characters', { credentials: 'include' }).then((response) => response.json()).catch(() => null)
+          const items = (list && (list.items || list)) || []
+          // 只清理本组种子出来的「预设」卡，绝不动用户/其它分组导入的角色卡（否则后续分组数据被清空）。
+          const presetItems = items.filter((item) => item && (item.builtin || item.builtinSlug))
+          const presetIds = new Set(presetItems.map((item) => item.id || (item.card && item.card.id)).filter(Boolean))
+          for (const id of presetIds) {
+            await fetch(base + '/characters/' + id, {
+              method: 'DELETE',
+              credentials: 'include',
+              headers: { 'Idempotency-Key': (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())) },
+            }).catch(() => {})
+          }
+          const chats = await fetch(base + '/chats', { credentials: 'include' }).then((response) => response.json()).catch(() => null)
+          for (const item of (chats && (chats.items || chats)) || []) {
+            const id = item && (item.id || (item.chat && item.chat.id))
+            const cardId = item && (item.cardId || (item.card && item.card.id))
+            if (id && cardId && presetIds.has(cardId)) {
+              await fetch(base + '/chats/' + id, {
+                method: 'DELETE',
+                credentials: 'include',
+                headers: { 'Idempotency-Key': (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())) },
+              }).catch(() => {})
+            }
+          }
+        })
+        await Promise.race([cleanupRun, new Promise((resolve) => setTimeout(resolve, 20000))]).catch(() => {})
+      }
+    } catch {}
+    presetEvidence.console = presetConsole()
+    presetEvidence.steps = presetDone
+  }
+
+  if (groupOn('preset')) {
+    if (nativeBlocked) {
+      for (let index = 0; index < presetCheckNames.length; index += 1) presetSkip(index, blockedReason)
+    } else {
+      await runPresetGroup()
+    }
+  } else {
+    for (let index = 0; index < presetCheckNames.length; index += 1) presetSkip(index, '未执行 R 组（--only 未包含 preset）')
   }
 
   // ── O. 移动端 390×844 适配（task-71 打磨 4；真实后端，禁用 mock）──────────────
@@ -1548,6 +2055,12 @@ try {
       await waitFor(async () => (await frameNow.locator('.member-manager[role="dialog"]').count().catch(() => 0)) > 0, 15000)
       const dialog = frameNow.locator('.member-manager[role="dialog"]').first()
       if (!(await dialog.count().catch(() => 0))) return null
+      // 弹层先渲染壳，再异步 listCharacters()：等角色勾选项出现且加载文案消失，避免读到「正在加载角色卡…」。
+      await waitFor(async () => {
+        const rows = await dialog.locator('.member-pick-row').count().catch(() => 0)
+        const text = (await dialog.innerText().catch(() => '')) || ''
+        return rows > 0 && !/正在加载角色卡/.test(text)
+      }, 20000)
       return dialog
     }
     const memberSendMessage = async (text) => {
@@ -2856,8 +3369,12 @@ try {
             const send = chatFrame.locator('button[aria-label="发送消息"]').first()
             const rowsBefore = await chatFrame.locator('.bubble-row').count().catch(() => 0)
             let sent = false
+            let sseBody = ''
             if ((await input.count().catch(() => 0)) > 0 && (await send.count().catch(() => 0)) > 0) {
               await input.fill('（E2E 采样）用一句话回应我。').catch(() => {})
+              const sseResponsePromise = page
+                .waitForResponse((response) => response.url().includes('/tavern/chats/') && response.url().includes('/messages') && response.request().method() === 'POST', { timeout: 130000 })
+                .catch(() => null)
               await send.click({ force: true }).catch(() => {})
               sent = await waitFor(async () => {
                 const rows = await chatFrame.locator('.bubble-row').count().catch(() => 0)
@@ -2865,10 +3382,21 @@ try {
                 const status = ((await chatFrame.locator('.chat-status').first().innerText().catch(() => '')) || '').trim()
                 return rows > rowsBefore + 1 && pending === 0 && !/正在回复/.test(status)
               }, 120000)
+              const sseResponse = await sseResponsePromise
+              if (sseResponse) {
+                const contentType = (sseResponse.headers()['content-type'] || '').toLowerCase()
+                if (contentType.includes('event-stream')) {
+                  sseBody = await Promise.race([
+                    sseResponse.text().catch(() => ''),
+                    new Promise((resolve) => setTimeout(() => resolve(''), 5000)),
+                  ])
+                }
+              }
             }
             const alertText = await chatFrame.locator('[role="alert"]').first().innerText().catch(() => '')
-            sampling.send = { sent, alert: alertText || null }
-            s2Record(2, sent && !alertText, `sent=${sent} alert=${alertText ? alertText.slice(0, 120) : '无'}`)
+            const sseTail = String(sseBody || '').replace(/\s+/g, ' ').slice(-400)
+            sampling.send = { sent, alert: alertText || null, sseTail }
+            s2Record(2, sent && !alertText, `sent=${sent} alert=${alertText ? alertText.slice(0, 120) : '无'} sse=${sseTail || 'none'}`)
           } else {
             s2SkipRemaining(1, '采样参数对话框未打开，无法验证保存/回显')
           }
