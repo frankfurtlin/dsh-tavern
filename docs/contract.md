@@ -15,7 +15,7 @@
 
 - `dsh-tavern-api`  → uvicorn，127.0.0.1:8001（聊天 SSE 在请求线程直连网关）
 - `dsh-tavern-web`  → 静态 dist，127.0.0.1:8810
-- `dsh-tavern-worker` → 文本任务 worker（2.0 聊天不用任务队列，直接请求线程跑 SSE）
+- `dsh-tavern-worker` → 旧任务队列 worker；2.0 生成在请求线程跑 SSE，host 已停用并 disable（新 worker.py 无 main 循环，勿重启）
 - `dsh-tavern-world-worker` → 旧 story worker；**P3 删掉 `app.world.worker` 后该单元已停用、disable（host 已处理，勿重启）**
   重启会失败**，属 host 待清理项（停用或改指向由 Lead 处理）
 

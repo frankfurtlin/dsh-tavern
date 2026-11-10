@@ -26,7 +26,7 @@ vi.mock('./api',()=>({
 vi.mock('../platform/download',()=>({saveBlob:vi.fn(),safeFileName:(name:string,fallback:string)=>name||fallback}))
 vi.mock('./sse',()=>({streamChat:vi.fn()}))
 vi.mock('../components/Sheet.vue',()=>({default:defineComponent({props:{title:{type:String,default:''}},emits:['close'],setup:(props,{slots})=>()=>h('section',{class:'sheet-stub'},[h('h2',{},props.title),slots.default?.()])})}))
-vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{ArrowLeft:stub,ChevronLeft:stub,ChevronRight:stub,Download:stub,Pencil:stub,RefreshCw:stub,Send:stub,Square:stub,Trash2:stub,X:stub}})
+vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{ArrowLeft:stub,ChevronDown:stub,ChevronLeft:stub,ChevronRight:stub,ChevronUp:stub,Download:stub,Pencil:stub,RefreshCw:stub,Search:stub,Send:stub,Square:stub,Trash2:stub,X:stub}})
 compileRender(TavernChatPage,new URL('./TavernChatPage.vue',import.meta.url))
 
 type Msg={id:string;role:'user'|'assistant';sequence:number;swipes:{content:string}[];activeSwipe:number}
@@ -237,5 +237,68 @@ describe('TavernChatPage',()=>{
     mount();await flush()
     expect(text(host)).toContain('旧群聊')
     expect(aria('聊天输入框').props.disabled).toBe(false)
+  })
+
+  it('opens the search bar, counts hits and jumps to a match',async()=>{
+    mount();await flush()
+    aria('搜索聊天内容').props.onClick?.()
+    await flush()
+    expect(text(host)).toContain('仅搜索已加载消息')
+    state().searchQuery='风'
+    await flush()
+    expect(text(host)).toContain('1/1')
+    aria('下一个匹配').props.onClick?.()
+    await flush()
+    const hit=descendants(host,item=>String(item.props.class??'').includes('chat-search-hit'))
+    expect(hit.length).toBe(1)
+  })
+
+  it('shows no-match feedback with the loaded-message hint',async()=>{
+    mount();await flush()
+    aria('搜索聊天内容').props.onClick?.()
+    state().searchQuery='不存在的句子'
+    await flush()
+    expect(text(host)).toContain('没有匹配')
+    expect(text(host)).toContain('仅搜索已加载消息')
+  })
+
+  it('cycles through multiple matches and wraps around',async()=>{
+    vi.mocked(getChat).mockResolvedValue(detail([{id:'u1',role:'user',sequence:1,swipes:[{content:'下雨了'}],activeSwipe:0},{id:'a1',role:'assistant',sequence:2,swipes:[{content:'雨停了'}],activeSwipe:0}]) as never)
+    mount();await flush()
+    aria('搜索聊天内容').props.onClick?.()
+    state().searchQuery='雨'
+    await flush()
+    expect(text(host)).toContain('1/2')
+    aria('下一个匹配').props.onClick?.()
+    await flush()
+    expect(text(host)).toContain('2/2')
+    aria('下一个匹配').props.onClick?.()
+    await flush()
+    expect(text(host)).toContain('1/2')
+    aria('上一个匹配').props.onClick?.()
+    await flush()
+    expect(text(host)).toContain('2/2')
+  })
+
+  it('closes the search bar on Escape and keeps the composer draft',async()=>{
+    mount();await flush()
+    aria('搜索聊天内容').props.onClick?.()
+    await flush()
+    state().input='写了一半的草稿'
+    const searchInput=aria('搜索聊天内容输入')
+    searchInput.props.onKeydown?.({key:'Escape',stopPropagation(){},preventDefault(){}})
+    await flush()
+    expect(text(host)).not.toContain('仅搜索已加载消息')
+    expect(state().input).toBe('写了一半的草稿')
+  })
+
+  it('does not touch composer input while searching',async()=>{
+    mount();await flush()
+    aria('搜索聊天内容').props.onClick?.()
+    state().input='保留草稿'
+    state().searchQuery='风'
+    await flush()
+    expect(state().input).toBe('保留草稿')
+    expect(text(host)).toContain('风起了')
   })
 })

@@ -317,6 +317,17 @@ instance_checks() {
 JSONL
   run "生成 ST JSONL 聊天样例（chat-sample.jsonl，2 条消息）" test -s "$FIXTURES/chat-sample.jsonl"
 
+  # N 组搜索/移动端：ST JSONL 聊天样例（6 条消息，其中 3 条含「茶」），供搜索断言导入。
+  cat > "$FIXTURES/chat-search.jsonl" <<'JSONL'
+{"user_name":"旅人","character_name":"林小满","create_date":"2026-11-05T01:00:00.000Z","mes":"下雨了，我来避一避。","is_user":true,"is_name":true}
+{"user_name":"旅人","character_name":"林小满","create_date":"2026-11-05T01:01:00.000Z","mes":"坐吧，先喝一盏热茶暖暖身子。","is_user":false,"is_name":false}
+{"user_name":"旅人","character_name":"林小满","create_date":"2026-11-05T01:02:00.000Z","mes":"这茶是什么茶叶？闻着有股雨后的清香。","is_user":true,"is_name":true}
+{"user_name":"旅人","character_name":"林小满","create_date":"2026-11-05T01:03:00.000Z","mes":"是渡口后山采的野茶，每年只采一季。","is_user":false,"is_name":false}
+{"user_name":"旅人","character_name":"林小满","create_date":"2026-11-05T01:04:00.000Z","mes":"那我可要多喝两碗。","is_user":true,"is_name":true}
+{"user_name":"旅人","character_name":"林小满","create_date":"2026-11-05T01:05:00.000Z","mes":"喝完这壶茶，雨也差不多停了。","is_user":false,"is_name":false}
+JSONL
+  run "生成 ST JSONL 搜索样例（chat-search.jsonl，6 条消息/3 条含「茶」）" test -s "$FIXTURES/chat-search.jsonl"
+
   say "真实浏览器 E2E（verify.mjs）"
   local verify_args=(--url "$url" --out "$OUT" --fixtures "$FIXTURES")
   [[ -n "${DSH_TAVERN_DEBUG:-}" ]] && echo "verify args: ${verify_args[*]}"
