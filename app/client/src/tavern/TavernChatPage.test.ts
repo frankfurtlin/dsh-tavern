@@ -1,7 +1,7 @@
 import {beforeEach,afterEach,describe,it,expect,vi} from 'vitest'
 import {defineComponent,h,onUnmounted} from 'vue'
 import TavernChatPage from './TavernChatPage.vue'
-import {deleteMessage,editMessage,exportChatBlob,getChat,selectSwipe,updateChatSampling} from './api'
+import {deleteMessage,editMessage,exportChatBlob,getChat,listCharacters,selectSwipe,updateChatMembers,updateChatSampling} from './api'
 import {saveBlob} from '../platform/download'
 import {streamChat} from './sse'
 import {compileRender,descendants,flush,node,provideSfc,renderer,text,type Host} from '../test/host-renderer'
@@ -19,6 +19,8 @@ vi.mock('./api',()=>({
   deleteMessage:vi.fn(),
   selectSwipe:vi.fn(),
   updateChat:vi.fn(),
+  updateChatMembers:vi.fn(),
+  listCharacters:vi.fn(),
   updateChatSampling:vi.fn(),
   exportChatBlob:vi.fn(),
   messageText:(message:{swipes?:{content:string}[];activeSwipe?:number})=>message.swipes?.[message.activeSwipe??0]?.content??'',
@@ -58,6 +60,10 @@ beforeEach(()=>{
   vi.mocked(saveBlob).mockReset()
   vi.mocked(streamChat).mockReset()
   vi.mocked(updateChatSampling).mockReset().mockResolvedValue({id:'chat-1',cardId:'c1',title:'林渡 · 聊天'} as never)
+  vi.mocked(listCharacters).mockReset().mockResolvedValue([
+    {id:'c1',name:'林渡'},{id:'c2',name:'阿青'},{id:'c3',name:'角色C'},{id:'c4',name:'角色D'},{id:'c5',name:'角色E'},
+  ] as never)
+  vi.mocked(updateChatMembers).mockReset().mockResolvedValue({id:'chat-1',cardId:'',title:'群聊',mode:'group'} as never)
 })
 afterEach(()=>{app?.unmount();app=undefined;vi.unstubAllGlobals()})
 
@@ -300,5 +306,77 @@ describe('TavernChatPage',()=>{
     await flush()
     expect(state().input).toBe('保留草稿')
     expect(text(host)).toContain('风起了')
+  })
+
+  const groupDetail=(members:{cardId:string;name:string;deleted?:boolean}[]=[{cardId:'c1',name:'林渡'},{cardId:'c2',name:'阿青'}])=>({chat:{id:'chat-1',cardId:'',title:'群聊',mode:'group',aliveMemberCount:members.filter(m=>!m.deleted).length,members},messages:[userMessage,assistantMessage]})
+  async function openMembersDialog(){
+    vi.mocked(getChat).mockResolvedValue(groupDetail() as never)
+    mount();await flush()
+    aria('聊天菜单').props.onClick?.()
+    await flush()
+    button('管理成员')!.props.onClick?.()
+    await flush()
+  }
+
+  it('shows the member manager only for group chats',async()=>{
+    mount();await flush()
+    aria('聊天菜单').props.onClick?.()
+    await flush()
+    expect(button('管理成员')).toBeUndefined()
+    vi.mocked(getChat).mockResolvedValue(groupDetail() as never)
+    app?.unmount()
+    mount();await flush()
+    aria('聊天菜单').props.onClick?.()
+    await flush()
+    expect(button('管理成员')).toBeDefined()
+  })
+
+  it('preselects living members in the manager dialog',async()=>{
+    await openMembersDialog()
+    const checked=descendants(host,item=>item.tag==='input'&&item.props.type==='checkbox'&&item.props.checked===true)
+    expect(checked.length).toBe(2)
+    expect(text(host)).toContain('2/5')
+  })
+
+  it('blocks saving when only one member is selected',async()=>{
+    await openMembersDialog()
+    ;(state().toggleMember as (id:string)=>void)('c2')
+    await flush()
+    expect(text(host)).toContain('群聊需要 2 至 5 位角色')
+    expect(button('保存')!.props.disabled).toBe(true)
+  })
+
+  it('prevents selecting more than five members',async()=>{
+    vi.mocked(listCharacters).mockResolvedValue([
+      {id:'c1',name:'林渡'},{id:'c2',name:'阿青'},{id:'c3',name:'角色C'},{id:'c4',name:'角色D'},{id:'c5',name:'角色E'},{id:'c6',name:'角色F'},
+    ] as never)
+    await openMembersDialog()
+    for(const id of ['c3','c4','c5','c6'])(state().toggleMember as (id:string)=>void)(id)
+    await flush()
+    expect((state().memberSelection as string[]).length).toBe(5)
+    expect(text(host)).toContain('5/5')
+  })
+
+  it('saves members with PATCH and reloads the chat detail',async()=>{
+    await openMembersDialog()
+    ;(state().toggleMember as (id:string)=>void)('c3')
+    await flush()
+    button('保存')!.props.onClick?.()
+    await flush()
+    expect(updateChatMembers).toHaveBeenCalledWith('chat-1',['c1','c2','c3'])
+    expect(vi.mocked(getChat).mock.calls.length).toBeGreaterThanOrEqual(2)
+    expect(text(host)).not.toContain('管理群聊成员')
+  })
+
+  it('shows deleted members as non-selectable replacement hints',async()=>{
+    vi.mocked(getChat).mockResolvedValue(groupDetail([{cardId:'c1',name:'林渡'},{cardId:'c2',name:'阿青',deleted:true}]) as never)
+    vi.mocked(listCharacters).mockResolvedValue([{id:'c1',name:'林渡'},{id:'c3',name:'角色C'}] as never)
+    mount();await flush()
+    aria('聊天菜单').props.onClick?.()
+    await flush()
+    button('管理成员')!.props.onClick?.()
+    await flush()
+    expect(text(host)).toContain('阿青（已删除）')
+    expect(descendants(host,item=>String(item.props.class??'').includes('member-deleted-row')).length).toBe(1)
   })
 })

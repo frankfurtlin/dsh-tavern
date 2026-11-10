@@ -1083,6 +1083,392 @@ try {
     }
   }
 
+  // ── M. 群聊成员管理（task-70：管理成员弹层 2→3→2 + 校验 + 单聊无入口）──────
+  const membersEvidence = {
+    enabled: false, chatId: null, cards: [], opened: null, added: null, removed: null,
+    invalid: null, single: null, console: [], steps: [],
+  }
+  report.native.membership = membersEvidence
+  const memberCheckNames = [
+    '群聊「管理成员」弹层打开：2 人预选、计数 2/5、角色卡可勾选',
+    '勾选第 3 张保存后：PATCH 200、页头 3 人、GET members=3、aliveMemberCount=3',
+    '取消 1 人保存后 members=2，继续发言 POST 200 + 落库且 speakerName 属于剩余成员',
+    '成员校验：只选 1 时保存禁用 + 文案；直连 PATCH 1 个/6 个/单聊均 422',
+    '单聊页头无「管理成员」入口；群聊管理流程 console 无报错',
+  ]
+  if (groupOn('m') && !nativeBlocked) {
+    membersEvidence.enabled = true
+    const memberStart = consoleErrors.length
+    const memberConsole = () => consoleErrors.slice(memberStart).filter((text) => !/Failed to load resource/.test(text))
+    let memberStep = 0
+    const memberPlane = () => fnow()
+    const mApi = async (pathname, options = {}) => {
+      const frameNow = memberPlane()
+      if (!frameNow) return { status: 0, body: null }
+      return frameNow.evaluate(
+        async ({ pathname: target, method, body }) => {
+          const response = await fetch('/tavern/api/reader/v1/tavern' + target, {
+            method: method || 'GET',
+            credentials: 'include',
+            headers: body ? { 'Content-Type': 'application/json' } : undefined,
+            body: body ? JSON.stringify(body) : undefined,
+          })
+          let payload = null
+          try {
+            payload = await response.json()
+          } catch (error) {
+            payload = null
+          }
+          return { status: response.status, body: payload }
+        },
+        { pathname, method: options.method || 'GET', body: options.body || null },
+      ).catch(() => ({ status: 0, body: null }))
+    }
+    const memberMark = (index) => {
+      if (!membersEvidence.steps.includes(index)) membersEvidence.steps.push(index)
+      memberStep = Math.max(memberStep, index + 1)
+    }
+    const memberSkipRest = (detail) => {
+      for (let index = memberStep; index < memberCheckNames.length; index += 1) {
+        if (!membersEvidence.steps.includes(index)) {
+          skip(memberCheckNames[index], detail)
+          memberMark(index)
+        }
+      }
+    }
+    const closeMembersDialog = async () => {
+      const frameNow = memberPlane()
+      if (!frameNow) return
+      const dialog = frameNow.locator('.member-manager[role="dialog"]').first()
+      if (!(await dialog.count().catch(() => 0))) return
+      const cancel = dialog.locator('button:not(.primary)').last()
+      await cancel.click({ force: true }).catch(() => {})
+      await waitFor(async () => (await frameNow.locator('.member-manager[role="dialog"]').count().catch(() => 0)) === 0, 8000)
+    }
+    const waitSaveEnabled = async (dialog, timeout = 10000) => {
+      return waitFor(async () => {
+        const save = dialog.locator('button.primary').first()
+        if (!(await save.count().catch(() => 0))) return false
+        return !(await save.isDisabled().catch(() => true))
+      }, timeout)
+    }
+    const setMemberSelected = async (dialog, name, selected) => {
+      const box = dialog.locator(`input[type="checkbox"][aria-label="选择 ${name}"]`).first()
+      const found = await waitFor(async () => (await box.count().catch(() => 0)) > 0, 8000)
+      if (!found) return { ok: false, reason: 'checkbox-missing' }
+      const current = await box.isChecked().catch(() => false)
+      if (current !== selected) {
+        if (selected) await box.check({ force: true }).catch(() => {})
+        else await box.uncheck({ force: true }).catch(() => {})
+        await page.waitForTimeout(200)
+      }
+      const after = await box.isChecked().catch(() => false)
+      return { ok: after === selected, current, after }
+    }
+    const openMembersSheet = async () => {
+      await closeMembersDialog()
+      await waitChatRendered(memberPlane(), 25000)
+      const frameNow = memberPlane()
+      if (!frameNow) return null
+      const menu = frameNow.locator('button[aria-label="聊天菜单"]').first()
+      if (!(await menu.count().catch(() => 0))) return null
+      await menu.click({ force: true }).catch(() => {})
+      const entry = frameNow.locator('.chat-menu-pop button[role="menuitem"]').filter({ hasText: '管理成员' }).first()
+      if (!(await entry.count().catch(() => 0))) return null
+      if (await entry.isDisabled().catch(() => false)) return null
+      await entry.click({ force: true }).catch(() => {})
+      await waitFor(async () => (await frameNow.locator('.member-manager[role="dialog"]').count().catch(() => 0)) > 0, 15000)
+      const dialog = frameNow.locator('.member-manager[role="dialog"]').first()
+      if (!(await dialog.count().catch(() => 0))) return null
+      return dialog
+    }
+    const memberSendMessage = async (text) => {
+      const frameNow = memberPlane()
+      const input = frameNow.locator('textarea[aria-label="聊天输入框"], textarea[placeholder*="说"]').first()
+      if (!(await input.count().catch(() => 0))) return null
+      await input.fill(text).catch(() => {})
+      const beforeRows = await frameNow.locator('.bubble-row.assistant').count().catch(() => 0)
+      const sendButton = frameNow.locator('button[aria-label="发送消息"], button[type="submit"]').first()
+      await waitFor(async () => {
+        if (!(await sendButton.count().catch(() => 0))) return false
+        return !(await sendButton.isDisabled().catch(() => false))
+      }, 20000)
+      let httpStatus = null
+      const onResponse = (response) => {
+        if (/\/tavern\/chats\/[^/]+\/messages/.test(new URL(response.url()).pathname) && response.request().method() === 'POST') {
+          httpStatus = response.status()
+        }
+      }
+      page.on('response', onResponse)
+      const startedAt = Date.now()
+      let clickPath = 'click'
+      if (await sendButton.count().catch(() => 0)) await sendButton.click({ force: true }).catch(() => {})
+      else {
+        clickPath = 'enter'
+        await input.press('Enter').catch(() => {})
+      }
+      await page.waitForTimeout(6000)
+      if (httpStatus === null) {
+        clickPath += '+domClick'
+        await sendButton.evaluate((el) => el.click()).catch(() => {})
+      }
+      let stable = 0
+      let lastText = ''
+      let finalText = ''
+      while (Date.now() - startedAt < 180000) {
+        const rows = frameNow.locator('.bubble-row.assistant')
+        const count = await rows.count().catch(() => 0)
+        const row = count > beforeRows ? rows.nth(count - 1) : null
+        const bubble = row ? row.locator('.bubble-text').first() : null
+        const textNow = bubble && (await bubble.count().catch(() => 0)) ? ((await bubble.innerText().catch(() => '')) || '').trim() : ''
+        const pending =
+          (await frameNow.locator('.bubble-pending').count().catch(() => 0)) > 0 || /正在回复/.test(await bodyText(frameNow))
+        if (textNow !== lastText) {
+          lastText = textNow
+          stable = 0
+        } else if (textNow) {
+          stable += 1
+        }
+        if (textNow && !pending && stable >= 4) {
+          finalText = textNow
+          break
+        }
+        await page.waitForTimeout(250)
+      }
+      page.off('response', onResponse)
+      const lastRow = await lastAssistantRow(frameNow)
+      const speaker = lastRow ? ((await lastRow.locator('.bubble-speaker-name').first().innerText().catch(() => '')) || '').trim() : ''
+      return { text: finalText || lastText, speaker, elapsedMs: Date.now() - startedAt, httpStatus, clickPath }
+    }
+
+    const sheetSummary = async (dialog) => {
+      const text = ((await dialog.innerText().catch(() => '')) || '').replace(/\s+/g, ' ')
+      const checks = await dialog.locator('input[type="checkbox"]').count().catch(() => 0)
+      const checked = await dialog.locator('input[type="checkbox"]:checked').count().catch(() => 0)
+      const save = dialog.locator('button.primary').first()
+      const saveDisabled = await save.isDisabled().catch(() => true)
+      const hint = dialog.locator('.member-count-hint').first()
+      const hintText = (await hint.count().catch(() => 0)) ? ((await hint.innerText().catch(() => '')) || '').trim() : ''
+      return { text, checks, checked, saveDisabled, hintText }
+    }
+    const saveMembers = async (expectedStatus = 200) => {
+      const frameNow = memberPlane()
+      const dialog = frameNow.locator('.member-manager[role="dialog"]').first()
+      const save = dialog.locator('button.primary').first()
+      let httpStatus = null
+      const onResponse = (response) => {
+        if (/\/tavern\/chats\/[^/]+$/.test(new URL(response.url()).pathname) && response.request().method() === 'PATCH') {
+          httpStatus = response.status()
+        }
+      }
+      page.on('response', onResponse)
+      await save.click({ force: true }).catch(() => {})
+      await waitFor(async () => (await frameNow.locator('.member-manager[role="dialog"]').count().catch(() => 0)) === 0, 20000)
+      page.off('response', onResponse)
+      return httpStatus
+    }
+    const headerMembers = async () => {
+      const frameNow = memberPlane()
+      if (!frameNow) return { count: 0, labels: [] }
+      const labels = await frameNow
+        .locator('.chat-members .chat-member-avatar')
+        .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('aria-label') || node.getAttribute('title') || '').filter(Boolean))
+        .catch(() => [])
+      return { count: labels.length, labels }
+    }
+    const upTo = (value, length = 200) => {
+      const text = String(value == null ? '' : value)
+      return text.length > length ? text.slice(0, length) + '…' : text
+    }
+
+    try {
+      let list = await mApi('/characters')
+      let items = list && list.body && Array.isArray(list.body.items) ? list.body.items : []
+      const want = ['林小满', '顾清和', '沈夜舟']
+      const missing = want.filter((name) => !items.some((card) => card.name === name))
+      if (missing.length) {
+        const fixtureBy = { 林小满: 'v2-png.png', 顾清和: 'v2-json.json', 沈夜舟: 'v1-json.json' }
+        for (const name of missing) {
+          await appGoto('/')
+          const home = fnow()
+          if (!home) break
+          const input = home.locator('input[type=file][aria-label="导入角色卡文件"], .tavern-import input[type=file], input[type=file]').first()
+          if (!(await input.count().catch(() => 0))) break
+          await input.setInputFiles(path.join(fixturesDir, fixtureBy[name])).catch(() => {})
+          await waitFor(async () => Boolean(await findCard(name)), 20000)
+        }
+        list = await mApi('/characters')
+        items = list && list.body && Array.isArray(list.body.items) ? list.body.items : []
+      }
+      const cardIdOf = (name) => {
+        const found = items.find((card) => card.name === name)
+        return found ? found.id : null
+      }
+      const ids = want.map(cardIdOf)
+      membersEvidence.cards = want.map((name, index) => ({ name, id: ids[index] }))
+      if (ids.some((id) => !id)) {
+        memberSkipRest(`角色卡不足（${want.join('/')}；已导入 ${items.map((card) => card.name).join('、') || '无'}；owner: cards-client 导入）`)
+      } else {
+        const created = await mApi('/chats', { method: 'POST', body: { cardIds: [ids[0], ids[1]] } })
+        const chatId = created && created.body && created.body.chat ? created.body.chat.id : null
+        membersEvidence.chatId = chatId
+        if (!chatId) {
+          memberSkipRest(`创建 2 人群聊失败：status=${created && created.status} body=${upTo(created && created.body && JSON.stringify(created.body), 160)}（owner: app-auth /tavern/chats）`)
+        } else {
+          const opened = await appGoto(`/chats/${chatId}`)
+          if (!opened) {
+            memberSkipRest('群聊页打不开（owner: cards-client /chats/:id）')
+          } else {
+            await waitChatRendered(opened, 25000)
+            chatFrame = opened
+
+            // M1：管理成员弹层 2 人预选、计数 2/5
+            const dialog1 = await openMembersSheet()
+            if (!dialog1) {
+              memberSkipRest('群聊页没有「管理成员」入口/弹层（owner: cards-client 管理成员）')
+            } else {
+              const summary1 = await sheetSummary(dialog1)
+              const m1Ok = summary1.checked === 2 && /2\/5/.test(summary1.text) && summary1.checks >= 3
+              membersEvidence.opened = { ...summary1, dialog: await dialog1.count().catch(() => 0) }
+              check(memberCheckNames[0], m1Ok, `checked=${summary1.checked} checks=${summary1.checks} text=${upTo(summary1.text, 140)}`)
+              memberMark(0)
+              await shot(page, '145-m1-members-dialog.png')
+
+              // M2：勾第 3 张保存 → PATCH 200 + 页头 3 人 + members=3
+              let m2Ok = false
+              let m2Detail = ''
+              const third = want[2]
+              const thirdBox = dialog1.locator(`input[type="checkbox"][aria-label="选择 ${third}"]`).first()
+              if (!(await thirdBox.count().catch(() => 0))) {
+                m2Detail = `弹层没有第 3 张可选卡（${third}）`
+              } else {
+                const check3 = await setMemberSelected(dialog1, third, true)
+                if (!check3.ok) m2Detail += `（setMemberSelected=${check3.reason || 'still-unchecked'}）`
+                await waitSaveEnabled(dialog1, 10000)
+                const before = await sheetSummary(dialog1)
+                m2Ok = before.checked === 3 && !before.saveDisabled
+                if (!m2Ok) m2Detail = `勾选第 3 张后 checked=${before.checked} saveDisabled=${before.saveDisabled}`
+                else {
+                  const patchStatus = await saveMembers()
+                  const header = await headerMembers()
+                  const after = await mApi(`/chats/${chatId}`)
+                  const chat = after && after.body && after.body.chat ? after.body.chat : {}
+                  const memberList = Array.isArray(chat.members) ? chat.members : []
+                  const alive = Number(chat.aliveMemberCount || 0)
+                  m2Ok = patchStatus === 200 && header.count === 3 && memberList.length === 3 && alive === 3
+                  m2Detail = `patch=${patchStatus} header=${header.count} members=${memberList.length} alive=${alive} labels=${header.labels.join('、')}`
+                  membersEvidence.added = { patchStatus, header, members: memberList.length, alive, labels: header.labels }
+                  await shot(page, '146-m2-members-3.png')
+                }
+              }
+              check(memberCheckNames[1], m2Ok, m2Detail)
+              memberMark(1)
+
+              // M3：取消 1 人保存 → members=2，继续发言 POST 200 + 落库 + speakerName ∈ 剩余成员
+              let m3Ok = false
+              let m3Detail = ''
+              const dialog3 = await openMembersSheet()
+              if (!dialog3) {
+                m3Detail = '保存后再次打开「管理成员」失败（owner: cards-client 管理成员）'
+              } else {
+                const drop = await setMemberSelected(dialog3, third, false)
+                m3Detail = `drop=${JSON.stringify(drop)} `
+                await waitSaveEnabled(dialog3, 10000)
+                const summary3 = await sheetSummary(dialog3)
+                const patchStatus3 = summary3.saveDisabled ? null : await saveMembers()
+                m3Detail = `summary3 checked=${summary3.checked} saveDisabled=${summary3.saveDisabled} `
+                const after3 = await mApi(`/chats/${chatId}`)
+                const chat3 = after3 && after3.body && after3.body.chat ? after3.body.chat : {}
+                const remaining = (Array.isArray(chat3.members) ? chat3.members : []).map((member) => member.name).filter(Boolean)
+                const beforeMessages = Array.isArray(after3.body && after3.body.messages) ? after3.body.messages : []
+                const beforeAssistant = beforeMessages.filter((item) => item.role === 'assistant').length
+                const reply = await memberSendMessage('（E2E 成员管理）人少了，继续聊聊这盏茶吧。')
+                const httpStatus = reply ? reply.httpStatus : null
+                const afterReply = await mApi(`/chats/${chatId}`)
+                const replyMessages = Array.isArray(afterReply.body && afterReply.body.messages) ? afterReply.body.messages : []
+                const assistants = replyMessages.filter((item) => item.role === 'assistant')
+                const last = assistants[assistants.length - 1]
+                const speaker = last && last.speakerName ? last.speakerName : ''
+                m3Ok = patchStatus3 === 200 && remaining.length === 2 && beforeAssistant + 1 <= assistants.length && httpStatus === 200 && remaining.includes(speaker) && Boolean(reply && reply.text)
+                m3Detail += `patch=${patchStatus3} members=${remaining.join('、')} post=${httpStatus} assistant=${beforeAssistant}→${assistants.length} speaker=${speaker} reply=${upTo(reply && reply.text, 40)}`
+                membersEvidence.removed = { patchStatus: patchStatus3, remaining, beforeAssistant, assistants: assistants.length, httpStatus, speaker, reply: upTo(reply && reply.text, 60) }
+                await shot(page, '147-m3-members-2-reply.png')
+              }
+              check(memberCheckNames[2], m3Ok, m3Detail)
+              memberMark(2)
+
+              // M4：只选 1 → 保存禁用 + 文案；直连 PATCH 1 个/6 个/单聊 → 422
+              let m4Ok = false
+              let m4Detail = ''
+              const dialog4 = await openMembersSheet()
+              if (!dialog4) {
+                m4Detail = '打开「管理成员」失败（owner: cards-client 管理成员）'
+              } else {
+                // 只保留第一位成员：取消其余勾选
+                const uncheckResults = []
+                for (const name of want.slice(1)) {
+                  uncheckResults.push({ name, ...(await setMemberSelected(dialog4, name, false)) })
+                }
+                m4Detail = `uncheck=${JSON.stringify(uncheckResults)} `
+                const summary4 = await sheetSummary(dialog4)
+                const invalidOne = await mApi(`/chats/${chatId}`, { method: 'PATCH', body: { cardIds: [ids[0]] } })
+                const invalidSix = await mApi(`/chats/${chatId}`, { method: 'PATCH', body: { cardIds: ['x1', 'x2', 'x3', 'x4', 'x5', 'x6'] } })
+                const singlePath = chatEvidence.chatUrl ? new URL(chatEvidence.chatUrl).pathname.replace(/^\/tavern/, '') : null
+                const singleId = singlePath ? singlePath.split('/').pop() : null
+                const invalidSingle = singleId ? await mApi(`/chats/${singleId}`, { method: 'PATCH', body: { cardIds: [ids[0], ids[1]] } }) : { status: 0, body: null }
+                m4Ok =
+                  summary4.checked === 1 &&
+                  summary4.saveDisabled &&
+                  /群聊需要 2 至 5 位角色/.test(summary4.hintText) &&
+                  invalidOne.status === 422 &&
+                  invalidSix.status === 422 &&
+                  invalidSingle.status === 422 &&
+                  singleId !== null
+                m4Detail += `checked=${summary4.checked} saveDisabled=${summary4.saveDisabled} hint=${upTo(summary4.hintText, 40)} patch1=${invalidOne.status}/${upTo(invalidOne.body && invalidOne.body.code, 40)} patch6=${invalidSix.status}/${upTo(invalidSix.body && invalidSix.body.code, 40)} patchSingle=${invalidSingle.status}/${upTo(invalidSingle.body && invalidSingle.body.code, 40)}`
+                membersEvidence.invalid = { checked: summary4.checked, saveDisabled: summary4.saveDisabled, hint: summary4.hintText, one: invalidOne, six: invalidSix, single: invalidSingle }
+                await shot(page, '148-m4-invalid.png')
+                await dialog4.locator('button:not(.primary)').first().click({ force: true }).catch(() => {})
+              }
+              check(memberCheckNames[3], m4Ok, m4Detail)
+              memberMark(3)
+
+              // M5：单聊页头无「管理成员」入口 + console clean
+              const singlePath5 = chatEvidence.chatUrl ? new URL(chatEvidence.chatUrl).pathname.replace(/^\/tavern/, '') : null
+              let m5Ok = false
+              let m5Detail = ''
+              if (singlePath5) {
+                const singleFrame = await appGoto(singlePath5)
+                if (singleFrame) {
+                  await waitChatRendered(singleFrame, 25000)
+                  chatFrame = singleFrame
+                  const menu = singleFrame.locator('button[aria-label="聊天菜单"]').first()
+                  if (await menu.count().catch(() => 0)) await menu.click({ force: true }).catch(() => {})
+                  await waitFor(async () => (await singleFrame.locator('.chat-menu-pop').count().catch(() => 0)) > 0, 8000)
+                  const entryCount = await singleFrame.locator('.chat-menu-pop button[role="menuitem"]').filter({ hasText: '管理成员' }).count().catch(() => 0)
+                  const clean = memberConsole()
+                  m5Ok = entryCount === 0 && clean.length === 0
+                  m5Detail = `entries=${entryCount} console=${clean.length ? upTo(clean.join(' | '), 140) : 'clean'}`
+                  membersEvidence.single = { entries: entryCount, menu: true }
+                  membersEvidence.console = clean
+                  await shot(page, '149-m5-single-no-entry.png')
+                } else {
+                  m5Detail = '单聊页打不开'
+                }
+              } else {
+                m5Detail = '缺少单聊会话（C 组未创建）'
+              }
+              check(memberCheckNames[4], m5Ok, m5Detail)
+              memberMark(4)
+            }
+          }
+        }
+      }
+      memberSkipRest('前置未完成（群聊/成员管理未就绪）')
+    } catch (error) {
+      memberSkipRest(`成员管理流程异常：${upTo(error && error.message || error, 120)}`)
+    }
+  }
+
   // ── C2. 停止生成（在 R 之前制造一次可取消的流式，不新增成功回复）────────────
   const stopEvidence = { visible: false, clicked: false, ended: false, error: null }
   report.native.stop = stopEvidence

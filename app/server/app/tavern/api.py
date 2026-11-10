@@ -67,6 +67,7 @@ class ChatPatch(Strict):
     title: str | None = Field(default=None, min_length=1, max_length=160)
     presetId: str | None = Field(default=None, max_length=32)
     sampling: dict | None = None
+    cardIds: list[str] | None = None  # group chats only: replace members (2..5, deduped)
 
 
 class MessageInput(Strict):
@@ -479,25 +480,29 @@ def list_chat_history(limit: int = Query(default=20, ge=1, le=100),
     return {"items": service.chats_out(db, rows), "limit": limit, "offset": offset}
 
 
+def _chat_view(db, owner, chat):
+    """Chat payload shared by GET detail and PATCH (members incl. deleted flags)."""
+    group = (chat.mode or "single") == "group"
+    cards = service.chat_cards(db, owner, chat)
+    return {**service.chat_out(chat),
+            "members": service.member_views(db, owner, chat) if group else [],
+            "aliveMemberCount": len(cards),
+            "card": service.card_summary(cards[0]) if cards else None,
+            "cards": [service.card_summary(card) for card in cards]}
+
+
 @router.get("/chats/{chat_id}")
 def get_chat(chat_id: str, before: int | None = Query(default=None, ge=1),
              limit: int = Query(default=200, ge=1, le=500),
              user=Depends(current_user), db=Depends(get_db)):
     chat = service.chat_or_404(db, user.id, chat_id)
-    group = (chat.mode or "single") == "group"
-    cards = service.chat_cards(db, user.id, chat)
-    members = service.member_views(db, user.id, chat) if group else []
     names = service.speaker_name_map(chat)
     all_rows = service.list_messages(db, chat)
     latest = all_rows[-1].sequence if all_rows else 0
     candidates = [row for row in all_rows if before is None or row.sequence < before]
     has_more = len(candidates) > limit
     page = candidates[-limit:] if has_more else candidates
-    return {"chat": {**service.chat_out(chat),
-                     "members": members,
-                     "aliveMemberCount": len(cards),
-                     "card": service.card_summary(cards[0]) if cards else None,
-                     "cards": [service.card_summary(card) for card in cards]},
+    return {"chat": _chat_view(db, user.id, chat),
             "messages": [service.message_out(row, names) for row in page],
             "hasMore": has_more, "latestSequence": latest}
 
@@ -615,6 +620,14 @@ def patch_chat(chat_id: str, payload: ChatPatch, user=Depends(current_user),
     if not fields:
         raise Problem("INVALID_REQUEST", "没有需要更新的字段", 422)
     chat = service.chat_or_404(db, user.id, chat_id, lock=True)
+    if "cardIds" in fields:
+        if (chat.mode or "single") != "group":
+            raise Problem("CHAT_MODE_INVALID", "单聊不支持修改成员", 422)
+        ids = list(dict.fromkeys(str(card_id) for card_id in (payload.cardIds or []) if card_id))
+        if not GROUP_MIN_MEMBERS <= len(ids) <= GROUP_MAX_MEMBERS:
+            raise Problem("GROUP_MEMBERS_INVALID", "群聊需要 2 至 5 位角色", 422)
+        cards = [service.card_or_404(db, user.id, card_id) for card_id in ids]
+        chat.members = [service.member_entry(card, index) for index, card in enumerate(cards)]
     if "title" in fields and payload.title:
         chat.title = payload.title.strip()
     if "presetId" in fields:
@@ -625,7 +638,7 @@ def patch_chat(chat_id: str, payload: ChatPatch, user=Depends(current_user),
         chat.sampling = _clean_sampling(payload.sampling)
     chat.updated_at = now()
     db.commit()
-    return {"chat": service.chat_out(chat)}
+    return {"chat": _chat_view(db, user.id, chat)}
 
 
 @router.delete("/chats/{chat_id}", status_code=204)
