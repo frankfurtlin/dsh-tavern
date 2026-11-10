@@ -609,3 +609,46 @@ L 组删第一位成员后 `firstSpeaker=林小满`、`aliveMemberName=顾清和
 清库核对：`world.character_cards=0`、`world.tavern_chats=0`、`world.tavern_messages=0`、
 `world.tavern_world_info=0`、`world.tavern_personas=0`、`world.tavern_presets` 仅内置「默认」1 条；
 `app/data/private/*/card-avatar-*.png`、`tavern-card-*.png` 已删；隔离 3099 无监听、`/tmp/dsh-tavern-native/instance` 已删。
+
+## 群聊成员管理断言（M 组 / task-70）
+
+入口：群聊聊天页 → 聊天菜单（`button[aria-label="聊天菜单"]`）→「管理成员」（仅群聊出现）
+
+| # | 断言 | 证据字段 |
+| --- | --- | --- |
+| M1 | 2 人群聊打开「管理成员」弹层：3 张可选卡、2 人预选、文案「…当前已选 2/5。」 | `report.native.membership.opened`（checks/checked/text/saveDisabled） |
+| M2 | 勾选第 3 张 → 保存：PATCH 200、页头 3 个头像、`GET /chats/{id}` members=3、aliveMemberCount=3 | `report.native.membership.added`（patchStatus/header/members/alive） |
+| M3 | 取消 1 人 → 保存：members=2；继续发言 POST 200、assistant 落库、`speakerName` ∈ 剩余成员 | `report.native.membership.removed`（patchStatus/remaining/assistants/httpStatus/speaker） |
+| M4 | 只选 1 人：保存按钮 disabled + 文案「群聊需要 2 至 5 位角色」；直连 PATCH 1 个/6 个 → 422 `GROUP_MEMBERS_INVALID`，单聊 → 422 `CHAT_MODE_INVALID` | `report.native.membership.invalid`（checked/saveDisabled/hint/one/six/single） |
+| M5 | 单聊页头/菜单没有「管理成员」入口；群聊管理流程 console 无报错 | `report.native.membership.single`、`console` |
+
+数据准备：确保三张 fixture 卡（林小满 / 顾清和 / 沈夜舟）→ `POST /tavern/chats {cardIds:[林小满,顾清和]}` 建 2 人群聊；
+M 组本身自足（缺卡时按 fixture 导入），因此 `DSH_TAVERN_ONLY=c,m` 也能单独跑。
+真实生成次数：M3 一次（继续发言），其余全部走 API/UI，不触发生成。
+
+预期（task-68/69 全部部署时）：**71 PASS / 0 FAIL / 0 SKIP**（既有 66 + M 组 5）。
+截图：145-m1-members-dialog.png、146-m2-members-3.png、147-m3-members-2-reply.png、148-m4-invalid.png、149-m5-single-no-entry.png。
+
+## 实测记录（打磨 3 / task-70，2026-11-10）
+
+| 轮次 | 命令 / 入口 | 结果 | 报告 |
+| --- | --- | --- | --- |
+| 隔离全量 | `bash scripts/check.sh --instance`（systemd-run 独立 cgroup，3099 + 生产 app 8001/8810 + 生产网关） | **71 PASS / 0 FAIL / 0 SKIP**，`report.ok=true` | `/tmp/dsh-tavern-native/check/report.json`（startedAt 2026-11-10T03:32:01Z） |
+| 生产冒烟 | `node verify.mjs --url "http://127.0.0.1:3080/?token=…" --out /tmp/dsh-tavern-native/prod-pol3 --fixtures /tmp/dsh-tavern-native/cards` | **71 PASS / 0 FAIL / 0 SKIP**，`report.ok=true` | `/tmp/dsh-tavern-native/prod-pol3/report.json`（startedAt 2026-11-10T03:44:55Z） |
+
+M 组证据（两轮一致）：
+
+- M1：弹层 `checks=3`、`checked=2`、文案「群聊需要 2 至 5 位角色，当前已选 2/5。」、保存因「成员没有变化」禁用。
+- M2：勾沈夜舟 → `PATCH 200`；页头头像 `[林小满, 顾清和, 沈夜舟]`；`GET members=3`、`aliveMemberCount=3`。
+- M3：取消沈夜舟 → `PATCH 200`；`members=2`；继续发言 `POST 200`、assistant `0→1`、`speakerName=林小满`（属剩余成员）。
+- M4：只保 1 人 → 保存 disabled、hint「群聊需要 2 至 5 位角色」；直连 1 个/6 个 → 422 `GROUP_MEMBERS_INVALID`、单聊 → 422 `CHAT_MODE_INVALID`。
+- M5：单聊菜单无「管理成员」入口；console 无报错。
+
+M 组调试修复（harness，未放宽断言）：① `headerMembers` 的 `evaluateAll(...)` 在 `await` 之后误接 `.catch` → 改 `await ....catch(()=>[])`；
+② 弹层保存按钮状态存在 Vue 渲染竞态 → 每次点选后 `waitSaveEnabled()` 再读 summary；③ 已勾选 checkbox 的 `click({force:true})` 在重开弹层后不生效 →
+改用 Playwright `check()/uncheck()` 并读回 `isChecked()` 校验（`setMemberSelected`）；④ 每次打开弹层前先 `closeMembersDialog()`，避免残留弹层挡住入口；
+⑤ M3/M4 步骤之间保存失败时也记录 drop/uncheck 诊断，便于归因。
+
+清库核对：`world.character_cards=0`、`world.tavern_chats=0`、`world.tavern_messages=0`、`world.tavern_world_info=0`、
+`world.tavern_personas=0`、`world.tavern_presets` 仅内置「默认」1 条；`app/data/private/*/card-avatar-*.png`、`tavern-card-*.png` 已删；
+隔离 3099 无监听、`/tmp/dsh-tavern-native/instance` 已删。

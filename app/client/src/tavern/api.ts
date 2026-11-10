@@ -212,6 +212,11 @@ export async function getChat(id:string,options:{limit?:number;before?:number}={
   return result as ChatDetail
 }
 
+export async function updateChatMembers(chatId:string,cardIds:string[]):Promise<TavernChat>{
+  const result=await api<TavernChat|{chat:TavernChat}>(TAVERN+'/chats/'+encodeURIComponent(chatId),{method:'PATCH',key:newKey(),body:{cardIds}})
+  return unwrap<TavernChat>(result,'chat')
+}
+
 export async function updateChatSampling(id:string,sampling:ChatSampling):Promise<TavernChat>{
   const result=await api<TavernChat|{chat:TavernChat}>(TAVERN+'/chats/'+encodeURIComponent(id),{method:'PATCH',key:newKey(),body:{sampling}})
   return unwrap<TavernChat>(result,'chat')

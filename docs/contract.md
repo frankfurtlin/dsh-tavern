@@ -205,7 +205,7 @@ iframe → 父（主动，节流）：
 | `POST` | `/chats` | 新建**群聊**（201）；body `{cardIds:[2..5], title?}`，也接受 `{cardId}` 走单聊；群聊 `mode='group'`、`members=[{cardId,name,order}]` |
 | `GET` | `/chats` | 全部聊天历史列表（`limit` 1–100 默认 20、`offset`），按 `lastMessageAt` 倒序；每项带 `mode`/`members`/`lastMessage`/`messageCount`（群聊标题/成员名由 `members` 拼） |
 | `GET` | `/chats/{id}` | `{chat, messages, hasMore, latestSequence}`；`before=<sequence>`、`limit=1..500`（默认 200）向后翻页 |
-| `PATCH` | `/chats/{id}` | 改 `title`（1–160）/ `presetId`（null 清空）/ `sampling`（见 §10）；空 body 422 |
+| `PATCH` | `/chats/{id}` | 改 `title`（1–160）/ `presetId`（null 清空）/ `sampling`（见 §10）/ 群聊 `cardIds`（2–5，去重保序，替换成员）；返回与 `GET /chats/{id}` 相同的 `chat`；空 body 422 |
 | `DELETE` | `/chats/{id}` | 连消息一起删（204） |
 | `GET` | `/chats/{id}/export?format=jsonl\|json` | 导出聊天（附件）；群聊 JSONL 每行带 `speaker_name`；其它 format → 422 |
 | `POST` | `/chats/{id}/messages` | 发消息 → **SSE**；body `{message}`（兼容 `{text}`，≤4000），可选 `personaId`；群聊首帧带本轮 `speaker` |
@@ -219,11 +219,17 @@ iframe → 父（主动，节流）：
 | `GET/PATCH` | `/characters/{id}/prompt` | 读写 `systemPrompt` + `prompt_settings` |
 | `POST` | `/characters/{id}/chats/imports` | multipart `file`（ST JSONL）→ 201 `{chat, imported, skipped}` |
 
-群聊语义：`mode='single'|'group'`；`members` 是有序的 `[{cardId,name,order}]`
+群聊语义：`mode='single'|'group'`；`members` 是有序的 `[{cardId,name,avatarPath,order}]`
 （2–5 张，创建时按选择顺序），assistant 消息记 `speaker_card_id`；本轮发言人是
-`members[已保存 assistant 条数 % 成员数]`（轮转），重新生成沿用原消息的发言人；
-群聊 prompt 只允许本轮 speaker 说话（见 §10）。成员卡被软删后打开该群聊 →
-`404 RESOURCE_NOT_FOUND`（不做级联清理）；群聊 JSONL 导入未支持（导入接口只建单聊）。
+`alive_members[已保存 assistant 条数 % alive 成员数]`（轮转，只从存活成员中选），
+重新生成沿用原消息的发言人（原发言人已删则回落到存活列表轮转并更新归属）；
+`PATCH /chats/{id}` 传 `cardIds` 可中途替换成员（refresh `members` 快照，不动历史
+消息；单聊传 `cardIds` → 422 `CHAT_MODE_INVALID`，数量不在 2–5 → 422
+`GROUP_MEMBERS_INVALID`，卡不存在/已软删/跨 owner → 404）；成员变更后下一次轮转
+按新列表继续（`assistant_count % alive_len`）。成员卡被软删不再让群聊 404：详情/
+列表/导出仍可用，`chat.members[*].deleted=true`、`aliveMemberCount` 给出存活数，
+`cards` 只含存活卡；0 存活时发消息/重新生成 → 409 `CHAT_NO_MEMBERS`。
+群聊 JSONL 导入未支持（导入接口只建单聊）。
 
 旧卡片空间 API 仍挂载但 2.0 UI 不再使用：`/character-cards/**`（15 条，含
 `lore`/`context-preview`/`companion`）、`/presets`、`/regex-scripts`（设置页仍用）、
@@ -319,9 +325,12 @@ API：
 - `PATCH /tavern/presets/{id}` → `{preset}`；空 body 422；删除默认预设 →
   409 `PRESET_IMMUTABLE`；`DELETE /tavern/presets/{id}` → 204（解绑所有引用会话）。
 - `PATCH /tavern/chats/{id}` 支持 `title`、`presetId`（`null` 清空 → 回退默认
-  预设）与 `sampling`（`temperature`/`topP`/`maxTokens`/`stop`，兼容
-  `top_p`/`max_tokens`；非法值 422；`null` 清空）。`GET /tavern/chats/{id}`
-  与所有 chat 响应都带 `sampling`（无值时为 `{}`）。
+  预设）、`sampling`（`temperature`/`topP`/`maxTokens`/`stop`，兼容
+  `top_p`/`max_tokens`；非法值 422；`null` 清空）与群聊 `cardIds`
+  （`string[]`，去重保序，2–5 张，替换 `members` 快照并刷新 name/avatarPath/order；
+  单聊 → 422 `CHAT_MODE_INVALID`，数量非法 → 422 `GROUP_MEMBERS_INVALID`，
+  已删/跨 owner 卡 → 404）。`GET /tavern/chats/{id}` 与所有 chat 响应都带
+  `sampling`（无值时为 `{}`）。
 - `PATCH /tavern/presets/{id}` 支持 `isDefault: true`：切换唯一默认预设（原
   默认自动取消）；内置「默认」预设不可删除（409 `PRESET_IMMUTABLE`）。
 

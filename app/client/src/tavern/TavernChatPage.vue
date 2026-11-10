@@ -5,7 +5,7 @@ import {ArrowLeft,ChevronDown,ChevronLeft,ChevronRight,ChevronUp,Download,Pencil
 import {authorizationHeaders} from '../api'
 import {useApp} from '../stores/app'
 import {useRequestScope} from '../platform/request-scope'
-import {deleteMessage,editMessage,exportChatBlob,getCharacter,getChat,messageText,selectSwipe,tavernAvatarUrl,updateChat,updateChatSampling,type ChatDetail,TavernCharacter,TavernMessage} from './api'
+import {deleteMessage,editMessage,exportChatBlob,getCharacter,getChat,listCharacters,messageText,selectSwipe,tavernAvatarUrl,updateChat,updateChatMembers,updateChatSampling,type ChatDetail,TavernCharacter,TavernMessage} from './api'
 import {saveBlob,safeFileName} from '../platform/download'
 import {streamChat} from './sse'
 import Sheet from '../components/Sheet.vue'
@@ -48,6 +48,19 @@ const searchHitId=ref('')
 const searchInput=ref<HTMLInputElement|null>(null)
 const keyboardOffset=ref(0)
 let searchPulseTimer:ReturnType<typeof setTimeout>|undefined
+const membersOpen=ref(false)
+const memberCards=ref<TavernCharacter[]>([])
+const memberSelection=ref<string[]>([])
+const membersLoading=ref(false)
+const membersError=ref('')
+const savingMembers=ref(false)
+const memberCountLabel=computed(()=>`${memberSelection.value.length}/5`)
+const memberSelectionValid=computed(()=>memberSelection.value.length>=2&&memberSelection.value.length<=5)
+const membersChanged=computed(()=>{
+  const current=aliveMembers.value.map(member=>member.cardId)
+  return memberSelection.value.length!==current.length||memberSelection.value.some((cardId,index)=>cardId!==current[index])
+})
+const canSaveMembers=computed(()=>memberSelectionValid.value&&membersChanged.value&&!streaming.value&&!savingMembers.value)
 let abort:AbortController|null=null
 let mounted=true
 const PAGE_SIZE=200
@@ -120,6 +133,60 @@ function syncKeyboardOffset(){
   const viewport=window.visualViewport
   keyboardOffset.value=viewport?keyboardBottomOffset(window.innerHeight,viewport.height):0
   scrollToBottom()
+}
+
+function openMembers(){
+  if(streaming.value)return
+  membersOpen.value=true
+  membersError.value=''
+  memberSelection.value=aliveMembers.value.map(member=>member.cardId)
+  void loadMemberCards()
+}
+
+async function loadMemberCards(){
+  membersLoading.value=true
+  const ticket=scope()
+  try{
+    const cards=await listCharacters()
+    if(!ticket.valid())return
+    memberCards.value=cards
+    for(const card of cards)void loadAvatar(card.id)
+  }catch(e){
+    if(ticket.valid())membersError.value=(e as Error).message||'角色卡列表加载失败，请稍后重试。'
+  }finally{
+    if(ticket.valid())membersLoading.value=false
+  }
+}
+
+function toggleMember(cardId:string){
+  if(memberSelection.value.includes(cardId)){
+    memberSelection.value=memberSelection.value.filter(id=>id!==cardId)
+    return
+  }
+  if(memberSelection.value.length>=5){store.message('群聊最多选择 5 位角色。');return}
+  memberSelection.value=[...memberSelection.value,cardId]
+}
+
+function closeMembers(){
+  if(savingMembers.value)return
+  membersOpen.value=false
+  membersError.value=''
+}
+
+async function saveMembers(){
+  if(!canSaveMembers.value||!detail.value)return
+  savingMembers.value=true
+  membersError.value=''
+  try{
+    await updateChatMembers(detail.value.chat.id,memberSelection.value)
+    membersOpen.value=false
+    store.message('成员已更新。')
+    await load(true)
+  }catch(e){
+    membersError.value=(e as Error).message||'成员更新失败，请稍后重试。'
+  }finally{
+    savingMembers.value=false
+  }
 }
 
 function avatarFor(cardId?:string|null){
@@ -456,6 +523,7 @@ onUnmounted(()=>{
     <div v-if="exportMenuOpen" class="chat-menu-pop" role="menu">
      <button type="button" role="menuitem" :disabled="!!exporting" @click="exportChat('jsonl')">{{exporting==='jsonl'?'导出中…':'导出聊天 (JSONL)'}}</button>
      <button type="button" role="menuitem" :disabled="!!exporting" @click="exportChat('json')">{{exporting==='json'?'导出中…':'导出聊天 (JSON)'}}</button>
+     <button v-if="isGroup" type="button" role="menuitem" :disabled="streaming" :title="streaming?'正在生成回复，暂不能管理成员':''" @click="exportMenuOpen=false;openMembers()">管理成员</button>
      <button type="button" role="menuitem" @click="openSampling">采样参数</button>
     </div>
    </div>
@@ -541,6 +609,36 @@ onUnmounted(()=>{
 
   <p v-if="streamError" class="error chat-stream-error" role="alert">{{streamError}}<button class="inline-link" type="button" @click="streamError=''"><X :size="14"/></button></p>
 
+  <Sheet v-if="membersOpen" title="管理成员" @close="closeMembers">
+   <div class="member-manager" role="dialog" aria-label="管理群聊成员">
+    <p class="muted">群聊需要 2 至 5 位角色，当前已选 {{memberCountLabel}}。</p>
+    <p v-if="membersError" class="error" role="alert">{{membersError}}</p>
+    <p v-if="membersLoading" class="muted" role="status">正在加载角色卡…</p>
+    <ul v-else class="member-pick-list">
+     <li v-for="card in memberCards" :key="card.id">
+      <label class="member-pick-row" :class="{selected:memberSelection.includes(card.id)}">
+       <input type="checkbox" :checked="memberSelection.includes(card.id)" :aria-label="'选择 '+card.name" @change="toggleMember(card.id)">
+       <span class="member-pick-avatar">
+        <img v-if="avatarFor(card.id)" :src="avatarFor(card.id)" alt="">
+        <span v-else>{{card.name.slice(0,1)}}</span>
+       </span>
+       <span class="member-pick-name">{{card.name}}</span>
+      </label>
+     </li>
+    </ul>
+    <div v-if="deletedMembers.length" class="member-deleted">
+     <p class="muted">已删除成员（可选择上方角色卡替换）：</p>
+     <p v-for="member in deletedMembers" :key="member.cardId" class="member-deleted-row">{{member.name}}（已删除）</p>
+    </div>
+    <p v-if="!memberSelectionValid" class="member-count-hint" role="status">群聊需要 2 至 5 位角色</p>
+    <p v-else-if="!membersChanged" class="muted">成员没有变化。</p>
+    <div class="form-actions">
+     <button type="button" class="primary" :disabled="!canSaveMembers" :title="streaming?'正在生成回复，暂不能修改成员':(!membersChanged?'成员没有变化':(!memberSelectionValid?'群聊需要 2 至 5 位角色':''))" @click="saveMembers">{{savingMembers?'保存中…':'保存'}}</button>
+     <button type="button" :disabled="savingMembers" @click="closeMembers">取消</button>
+    </div>
+   </div>
+  </Sheet>
+
   <Sheet v-if="samplingOpen" title="采样参数" @close="!savingSampling&&(samplingOpen=false)">
    <form class="sampling-form" @submit.prevent="saveSampling">
     <p class="muted">这些参数只影响当前聊天；留空/默认值表示沿用角色卡设置。</p>
@@ -596,6 +694,19 @@ onUnmounted(()=>{
 .chat-search-step{display:inline-flex;align-items:center;gap:2px;min-height:40px;padding:0 8px;border:1px solid var(--edge);border-radius:9px;background:var(--paper);color:var(--ink);font-size:12px;cursor:pointer}
 .chat-search-step:disabled{opacity:.45;cursor:not-allowed}
 .chat-search-hint{flex-basis:100%;font-size:11px;color:var(--quiet);text-align:right}
+.member-manager{display:flex;flex-direction:column;gap:10px}
+.member-pick-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;max-height:46vh;overflow-y:auto}
+.member-pick-row{display:flex;align-items:center;gap:10px;min-height:44px;padding:4px 8px;border:1px solid transparent;border-radius:10px;cursor:pointer}
+.member-pick-row.selected{background:var(--wash);border-color:var(--edge)}
+.member-pick-row input{width:18px;height:18px;min-height:0}
+.member-pick-avatar{width:30px;height:30px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--wash);color:var(--accent);font-size:12px;flex-shrink:0}
+.member-pick-avatar img{width:100%;height:100%;object-fit:cover;display:block}
+.member-pick-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.member-deleted{border-top:1px dashed var(--edge);padding-top:8px}
+.member-deleted p{margin:2px 0}
+.member-deleted-row{padding:6px 8px;border-radius:8px;background:var(--wash);color:var(--quiet);text-decoration:line-through}
+.member-count-hint{margin:0;color:#b23b3b;font-size:13px}
+.member-manager .form-actions{display:flex;gap:10px}
 .chat-search-hit .bubble{box-shadow:0 0 0 2px var(--accent);transition:box-shadow .25s ease}
 .chat-members{display:flex;justify-content:center;gap:-2px;margin-top:2px}
 .chat-member-avatar{width:20px;height:20px;margin-left:-6px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--wash);color:var(--accent);font-size:11px;border:1px solid var(--paper)}
