@@ -2,6 +2,7 @@ import {beforeEach,afterEach,describe,it,expect,vi} from 'vitest'
 import {defineComponent,onUnmounted} from 'vue'
 import TavernCharactersPage from './TavernCharactersPage.vue'
 import {createGroupChat,listCharacters} from './api'
+import LoadState from './LoadState.vue'
 import {compileRender,descendants,flush,node,provideSfc,renderer,text,type Host} from '../test/host-renderer'
 
 const harness=vi.hoisted(()=>({push:vi.fn(),message:vi.fn()}))
@@ -19,6 +20,7 @@ vi.mock('./api',()=>({
 }))
 
 compileRender(TavernCharactersPage,new URL('./TavernCharactersPage.vue',import.meta.url))
+compileRender(LoadState,new URL('./LoadState.vue',import.meta.url))
 
 const cards=Array.from({length:6},(_,index)=>({
   id:'c'+(index+1),name:'角色'+String.fromCharCode(65+index),description:'简介'+(index+1),tags:[],hasAvatar:false,
@@ -87,5 +89,26 @@ describe('TavernCharactersPage group selection',()=>{
     await flush()
     expect(state().selected).toEqual([])
     expect(groupButton()).toBeUndefined()
+  })
+
+  it('shows a shared empty state with an import call to action',async()=>{
+    vi.mocked(listCharacters).mockResolvedValue([])
+    mount();await flush()
+    const body=text(host)
+    expect(body).toContain('还没有角色卡')
+    expect(body).toContain('导入第一张角色卡')
+    expect(descendants(host,item=>item.tag==='input'&&item.props['aria-label']==='导入第一张角色卡')).toHaveLength(1)
+  })
+
+  it('shows the shared retryable error state and reloads on retry',async()=>{
+    vi.mocked(listCharacters).mockRejectedValueOnce(new Error('角色卡接口暂不可用'))
+    mount();await flush()
+    expect(text(host)).toContain('加载失败')
+    expect(text(host)).toContain('角色卡接口暂不可用')
+    const retry=descendants(host,item=>item.tag==='button'&&text(item).trim()==='重试')[0]
+    retry!.props.onClick?.()
+    await flush()
+    expect(listCharacters).toHaveBeenCalledTimes(2)
+    expect(text(host)).toContain('角色A')
   })
 })

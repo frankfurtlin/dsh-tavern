@@ -5,6 +5,7 @@ import {Check,History,MessagesSquare,Search,Upload} from 'lucide-vue-next'
 import {useApp} from '../stores/app'
 import {useRequestScope} from '../platform/request-scope'
 import {importCharacter,listCharacters,characterAvatarBlob,listCharacterChats,createCharacterChat,createGroupChat,type TavernCharacter} from './api'
+import LoadState from './LoadState.vue'
 
 const router=useRouter()
 const store=useApp()
@@ -143,17 +144,19 @@ onUnmounted(()=>{clearTimeout(debounce);for(const url of Object.values(avatars.v
   </div>
 
   <p v-if="importError" class="error" role="alert">{{importError}}</p>
-  <p v-if="error" class="error" role="alert">{{error}}<button class="inline-link" type="button" @click="load">重试</button></p>
-  <p v-if="loading" class="tavern-loading" role="status">正在打开角色卡…</p>
+  <LoadState v-if="loading||error" :loading="loading" :error="error" loading-text="正在打开角色卡…" @retry="load"/>
 
-  <div v-else-if="empty" class="tavern-empty">
-   <p class="tavern-empty-title">{{query.trim()?'没有匹配的角色卡':'还没有角色卡'}}</p>
-   <p>导入一张 SillyTavern 角色卡（PNG 或 JSON），就能开始聊天。</p>
-   <label v-if="!query.trim()" class="tavern-empty-import">
-    <Upload :size="18" aria-hidden="true"/><span>导入第一张角色卡</span>
-    <input type="file" accept=".png,.json" :disabled="importing" aria-label="导入第一张角色卡" @change="onImport">
-   </label>
-  </div>
+  <LoadState v-else-if="empty" empty
+   :empty-title="query.trim()?'没有匹配的角色卡':'还没有角色卡'"
+   :empty-text="query.trim()?'换个关键词试试，或清空搜索看看全部角色卡。':'导入一张 SillyTavern 角色卡（PNG 或 JSON），就能开始聊天。'">
+   <template #action>
+    <button v-if="query.trim()" type="button" class="tavern-empty-action" @click="query=''">清空搜索</button>
+    <label v-else class="tavern-empty-import">
+     <Upload :size="18" aria-hidden="true"/><span>导入第一张角色卡</span>
+     <input type="file" accept=".png,.json" :disabled="importing" aria-label="导入第一张角色卡" @change="onImport">
+    </label>
+   </template>
+  </LoadState>
 
   <div v-else class="tavern-grid tavern-card-grid">
    <div v-for="card in cards" :key="card.id" class="tavern-card" :class="{selected:selected.includes(card.id)}">
@@ -219,5 +222,26 @@ onUnmounted(()=>{clearTimeout(debounce);for(const url of Object.values(avatars.v
 .tavern-card-meta{display:flex;flex-wrap:wrap;gap:8px;font-size:12px;color:var(--quiet)}
 .tavern-tags{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
 .inline-link{min-height:0;padding:0 6px;border:0;background:transparent;color:var(--accent);text-decoration:underline;cursor:pointer}
-@media(max-width:520px){.tavern-grid{grid-template-columns:1fr}.tavern-import span{display:none}.tavern-import{padding:0 14px}}
+.tavern-empty-action{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;border:1px solid var(--accent);border-radius:10px;background:var(--accent);color:#fff;font-size:14px;cursor:pointer}
+@media(max-width:767px){
+ .tavern-toolbar{flex-wrap:wrap;gap:8px;margin-bottom:16px}
+ .tavern-search{flex:1 1 100%;order:-1}
+ .tavern-history,.tavern-import{flex:1;justify-content:center;min-height:44px;padding:0 10px}
+ .tavern-grid.tavern-card-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+ .tavern-card{display:flex;flex-direction:column}
+ .tavern-card-open{flex-direction:column;gap:8px;padding:12px;min-height:0}
+ .tavern-avatar{width:56px;height:56px;font-size:22px;border-radius:12px}
+ .tavern-card-name{font-size:16px}
+ .tavern-card-desc{font-size:12px;min-height:2.7em}
+ .tavern-card-edit{position:static;align-self:stretch;min-height:40px;border:0;border-top:1px solid var(--edge);border-radius:0 0 16px 16px;background:transparent;font-size:13px}
+ .tavern-select{width:40px;height:40px;min-height:40px;top:4px;left:auto;right:6px;border-radius:10px}
+ .tavern-select-bar{padding:8px 10px}
+ .tavern-select-bar .tavern-select-group{flex:1 1 auto;justify-content:center;min-height:44px}
+ .tavern-select-clear{min-height:44px}
+}
+@media(max-width:380px){
+ .tavern-grid.tavern-card-grid{grid-template-columns:1fr}
+ .tavern-card-open{flex-direction:row;gap:12px;padding:12px 52px 12px 12px}
+ .tavern-card-edit{border-radius:0 0 16px 16px}
+}
 </style>

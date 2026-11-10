@@ -652,3 +652,68 @@ M 组调试修复（harness，未放宽断言）：① `headerMembers` 的 `eval
 清库核对：`world.character_cards=0`、`world.tavern_chats=0`、`world.tavern_messages=0`、`world.tavern_world_info=0`、
 `world.tavern_personas=0`、`world.tavern_presets` 仅内置「默认」1 条；`app/data/private/*/card-avatar-*.png`、`tavern-card-*.png` 已删；
 隔离 3099 无监听、`/tmp/dsh-tavern-native/instance` 已删。
+
+## 移动端断言（O 组 / task-72，打磨 4）
+
+viewport 固定 390×844（`context.newPage()` + `setViewportSize`），直连真实后端（隔离 3099，禁用 mock），
+O 组在流程最前执行（A 之后、N 之前）：开跑前用 API 清空卡/聊天，跑完把自己导入的卡与聊天删掉，
+因此不影响后续分组的数据基线。
+
+| # | 断言 | 证据 |
+| --- | --- | --- |
+| O1 | 空库首页显示「还没有角色卡」+ 导入 CTA；`scrollWidth<=innerWidth`；`--edge`/`--ink` token 非空（回到 aligned 视觉，非空白主题） | `report.native.mobile.empty`（title/cta/edge/ink/overflow） |
+| O2 | 导入两张 fixture 卡后 390 宽为两列网格（两张卡 top 相同、left 不同且 grid 轨道数=2），页面无横向溢出 | `report.native.mobile.grid`（columns/boxes/overflow） |
+| O3 | 角色详情主操作可见、高度 ≥44px、完整位于视口内；页面无横向溢出 | `report.native.mobile.detail`（height/visible/inside/box/overflow） |
+| O4 | `/chats` 空态「还没有聊天」+「去选角色」CTA；创建聊天（标题拉长）后行高 ≥48、标题 ellipsis（`scrollWidth>clientWidth`）、无横向溢出 | `report.native.mobile.chats`（emptyTitle/emptyCta/row） |
+| O5 | `/settings` 与 `/settings/regex` 表单/输入不溢出，保存按钮 ≥44、「返回」≥44，正则行窄屏为 column 卡片且动作按钮 ≥44，console clean | `report.native.mobile.settings` / `regex`（backHeight/saveHeight/item/console） |
+
+预期（task-71 全部部署）：**71 + 5 = 76 PASS / 0 FAIL / 0 SKIP**；真实生成次数与打磨 3 相同。
+截图：160-mobile-empty-home.png、161-mobile-grid-2col.png、162-mobile-detail-actions.png、
+163-mobile-chats-empty.png、164-mobile-chats-row.png、165-mobile-settings.png、166-mobile-regex.png。
+
+### O 组产品口径（task-72 验收时确认）
+
+- 390 宽卡库必须两列：`TavernCharactersPage.vue` 的 400px 断点已下调到 380px（390 不再是单列）。
+- 正则页「返回设置」目标高度 44px（与设置页一致）：`.regex-back{min-height:44px}`。
+
+这两条是打磨 4 期间 O 组发现并由 cards-client 修掉的真实产品偏差（E2E 首轮如实 FAIL，修复后转为 PASS）。
+
+## 实测记录（打磨 4 / task-72，2026-11-10）
+
+两轮验收（先清库）：
+
+- 隔离全量：`bash scripts/check.sh --instance`（systemd-run 独立 cgroup，3099 + 生产 app 8001/8810 + 生产网关）
+  → **76 PASS / 0 FAIL / 0 SKIP**，`ok=true`，报告 `/tmp/dsh-tavern-native/check/report.json`
+  （startedAt `2026-11-10T05:07:37Z`）。
+- 生产冒烟 prod-pol4：`node verify.mjs --url "http://127.0.0.1:3080/?token=…" --out /tmp/dsh-tavern-native/prod-pol4 --fixtures /tmp/dsh-tavern-native/cards`
+  → **76 PASS / 0 FAIL / 0 SKIP**，`ok=true`，报告 `/tmp/dsh-tavern-native/prod-pol4/report.json`
+  （startedAt `2026-11-10T05:25:11Z`）。
+
+O 组证据（两轮一致）：
+
+- O1 `empty={title:"还没有角色卡", cta:true, edge:"#E3E6EB", ink:"#242932", overflow:0}`——aligned 主题 token 已恢复，不是空白主题。
+- O2 `grid.columns=2`，两张卡 `top=310`、`left=14/200`（176+176），`overflow=0`。
+- O3 `detail={height:44, visible:true, inside:true, box:{x:14,y:790,w:115,h:44}, overflow:0}`。
+- O4 `chats.row={height:69, nameOverflow:127, overflow:0}`（标题 ellipsis 生效），空态「还没有聊天」+「去选角色」。
+- O5 `settings={overflow:0, backHeight:44}`；`regex={backHeight:44, saveHeight:46, item:{direction:"column", actionHeights:[44,44,44]}, console:[]}`。
+
+本轮发现并修复的真实产品偏差（首轮 E2E 如实 FAIL，修复后 PASS）：
+
+1. 390 宽卡库为单列：`TavernCharactersPage.vue` 的 400px 断点覆盖了 767px 的两列规则 → 断点下调到 380px（390 两列、360 单列不溢出）。
+2. 正则页「返回设置」40px → `.regex-back{min-height:44px}`。
+
+harness 侧修复（未放宽断言，只修时序/定位）：
+
+- O 组必须显式 `setViewportSize(390,844)`（否则量到桌面网格）；`mobileRecord` 守卫改为 `mobileDone > index`（此前只记 O1）。
+- O3 取 `boundingBox().y`（原写成 `.top` 恒 undefined → inside 恒 false）。
+- O4 建聊天改用 `POST /characters/{id}/chats`（原误用 `POST /chats {cardIds:[1]}` 建群校验失败）。
+- O5 空态下规则表单不渲染 → 先用 API 建种子规则再测，finally 删除。
+- H 组「卡详情聊天历史」在 3080（卡排序与隔离不同）会打开另一张卡的详情 → 改为按 `chatEvidence.chatUrl` 查 `GET /chats/{id}` 得到 `chat.card.id` 再 `appGoto('/characters/'+cardId)`（回退才用 openDetail）。`DSH_TAVERN_ONLY=c,h,e` 验证 15/0/0。
+- O 组 finally 会删除本组导入的卡与聊天（O 组先于 N/C/G/M 执行，保证后续分组从干净数据开始）。
+
+截图精选：`docs/screenshots/native-polish4/`（25 张，2.3MB）：O 组 160–166、M 组 145–149、
+L 组 140/142、G 组 130–132、C/R/E 证据（90/91/92/94/95/101/102/152）。
+
+清理核对：`world.tavern_messages=0`、`tavern_chats=0`、`tavern_world_info=0`、`character_cards=0`、
+`tavern_personas=0`、`tavern_presets=1`（内置「默认」）、`regex_scripts=0`；`card-avatar-*.png`、
+`tavern-card-*.png` 已删；3099 无监听、`/tmp/dsh-tavern-native/instance` 已删除。未 commit。

@@ -6,6 +6,7 @@ import {
   createRegexScript,deleteRegexScript,listRegexScripts,updateRegexScript,
   type RegexScript,
 } from '../characters/api'
+import LoadState from './LoadState.vue'
 
 const store=useApp()
 const rules=ref<RegexScript[]>([])
@@ -80,8 +81,13 @@ onUnmounted(()=>{disposed=true})
    <h1>输出替换规则</h1>
   </header>
   <p class="regex-hint">回复保存前按正则改写文字；替换在服务端执行，流式气泡显示的是替换前文本。</p>
-  <p v-if="loadError" class="error" role="alert">{{loadError}}</p>
-  <p v-if="loading" class="regex-muted" role="status">正在读取规则…</p>
+  <LoadState v-if="loading||loadError" :loading="loading" :error="loadError" loading-text="正在读取规则…" @retry="load"/>
+  <LoadState v-else-if="!rules.length" empty empty-title="还没有替换规则"
+   empty-text="新增第一条规则，回复保存前会按正则自动改写。">
+   <template #action>
+    <button type="button" class="primary" @click="startCreate"><Plus :size="16"/>新增第一条规则</button>
+   </template>
+  </LoadState>
   <template v-else>
    <ul v-if="rules.length" class="regex-list">
     <li v-for="rule in rules" :key="rule.id" class="regex-item">
@@ -100,8 +106,6 @@ onUnmounted(()=>{disposed=true})
      </div>
     </li>
    </ul>
-   <p v-else class="regex-muted">还没有替换规则；新增第一条规则。</p>
-
    <form class="regex-form" @submit.prevent="save">
     <h2>{{editingId?'编辑规则':'新增规则'}}</h2>
     <p v-if="formError" class="error" role="alert">{{formError}}</p>
@@ -125,7 +129,7 @@ onUnmounted(()=>{disposed=true})
 <style scoped>
 .tavern-regex{width:100%;max-width:760px;margin:0 auto;padding:24px clamp(14px,3vw,28px) 72px;display:flex;flex-direction:column;gap:14px}
 .regex-head{display:flex;flex-direction:column;gap:8px}
-.regex-back{display:inline-flex;align-items:center;gap:6px;color:var(--accent);min-height:40px}
+.regex-back{display:inline-flex;align-items:center;gap:6px;color:var(--accent);min-height:44px}
 h1{font-family:var(--font-serif);font-size:26px;margin:0}
 .regex-hint{color:var(--quiet);font-size:13px;line-height:1.7;margin:0}
 .regex-muted{color:var(--quiet);font-size:14px}
@@ -135,7 +139,8 @@ h1{font-family:var(--font-serif);font-size:26px;margin:0}
 .regex-pattern{margin:0;font-size:12px;color:var(--quiet);overflow-wrap:anywhere}
 code{background:var(--wash);padding:1px 4px;border-radius:4px}
 .regex-actions{display:flex;gap:6px;flex-wrap:wrap;flex:none}
-.regex-actions button{min-height:36px;font-size:13px}
+.regex-actions button{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-height:40px;padding:0 12px;border:1px solid var(--edge);border-radius:9px;background:var(--canvas);color:var(--quiet);font-size:13px;cursor:pointer}
+.regex-actions button:hover{color:var(--accent);border-color:var(--accent)}
 .regex-form{display:flex;flex-direction:column;gap:10px;border:1px dashed var(--edge);border-radius:12px;padding:14px;margin-top:8px}
 .regex-form h2{margin:0;font-size:15px;font-family:var(--font-serif)}
 .regex-form label{display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--quiet)}
@@ -143,5 +148,16 @@ code{background:var(--wash);padding:1px 4px;border-radius:4px}
 .form-actions{display:flex;gap:8px}
 .check{flex-direction:row!important;align-items:center;gap:8px!important}
 .danger-text{color:#b42318}
+@media(max-width:767px){
+ .tavern-regex{padding-bottom:96px;gap:12px}
+ .regex-item{flex-direction:column;align-items:stretch;gap:10px;padding:14px}
+ .regex-pattern{font-size:12px}
+ .regex-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px}
+ .regex-actions button{min-height:44px;width:100%}
+ .regex-form{padding:14px 12px}
+ .regex-form input,.regex-form select,.regex-form textarea{width:100%}
+ .form-actions{position:sticky;bottom:0;background:var(--canvas);padding:8px 0 calc(8px + env(safe-area-inset-bottom));border-top:1px solid var(--edge);margin:4px -12px -6px;padding-left:12px;padding-right:12px}
+ .form-actions button{flex:1;min-height:44px;justify-content:center}
+}
 @media(max-width:620px){.regex-item{flex-direction:column;align-items:stretch}}
 </style>

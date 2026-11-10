@@ -360,6 +360,374 @@ try {
     return 0
   }
 
+  // ── O. 移动端 390×844 适配（task-71 打磨 4；真实后端，禁用 mock）──────────────
+  const mobileEvidence = {
+    viewport: { width: 390, height: 844 },
+    empty: null,
+    grid: null,
+    detail: null,
+    chats: null,
+    settings: null,
+    regex: null,
+    console: [],
+    steps: [],
+  }
+  report.native.mobile = mobileEvidence
+  const mobileNames = [
+    '空库首页移动端：空态 CTA 正常、无横向溢出、主题 token（--edge）恢复',
+    '导入两张卡后首页 390 宽两列网格且无横向溢出',
+    '角色详情页主操作按钮可见、高≥44px 且无横向溢出',
+    '/chats 空态与列表行：空态 CTA、行高≥48、标题 ellipsis、无横向溢出',
+    '设置/正则页移动适配：表单不溢出、按钮≥44、正则行卡片、console clean',
+  ]
+  let mobileDone = 0
+  const mobileRecord = (index, ok, detail) => {
+    if (mobileDone > index) return
+    mobileDone = index + 1
+    check(mobileNames[index], ok, detail)
+  }
+  const mobileSkip = (index, detail) => {
+    if (mobileDone > index) return
+    mobileDone = index + 1
+    skip(mobileNames[index], detail)
+  }
+  if (groupOn('o')) {
+    if (nativeBlocked) {
+      for (let index = 0; index < mobileNames.length; index += 1) mobileSkip(index, blockedReason)
+    } else {
+      const mobileBase = new URL(url).origin + '/tavern'
+      const mobilePage = await context.newPage()
+      await mobilePage.setViewportSize({ width: 390, height: 844 }).catch(() => {})
+      mobilePage.on('console', (message) => {
+        if (message.type() === 'error') mobileEvidence.console.push(String(message.text()).slice(0, 200))
+      })
+      mobilePage.on('pageerror', (error) => {
+        mobileEvidence.console.push(`PAGEERROR ${String(error && error.message).slice(0, 200)}`)
+      })
+      const mobileOverflow = () =>
+        mobilePage.evaluate(() => {
+          const root = document.scrollingElement || document.documentElement
+          return root.scrollWidth - window.innerWidth
+        })
+      const gotoMobile = async (pathname, selector, timeoutMs = 25000) => {
+        await mobilePage.goto(mobileBase + pathname, { waitUntil: 'domcontentloaded' }).catch(() => {})
+        if (selector) await mobilePage.waitForSelector(selector, { timeout: timeoutMs }).catch(() => {})
+      }
+      const mobileApi = async (pathname, options = {}) =>
+        mobilePage.evaluate(
+          async ({ pathname, options }) => {
+            const headers = {}
+            const hasBody = options.body !== undefined
+            if (hasBody) headers['Content-Type'] = 'application/json'
+            if (options.method && options.method !== 'GET' && options.method !== 'HEAD') {
+              headers['Idempotency-Key'] = 'e2e-mobile-' + Math.random().toString(36).slice(2) + Date.now().toString(36)
+            }
+            try {
+              const response = await fetch('/tavern/api/reader/v1/tavern' + pathname, {
+                credentials: 'include',
+                method: options.method || 'GET',
+                headers,
+                body: hasBody ? JSON.stringify(options.body) : undefined,
+              })
+              let body = null
+              try {
+                body = await response.json()
+              } catch {}
+              return { status: response.status, body }
+            } catch (error) {
+              return { status: 0, body: null, error: String(error) }
+            }
+          },
+          { pathname, options },
+        )
+      const mobileApiRoot = async (pathname, options = {}) =>
+        mobilePage.evaluate(
+          async ({ pathname, options }) => {
+            const headers = {}
+            const hasBody = options.body !== undefined
+            if (hasBody) headers['Content-Type'] = 'application/json'
+            if (options.method && options.method !== 'GET' && options.method !== 'HEAD') {
+              headers['Idempotency-Key'] = 'e2e-mobile-' + Math.random().toString(36).slice(2) + Date.now().toString(36)
+            }
+            try {
+              const response = await fetch('/tavern/api/reader/v1' + pathname, {
+                credentials: 'include',
+                method: options.method || 'GET',
+                headers,
+                body: hasBody ? JSON.stringify(options.body) : undefined,
+              })
+              let body = null
+              try {
+                body = await response.json()
+              } catch {}
+              return { status: response.status, body }
+            } catch (error) {
+              return { status: 0, body: null, error: String(error) }
+            }
+          },
+          { pathname, options },
+        )
+      const boxHeight = async (selector) => {
+        const box = await mobilePage.locator(selector).first().boundingBox().catch(() => null)
+        return box ? Math.round(box.height) : 0
+      }
+      const visibleCount = (selector) => mobilePage.locator(selector).count().catch(() => 0)
+
+      // 数据准备：明确从空库开始（只清测试库数据，不动其它数据）
+      await gotoMobile('/', '.tavern-home, .load-state-empty, .load-state-loading')
+      const cardsNow = await mobileApi('/characters')
+      for (const item of (cardsNow.body && cardsNow.body.items) || []) {
+        const cardId = item && (item.id || (item.card && item.card.id))
+        if (cardId) await mobileApi('/characters/' + cardId, { method: 'DELETE' })
+      }
+      const chatsNow = await mobileApi('/chats')
+      for (const item of (chatsNow.body && chatsNow.body.items) || []) {
+        const chatId = item && (item.id || (item.chat && item.chat.id))
+        if (chatId) await mobileApi('/chats/' + chatId, { method: 'DELETE' })
+      }
+
+      try {
+        const actualViewport = await mobilePage.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight })).catch(() => null)
+        mobileEvidence.viewport = { ...mobileEvidence.viewport, actual: actualViewport }
+
+        // O1 空库首页
+        await gotoMobile('/', '.load-state-empty')
+        const emptyTitle = (await mobilePage.locator('.load-state-title').first().textContent().catch(() => '')) || ''
+        const emptyCta = await visibleCount('.tavern-empty-import, input[aria-label="导入第一张角色卡"]')
+        const tokens = await mobilePage.evaluate(() => {
+          const style = getComputedStyle(document.documentElement)
+          return {
+            edge: style.getPropertyValue('--edge').trim(),
+            ink: style.getPropertyValue('--ink').trim(),
+          }
+        })
+        const emptyOverflow = await mobileOverflow()
+        mobileEvidence.empty = { title: clip(emptyTitle, 40), cta: emptyCta > 0, ...tokens, overflow: emptyOverflow }
+        mobileRecord(
+          0,
+          /还没有角色卡/.test(emptyTitle) && emptyCta > 0 && emptyOverflow <= 1 && Boolean(tokens.edge),
+          `title=${clip(emptyTitle, 40)} cta=${emptyCta > 0 ? 'yes' : 'no'} edge=${clip(tokens.edge, 40) || 'EMPTY'} ink=${clip(tokens.ink, 40) || 'EMPTY'} overflow=${emptyOverflow}`,
+        )
+        await shot(mobilePage, '160-mobile-empty-home.png')
+
+        // O2 导入两张卡 → 两列网格
+        const firstInput = mobilePage.locator('input[aria-label="导入第一张角色卡"]').first()
+        if (await firstInput.count().catch(() => 0)) {
+          await firstInput.setInputFiles(path.join(fixturesDir, 'v2-png.png')).catch(() => {})
+          await waitFor(async () => (await mobilePage.locator('.tavern-card').count().catch(() => 0)) >= 1, 25000)
+        }
+        const toolbarInput = mobilePage.locator('input[aria-label="导入角色卡文件"]').first()
+        if (await toolbarInput.count().catch(() => 0)) {
+          await toolbarInput.setInputFiles(path.join(fixturesDir, 'v2-json.json')).catch(() => {})
+        }
+        await waitFor(async () => (await mobilePage.locator('.tavern-grid .tavern-card').count().catch(() => 0)) >= 2, 25000)
+        const gridInfo = await mobilePage.evaluate(() => {
+          const grid = document.querySelector('.tavern-grid')
+          const columns = grid ? getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean) : []
+          const boxes = Array.from(document.querySelectorAll('.tavern-grid .tavern-card'))
+            .slice(0, 2)
+            .map((node) => {
+              const box = node.getBoundingClientRect()
+              return { top: Math.round(box.top), left: Math.round(box.left) }
+            })
+          return { columns: columns.length, boxes }
+        })
+        const gridOverflow = await mobileOverflow()
+        const twoColumns = gridInfo.columns === 2 && gridInfo.boxes.length === 2
+        const sameRow =
+          twoColumns &&
+          Math.abs(gridInfo.boxes[0].top - gridInfo.boxes[1].top) <= 4 &&
+          Math.abs(gridInfo.boxes[0].left - gridInfo.boxes[1].left) > 8
+        mobileEvidence.grid = { columns: gridInfo.columns, boxes: gridInfo.boxes, overflow: gridOverflow }
+        mobileRecord(
+          1,
+          twoColumns && sameRow && gridOverflow <= 1,
+          `columns=${gridInfo.columns} boxes=${clip(gridInfo.boxes)} overflow=${gridOverflow}`,
+        )
+        await shot(mobilePage, '161-mobile-grid-2col.png')
+
+        // O3 角色详情：主操作
+        const cardsList = await mobileApi('/characters')
+        const cardItems = (cardsList.body && cardsList.body.items) || []
+        const detailCard = cardItems.find((item) => item && (item.name === cardName || (item.card && item.card.name === cardName))) || cardItems[0]
+        const detailId = detailCard && (detailCard.id || (detailCard.card && detailCard.card.id))
+        if (detailId) {
+          await gotoMobile('/characters/' + detailId, '.character-hero')
+          // 390 下 hero 内的按钮被 CSS 隐藏，主操作固定在底部 .character-mobile-actions。
+          let heroButton = mobilePage.locator('.character-mobile-actions button.primary').first()
+          let heroVisible = await heroButton.isVisible().catch(() => false)
+          if (!heroVisible) {
+            heroButton = mobilePage.locator('.character-hero-actions button.primary').first()
+            heroVisible = await heroButton.isVisible().catch(() => false)
+          }
+          const heroBox = await heroButton.boundingBox().catch(() => null)
+          const detailOverflow = await mobileOverflow()
+          const heroInside = Boolean(heroBox) && heroBox.y >= -1 && heroBox.y + heroBox.height <= 844 + 1
+          mobileEvidence.detail = {
+            height: heroBox ? Math.round(heroBox.height) : 0,
+            visible: heroVisible,
+            inside: heroInside,
+            box: heroBox ? { x: Math.round(heroBox.x), y: Math.round(heroBox.y), w: Math.round(heroBox.width), h: Math.round(heroBox.height) } : null,
+            overflow: detailOverflow,
+          }
+          mobileRecord(
+            2,
+            heroVisible && Boolean(heroBox) && heroBox.height >= 44 && heroInside && detailOverflow <= 1,
+            `button=${heroVisible ? 'visible' : 'hidden'} height=${heroBox ? Math.round(heroBox.height) : 0} inside=${heroInside} overflow=${detailOverflow}`,
+          )
+        } else {
+          mobileSkip(2, '没有可打开的角色卡（导入失败，owner: cards-client 首页导入）')
+        }
+        await shot(mobilePage, '162-mobile-detail-actions.png')
+
+        // O4 /chats 空态 + 列表行
+        await gotoMobile('/chats', '.load-state-empty, .chat-history-row')
+        const chatsEmptyTitle = (await mobilePage.locator('.load-state-title').first().textContent().catch(() => '')) || ''
+        const chatsEmptyCta = await visibleCount('button.tavern-empty-action, .load-state-actions a, .load-state-actions button')
+        const chatsEmptyOverflow = await mobileOverflow()
+        let chatsRow = null
+        if (detailId) {
+          const created = await mobileApi('/characters/' + detailId + '/chats', { method: 'POST', body: {} })
+          const createdChatId = created.body && (created.body.chat && created.body.chat.id ? created.body.chat.id : created.body.id)
+          if (createdChatId) {
+            await mobileApi('/chats/' + createdChatId, {
+              method: 'PATCH',
+              body: { title: 'E2E 移动端窄屏聊天标题用来验证省略号是否生效并且确实很长' },
+            })
+          }
+          await gotoMobile('/chats', '.chat-history-row')
+          const row = mobilePage.locator('.chat-history-row').first()
+          const rowBox = await row.boundingBox().catch(() => null)
+          const nameOverflow = await mobilePage
+            .evaluate(() => {
+              const name = document.querySelector('.chat-history-name')
+              if (!name) return null
+              return name.scrollWidth - name.clientWidth
+            })
+            .catch(() => null)
+          const listOverflow = await mobileOverflow()
+          chatsRow = {
+            height: rowBox ? Math.round(rowBox.height) : 0,
+            nameOverflow,
+            overflow: listOverflow,
+          }
+        }
+        mobileEvidence.chats = {
+          emptyTitle: clip(chatsEmptyTitle, 40),
+          emptyCta: chatsEmptyCta > 0,
+          emptyOverflow: chatsEmptyOverflow,
+          row: chatsRow,
+        }
+        const chatsOk =
+          /还没有聊天/.test(chatsEmptyTitle) &&
+          chatsEmptyCta > 0 &&
+          chatsEmptyOverflow <= 1 &&
+          Boolean(chatsRow) &&
+          chatsRow.height >= 48 &&
+          Number(chatsRow.nameOverflow) > 0 &&
+          chatsRow.overflow <= 1
+        mobileRecord(
+          3,
+          chatsOk,
+          `empty=${clip(chatsEmptyTitle, 20)} cta=${chatsEmptyCta > 0 ? 'yes' : 'no'} emptyOverflow=${chatsEmptyOverflow} row=${clip(chatsRow)}`,
+        )
+        await shot(mobilePage, '163-mobile-chats-empty.png')
+        await shot(mobilePage, '164-mobile-chats-row.png')
+
+        // O5 设置 + 正则页
+        await gotoMobile('/settings', '.tavern-settings')
+        const settingsOverflow = await mobileOverflow()
+        const settingsBackHeight = await boxHeight('.settings-back')
+        // 空态下模板不渲染规则表单（只有列表存在才显示），先用 API 建一条规则，再验证窄屏行卡片与保存按钮。
+        const regexSeed = await mobileApiRoot('/regex-scripts', {
+          method: 'POST',
+          body: { name: 'E2E 移动端规则', pattern: '。', replacement: '！', enabled: true, order: 0 },
+        })
+        const seededRuleId = regexSeed.body && (regexSeed.body.regex ? regexSeed.body.regex.id : regexSeed.body.id)
+        await gotoMobile('/settings/regex', '.tavern-regex')
+        await waitFor(async () => (await mobilePage.locator('.regex-item').count().catch(() => 0)) > 0, 20000)
+        const regexOverflowBefore = await mobileOverflow()
+        const regexBackHeight = await boxHeight('.regex-back')
+        const saveButton = mobilePage.locator('form.regex-form button[type="submit"]').first()
+        const saveHeight = await boxHeight('form.regex-form button[type="submit"]')
+        const nameInput = mobilePage.locator('input[aria-label="规则名称"]').first()
+        let saveAction = null
+        if (await nameInput.count().catch(() => 0)) {
+          await nameInput.fill('E2E 移动端规则改').catch(() => {})
+          await mobilePage.locator('input[aria-label="查找正则"]').first().fill('！').catch(() => {})
+          await mobilePage.locator('textarea[aria-label="替换内容"]').first().fill('。').catch(() => {})
+          if (await saveButton.count().catch(() => 0)) {
+            await saveButton.click({ force: true }).catch(() => {})
+            const saved = await waitFor(
+              async () => /E2E 移动端规则改/.test((await mobilePage.locator('.regex-list').textContent().catch(() => '')) || ''),
+              20000,
+            )
+            saveAction = { clicked: true, saved }
+          }
+        }
+        const regexItem = await mobilePage
+          .evaluate(() => {
+            const item = document.querySelector('.regex-item')
+            if (!item) return null
+            const actions = Array.from(item.querySelectorAll('.regex-actions button'))
+            return {
+              direction: getComputedStyle(item).flexDirection,
+              actionHeights: actions.map((node) => Math.round(node.getBoundingClientRect().height)),
+            }
+          })
+          .catch(() => null)
+        const regexOverflowAfter = await mobileOverflow()
+        const consoleErrors = mobileEvidence.console.filter((text) => !/Failed to load resource/.test(text))
+        const regexOk =
+          settingsOverflow <= 1 &&
+          settingsBackHeight >= 44 &&
+          regexOverflowBefore <= 1 &&
+          regexOverflowAfter <= 1 &&
+          regexBackHeight >= 44 &&
+          saveHeight >= 44 &&
+          Boolean(regexItem) &&
+          Boolean(saveAction && saveAction.saved) &&
+          regexItem.direction === 'column' &&
+          regexItem.actionHeights.every((height) => height >= 44) &&
+          consoleErrors.length === 0
+        mobileEvidence.settings = { overflow: settingsOverflow, backHeight: settingsBackHeight }
+        mobileEvidence.regex = {
+          overflowBefore: regexOverflowBefore,
+          overflowAfter: regexOverflowAfter,
+          backHeight: regexBackHeight,
+          saveHeight,
+          saveAction,
+          item: regexItem,
+          console: consoleErrors,
+        }
+        if (seededRuleId) await mobileApiRoot('/regex-scripts/' + seededRuleId, { method: 'DELETE' })
+        mobileRecord(
+          4,
+          regexOk,
+          `settingsOverflow=${settingsOverflow} settingsBack=${settingsBackHeight} regexOverflow=${regexOverflowBefore}/${regexOverflowAfter} regexBack=${regexBackHeight} save=${saveHeight} item=${clip(regexItem)} console=${clip(consoleErrors, 120)}`,
+        )
+        await shot(mobilePage, '165-mobile-settings.png')
+        await shot(mobilePage, '166-mobile-regex.png')
+      } finally {
+        // O 组是最先执行的分组：收尾把本组导入的卡/聊天清掉，后续分组仍从干净状态开始。
+        try {
+          const leftovers = await mobileApi('/cards')
+          for (const item of (leftovers.body && leftovers.body.items) || []) {
+            const leftoverId = item && (item.id || (item.card && item.card.id))
+            if (leftoverId) await mobileApi('/characters/' + leftoverId, { method: 'DELETE' })
+          }
+          const leftoverChats = await mobileApi('/chats')
+          for (const item of (leftoverChats.body && leftoverChats.items) || []) {
+            const leftoverChatId = item && (item.id || (item.chat && item.chat.id))
+            if (leftoverChatId) await mobileApi('/chats/' + leftoverChatId, { method: 'DELETE' })
+          }
+        } catch {}
+        await mobilePage.close().catch(() => {})
+        mobileEvidence.steps = mobileDone
+      }
+    }
+  }
+
   // ── N. 角色列表 ───────────────────────────────────────────────────────────
   const homeEvidence = { imported: false, cardName, avatar: false, search: false, importNotice: null }
   report.native.home = homeEvidence
@@ -1686,7 +2054,33 @@ try {
       skip('返回角色页看到聊天历史列表', blockedReason)
       skip('从历史重新进入聊天，消息完整', blockedReason)
     } else {
-      let detail = await openDetail()
+      // 历史列表属于「C 组那个聊天」的角色；打开它对应的卡详情，
+      // 避免首页有多张卡时 openDetail() 打开的是另一张卡导致历史为空。
+      let detail = null
+      let detailCardId = null
+      const chatUrl = chatEvidence.chatUrl || ''
+      const chatIdMatch = chatUrl.match(/\/chats\/([0-9a-zA-Z_-]+)/)
+      if (chatIdMatch) {
+        const probeFrame = fnow()
+        if (probeFrame) {
+          detailCardId = await probeFrame
+            .evaluate(async (id) => {
+              const response = await fetch('/tavern/api/reader/v1/tavern/chats/' + id, { credentials: 'include' })
+              if (!response.ok) return null
+              const body = await response.json()
+              const chat = body.chat || body
+              return (chat.card && chat.card.id) || chat.cardId || null
+            }, chatIdMatch[1])
+            .catch(() => null)
+        }
+      }
+      if (detailCardId) {
+        await appGoto('/characters/' + detailCardId)
+        detail = fnow()
+        if (detail) await detail.locator('.character-hero').first().waitFor({ timeout: 25000 }).catch(() => {})
+      } else {
+        detail = await openDetail()
+      }
       let listShown = detail
         ? await waitFor(async () => (await detail.locator('section[aria-label="聊天历史"] .chat-history-item, .chat-history-item').count().catch(() => 0)) > 0, 20000)
         : false

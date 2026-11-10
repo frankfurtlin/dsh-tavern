@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import {computed,onMounted,onUnmounted,ref} from 'vue'
 import {useRouter} from 'vue-router'
-import {MessageSquareText} from 'lucide-vue-next'
 import {useApp} from '../stores/app'
 import {useRequestScope} from '../platform/request-scope'
 import {authorizationHeaders} from '../api'
 import {listChats,tavernAvatarUrl,type TavernChat} from './api'
+import LoadState from './LoadState.vue'
 
 const router=useRouter()
 const store=useApp()
@@ -73,14 +73,14 @@ onUnmounted(()=>{mounted=false;for(const url of Object.values(avatars.value))URL
    <h1>聊天历史</h1>
    <button type="button" class="tavern-back" @click="router.push('/')">返回角色卡</button>
   </header>
-  <p v-if="error" class="error" role="alert">{{error}}<button class="inline-link" type="button" @click="load">重试</button></p>
-  <p v-if="loading" class="tavern-loading" role="status">正在加载聊天…</p>
-  <div v-else-if="empty" class="tavern-empty">
-   <MessageSquareText :size="30" aria-hidden="true"/>
-   <p class="tavern-empty-title">还没有聊天</p>
-   <p>挑一张角色卡开始聊天，历史会自动出现在这里。</p>
-   <button type="button" class="tavern-empty-action" @click="router.push('/')">去角色卡库</button>
-  </div>
+  <LoadState v-if="loading||error" :loading="loading" :error="error" loading-text="正在加载聊天…" @retry="load"/>
+
+  <LoadState v-else-if="empty" empty empty-title="还没有聊天"
+   empty-text="挑一张角色卡开始聊天，历史会自动出现在这里。">
+   <template #action>
+    <button type="button" class="tavern-empty-action" @click="router.push('/')">去选角色</button>
+   </template>
+  </LoadState>
   <div v-else class="chat-history-list">
    <button v-for="chat in chats" :key="chat.id" type="button" class="chat-history-row" @click="router.push('/chats/'+encodeURIComponent(chat.id))">
     <span class="chat-history-avatars" aria-hidden="true">
@@ -100,12 +100,13 @@ onUnmounted(()=>{mounted=false;for(const url of Object.values(avatars.value))URL
 </template>
 
 <style scoped>
+.tavern-home{width:100%;max-width:1120px;margin:0 auto;padding:22px clamp(14px,3vw,28px) 64px}
 .tavern-page-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px}
 .tavern-page-head h1{font-family:var(--font-serif);font-size:24px;margin:0;color:var(--ink)}
 .tavern-back{min-height:40px;padding:0 14px;border:1px solid var(--edge);border-radius:10px;background:var(--canvas);color:var(--quiet);font-size:13px;cursor:pointer}
 .tavern-back:hover{color:var(--accent);border-color:var(--accent)}
 .chat-history-list{display:flex;flex-direction:column;gap:8px}
-.chat-history-row{display:flex;align-items:center;gap:12px;width:100%;padding:12px 14px;border:1px solid var(--edge);border-radius:14px;background:var(--canvas);color:inherit;text-align:left;cursor:pointer}
+.chat-history-row{display:flex;align-items:center;gap:12px;width:100%;padding:12px 14px;min-height:52px;border:1px solid var(--edge);border-radius:14px;background:var(--canvas);color:inherit;text-align:left;cursor:pointer}
 .chat-history-row:hover{border-color:var(--accent)}
 .chat-history-avatars{display:flex;flex:none}
 .chat-history-avatar{width:34px;height:34px;margin-left:-8px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--wash);color:var(--accent);font-size:13px;border:2px solid var(--canvas)}
@@ -118,5 +119,12 @@ onUnmounted(()=>{mounted=false;for(const url of Object.values(avatars.value))URL
 .chat-history-time{flex:none;font-size:12px;color:var(--quiet)}
 .tavern-empty{display:flex;flex-direction:column;align-items:center;gap:8px;padding:64px 16px;text-align:center;color:var(--quiet)}
 .tavern-empty-action{min-height:40px;padding:0 16px;border:1px solid var(--accent);border-radius:10px;background:var(--accent);color:#fff;font-size:14px;cursor:pointer}
-@media(max-width:520px){.chat-history-time{display:none}}
+.tavern-empty-action{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;border:1px solid var(--accent);border-radius:10px;background:var(--accent);color:#fff;font-size:14px;cursor:pointer}
+@media(max-width:767px){
+ .tavern-page-head h1{font-size:21px}
+ .chat-history-row{gap:10px;padding:12px}
+ .chat-history-avatar{width:30px;height:30px}
+ .chat-history-time{display:none}
+}
+@media(max-width:520px){.chat-history-last{max-width:100%}}
 </style>
