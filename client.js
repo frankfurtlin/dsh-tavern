@@ -3,8 +3,8 @@
  *
  * 手写 ModuleLoader 工厂，不经打包：只依赖宿主已提供的 react / react/jsx-runtime，
  * 用 h() 直接构造元素。做三件事：
- *   1. 在侧栏「插件」组的 panellist 座位注册一行「酒馆」（order 24，落在
- *      紫微斗数(20) 与 Skill Center(30) 之间）。
+ *   1. 在侧栏「插件」组的 panellist 座位注册一行「酒馆」（order 12，紧跟
+ *      「自动化任务」(10)，排在知识库(14) / 紫微斗数(16) / 华尔街之狼(18) 之前）。
  *   2. 在 main 座位注册 keyed 面板页：同源 iframe 指向宿主反代的 /tavern/，
  *      工具条提供刷新 / 新窗口 / 让 DSH 续写 / 角色扮演 / 续写要求输入。
  *   3. P2 桥：按 docs/contract.md §3 的 postMessage 协议向 iframe 要当前故事
@@ -22,8 +22,8 @@ window.__ModuleLoader__.load({
 
     /** 侧栏行 id —— 同时是 main 座位的 key 与图标上的 data 锚点。 */
     var PANEL_ID = "tavern";
-    /** 侧栏顺序：紫微斗数 = 20，Skill Center = 30。 */
-    var PANEL_ORDER = 24;
+    /** 侧栏顺序：Automation tasks = 10，酒馆 = 12，知识库 = 14，紫微斗数 = 16，华尔街之狼 = 18。 */
+    var PANEL_ORDER = 12;
 
     var COLORS = {
       border: "color-mix(in srgb, currentColor 18%, transparent)",
