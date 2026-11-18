@@ -653,6 +653,43 @@ try {
         return stableTicks >= 2
       }, 180000, 350)
       page.off('response', onResponse)
+      // 上游偶发「POST 200 但流式无 delta / 未落库」：重载后重发一次，并记录证据（不静默刷绿）。
+      let repliedFinal = replied
+      let replyRetryNote = null
+      if (!repliedFinal && postStatus === 200) {
+        replyRetryNote = { retried: true, firstPostStatus: postStatus }
+        await chat.evaluate(() => location.reload()).catch(() => {})
+        const retryFrame = (await waitFrameUrl(/\/chats\/[0-9a-z-]+/, 20000)) || fnow()
+        if (retryFrame) {
+          chat = retryFrame
+          await waitChatRendered(chat, 25000)
+          await waitFor(async () => (await chat.locator('article.bubble-row.assistant').count().catch(() => 0)) > 0, 20000)
+          const before2 = await chat.locator('article.bubble-row.assistant').count().catch(() => 0)
+          const composer2 = chat.locator('textarea[aria-label="聊天输入框"]').first()
+          await composer2.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {})
+          await composer2.fill('你好').catch(() => {})
+          const send2 = chat.locator('button[aria-label="发送消息"]').first()
+          await send2.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {})
+          await send2.click().catch(() => {})
+          let stable2 = ''
+          let ticks2 = 0
+          repliedFinal = await waitFor(async () => {
+            chat = fnow() || chat
+            const texts = await chat.locator('article.bubble-row.assistant .bubble-text').allInnerTexts().catch(() => [])
+            if (texts.length <= before2) return false
+            const last = String(texts[texts.length - 1] || '').trim()
+            if (last.length < 10 || last === opening) return false
+            const pending = await chat.locator('article.bubble-row .bubble-pending').count().catch(() => 0)
+            const status = (await chat.locator('.chat-status[role="status"]').first().innerText().catch(() => '')) || ''
+            if (pending > 0 || /正在(回复|生成|写)/.test(status)) { ticks2 = 0; stable2 = last; return false }
+            if (last === stable2) ticks2 += 1
+            else { ticks2 = 0; stable2 = last }
+            return ticks2 >= 2
+          }, 180000, 350)
+          replyRetryNote.secondReply = repliedFinal
+          replyRetryNote.stallProbe = repliedFinal ? null : await gatewayProbe()
+        }
+      }
       const texts = await chat.locator('article.bubble-row.assistant .bubble-text').allInnerTexts().catch(() => [])
       reply = String(texts[texts.length - 1] || '').trim()
       await shot(page, '173-preset-reply.png')
@@ -671,11 +708,12 @@ try {
         length: reply.length,
         httpStatus: postStatus,
         persisted,
-        stallProbe: replied ? null : await gatewayProbe(),
+        stallProbe: repliedFinal ? null : await gatewayProbe(),
+        retryNotes: replyRetryNote,
       }
       presetRecord(
         3,
-        replied && postStatus === 200 && persisted,
+        repliedFinal && postStatus === 200 && persisted,
         `回复 ${reply.length} 字 http=${postStatus} persisted=${persisted} text=${presetQuote(reply)}`,
       )
     } catch (error) {
@@ -2580,7 +2618,22 @@ try {
           if (loaded) restored = again
         }
       }
-      report.native.restore = { ok: loaded, url: restored.url() }
+      // 断言前等动作按钮随消息一起渲染（restore 只等气泡，偶发按钮晚一拍）。
+      const regenRestore = restored.getByRole('button', { name: /重新生成|重生成|重新回复/ }).first()
+      let actionsReady = await waitFor(async () => (await regenRestore.count().catch(() => 0)) > 0, 20000)
+      if (!actionsReady) {
+        const again2 = await appGoto(restorePath)
+        if (again2) {
+          await waitChatRendered(again2, 25000)
+          await waitFor(async () => (await again2.locator('article.bubble-row.assistant').count().catch(() => 0)) > 0, 20000)
+          actionsReady = await waitFor(
+            async () => (await again2.getByRole('button', { name: /重新生成|重生成|重新回复/ }).count().catch(() => 0)) > 0,
+            20000,
+          )
+          if (actionsReady) restored = again2
+        }
+      }
+      report.native.restore = { ok: loaded, url: restored.url(), actionsReady }
       chatFrame = restored
     }
   }

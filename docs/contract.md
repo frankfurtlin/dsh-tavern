@@ -142,7 +142,7 @@ iframe → 父（主动，节流）：
 | `scripts/**`、`verify.mjs`、`docs/testing.md` | verifier |
 | `/etc/systemd/system`、Caddy、`/root/.dsh/profiles/web`（host 级，不在本仓库） | Lead |
 | `app/.env`（含 `DSH_AGENT_*`、`AI_MODE`）、host 重启与上线 | Lead |
-| `docs/step1–step5*.md`（历史设计，UI 与服务端多已删除） | Lead |
+| `docs/history/step1–step5*.md`（历史设计，UI 与服务端多已删除） | Lead |
 
 任何人不改别人范围的文件；发现 bug 用 send_message 报给 owner 或 Lead。
 
@@ -398,11 +398,11 @@ DSH 网关未重启到支持采样参数的版本前，网关侧会忽略部分�
 | `docs/step6-native-tavern.md` | **当前设计**：酒馆 2.0 原生聊天/SSE/swipe/世界书/验收分组 |
 | `docs/architecture.md` | 当前实现架构（host 反代、网关、应用数据模型、prompt 组装、风险） |
 | `docs/testing.md` | 验收方法（静态 + 隔离实例 E2E） |
-| `docs/step1-character-card-chat.md` | 历史：角色卡聊天第一步 |
-| `docs/step2-dsh-generation.md` | 历史：DSH 真生成网关（字段仍在用，见 §6） |
-| `docs/step3-card-space.md` | 历史：卡片空间（世界书/预设/正则），2.0 世界书改为 `tavern_world_info` |
-| `docs/step3b-group-chat.md` | 历史：旧群聊设计；2.0 已用原生实现取代（见 §7 群聊语义） |
-| `docs/step4-companion-memory.md` | 历史：长期记忆/伙伴（P3 已随 story 域删除） |
-| `docs/step5-p0-p1-p2.md` | 历史：故事模式 P0–P2 体验设计 |
+| `docs/history/step1-character-card-chat.md` | 历史：角色卡聊天第一步 |
+| `docs/history/step2-dsh-generation.md` | 历史：DSH 真生成网关（字段仍在用，见 §6） |
+| `docs/history/step3-card-space.md` | 历史：卡片空间（世界书/预设/正则），2.0 世界书改为 `tavern_world_info` |
+| `docs/history/step3b-group-chat.md` | 历史：旧群聊设计；2.0 已用原生实现取代（见 §7 群聊语义） |
+| `docs/history/step4-companion-memory.md` | 历史：长期记忆/伙伴（P3 已随 story 域删除） |
+| `docs/history/step5-p0-p1-p2.md` | 历史：故事模式 P0–P2 体验设计 |
 
 旧文档只作参考，**有冲突以本文与 `docs/step6-native-tavern.md` 为准**。

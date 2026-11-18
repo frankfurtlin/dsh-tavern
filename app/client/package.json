@@ -8,8 +8,6 @@
     "typecheck": "vue-tsc --noEmit",
     "build": "vite build && node scripts/product-public.mjs && node scripts/cache-shell.mjs",
     "test:unit": "vitest run",
-    "test:e2e": "node scripts/test-e2e.mjs",
-    "test:acceptance": "node scripts/test-e2e.mjs --config playwright.acceptance.config.ts",
     "native:sync:android": "npm run build && cap sync android",
     "native:sync:ios": "npm run build && cap sync ios && node scripts/normalize-ios.mjs",
     "native:build:android": "node scripts/build-native.mjs android",

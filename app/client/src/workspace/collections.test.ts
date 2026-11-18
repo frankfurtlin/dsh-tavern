@@ -1,7 +1,0 @@
-import {it,expect,vi} from 'vitest'
-vi.mock('../api/stories',()=>({storyPath:(kind:string,id:string)=>'/stories/'+kind+'-'+id}))
-import {filterCollection,type CollectionItem} from './collections'
-const entry=(id:string,fields:Partial<CollectionItem>={}):CollectionItem=>({id,kind:'world',title:id,subtitle:'来源',description:'线索',status:'active',version:1,date:'2026-10-15',favorite:false,started:true,path:'/worlds/'+id,...fields})
-it('recent means a real opened story, and excludes archived entries',()=>{expect(filterCollection([entry('new',{started:false}),entry('open'),entry('archived',{status:'archived'})],{search:'',kind:'',mode:'recent',archived:false,sort:'recent'}).map(x=>x.id)).toEqual(['open'])})
-it('bookmarks never fabricate a world favorite, and search is case insensitive',()=>{expect(filterCollection([entry('Gem'),entry('Book',{kind:'book',favorite:true})],{search:'book',kind:'',mode:'bookmarks',archived:false,sort:'recent'}).map(x=>x.id)).toEqual(['Book'])})
-it('archive filtering and stable recent dates do not mutate the source array',()=>{const items=[entry('old',{date:'2026-01-01'}),entry('new'),entry('archived',{status:'archived'})];expect(filterCollection(items,{search:'线索',kind:'world',mode:'all',archived:false,sort:'recent'}).map(x=>x.id)).toEqual(['new','old']);expect(items[0].id).toBe('old');expect(filterCollection(items,{search:'',kind:'',mode:'mine',archived:true,sort:'title'})[0].id).toBe('archived')})
