@@ -95,7 +95,7 @@
 | `docs/contract.md` | 与应用侧的集成契约（路由分流、可信头、P2、UI 座位、网关字段、应用 API/SSE/swipe）——**先读它再改代码** |
 | `docs/architecture.md` | 实现架构：请求链路、网关、原生酒馆数据模型与 prompt 组装、面板结构、配置、风险 |
 | `docs/step6-native-tavern.md` | 酒馆 2.0 的设计与验收清单（当前设计） |
-| `docs/step1–step5*.md` | **历史设计**：故事模式 / 旧卡片空间 / 旧群聊 / 长期记忆 / P0–P2 体验；其中 UI 与服务端多已删除，仅作参考 |
+| `docs/history/step1–step5*.md` | **历史设计**：故事模式 / 旧卡片空间 / 旧群聊 / 长期记忆 / P0–P2 体验；其中 UI 与服务端多已删除，仅作参考 |
 | `docs/testing.md` | 验收方法：静态检查 + 隔离实例真实浏览器 E2E |
 | `scripts/check.sh`、`verify.mjs` | 验收工具：静态检查 + 隔离实例端到端 |
 
@@ -269,5 +269,5 @@ node verify.mjs --url "http://127.0.0.1:3080/?token=..." \
 | [docs/contract.md](docs/contract.md) | 与应用侧的集成契约：分流、可信头、P2、UI 座位、网关字段、应用 API / SSE / swipe |
 | [docs/architecture.md](docs/architecture.md) | 实现架构：请求链路、模型网关、原生酒馆数据模型与 prompt 组装、面板结构、配置、风险 |
 | [docs/step6-native-tavern.md](docs/step6-native-tavern.md) | 酒馆 2.0 当前设计：原生聊天、SSE、swipe、世界书、验收分组 |
-| [docs/step1-character-card-chat.md](docs/step1-character-card-chat.md) 等 step1–step5 | **历史设计**（故事模式 / 旧卡片空间 / 旧群聊 / 长期记忆 / P0–P2），UI 与服务端多已删除 |
+| [docs/history/step1-character-card-chat.md](docs/history/step1-character-card-chat.md) 等 step1–step5 | **历史设计**（故事模式 / 旧卡片空间 / 旧群聊 / 长期记忆 / P0–P2），UI 与服务端多已删除 |
 | [docs/testing.md](docs/testing.md) | 验收方法：静态检查 + 隔离实例真实浏览器 E2E |

@@ -1,8 +1,0 @@
-import {describe,it,expect} from 'vitest'
-import {emptyCard} from './card-format'
-import {cardDraftValue,validateCardDraft} from './card-drafts'
-describe('encrypted card editing buffers',()=>{
- it('keeps incomplete JSON, empty names and exact fictional literal keys without pretending they are a usable template',()=>{const card=emptyCard();card.name='';card.systemPrompt='保留 literal key 和 password';const draft=cardDraftValue('card',0,card,'{"extensions":{"foreign":{"key":"fiction",');expect(()=>validateCardDraft(draft)).not.toThrow();expect(draft.fields.name).toBe('');expect(draft.dataText.endsWith(',')).toBe(true);expect(draft.fields.systemPrompt).toContain('literal key');expect(draft.cardRevision).toBe(0)})
- it('freezes a source identity and keeps draft fields separate from the original template and raw editing buffer',()=>{const card=emptyCard(),before=JSON.stringify(card),draft=cardDraftValue('card',3,card,'not JSON yet');draft.fields.description='新的草稿设定';expect(JSON.stringify(card)).toBe(before);expect(draft.identityId).toBe(card.identityId);expect(draft.cardRevision).toBe(3);expect(draft.dataText).toBe('not JSON yet');expect(draft.requiresFieldReview).toBe(false)})
- it('rejects wrong field types and oversized names before storing a buffer while allowing deliberate conflict copies',()=>{const card=emptyCard(),draft=cardDraftValue('card',1,card,'{}',undefined,true);expect(draft.conflict).toBe(true);for(const altered of [{...draft,cardRevision:-1},{...draft,fields:{...draft.fields,tags:[null]}},{...draft,fields:{...draft.fields,name:'x'.repeat(201)}},{...draft,identityId:''}])expect(()=>validateCardDraft(altered)).toThrow()})
-})

@@ -863,3 +863,20 @@ harness 侧修复（未放宽断言，只修时序/环境）：
 
 剩余风险：真实生成依赖 DSH 网关与上游模型，偶发「POST 200 但无 delta / 模型网关不可用」；本轮隔离与生产两轮
 均未复现（隔离调试轮曾 3 次命中，重试后恢复），已把 alert/probe/SSE 尾部写入报告便于归因，不当作产品缺陷。
+
+## 实测记录（代码整理回归，2026-11-18）
+
+背景：删除 560 个旧 story 前端死文件、insights 第二入口、23 个未引用 css，dist 16:01 单入口重建（服务端未动）。
+
+- 隔离全量：`bash scripts/check.sh --instance`（先清库）→ **92 PASS / 0 FAIL / 0 SKIP**，`ok=true`，
+  报告 `/tmp/dsh-tavern-native/cleanup/report.json`（隔离轮 startedAt `2026-11-18T08:38:56Z`）。
+- 生产冒烟：`node verify.mjs --url "http://127.0.0.1:3080/?token=…" --out /tmp/dsh-tavern-native/cleanup/prod --fixtures /tmp/dsh-tavern-native/cards`
+  → **92 PASS / 0 FAIL / 0 SKIP**，报告 `/tmp/dsh-tavern-native/cleanup/prod/report.json`（startedAt `2026-11-18T09:01:20Z`）。
+- 路由核对：`/`、`/characters/:id`、`/chats`、`/chats/:id`、`/settings`、`/settings/help`、`/settings/regex` 均可进入；
+  四条旧路由仍落 `/tavern/`；源码里已删的 `dynamically imported module` 无 404，P/Q 与全局 console 均 clean。
+  侧栏顺序照旧：`Automation tasks(196) → 酒馆(234) → 知识库(272)`。
+- 本轮顺手加固（不改断言）：G 组 restore 单聊时额外等「重新生成」按钮就绪（`report.native.restore.actionsReady`），
+  避免 C2/R/P/T/E 在按钮晚一拍时误 SKIP；R4 在「POST 200 但流式无 delta/未落库」时重载重发**一次**并记录
+  `reply.retryNotes`（含首次状态/第二次结果/gatewayProbe），不静默刷绿。
+- 截图：`docs/screenshots/native-cleanup/`（cleanup-characters-home.png、cleanup-chat-done.png）。
+- 清理核对：cards/chats/messages/world_info/personas/regex=0、presets=1（内置）、png 已删、3099 free、隔离 HOME 删除。
