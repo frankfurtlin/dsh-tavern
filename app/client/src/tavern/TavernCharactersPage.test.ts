@@ -3,10 +3,11 @@ import {defineComponent,onUnmounted} from 'vue'
 import TavernCharactersPage from './TavernCharactersPage.vue'
 import {createGroupChat,listCharacters} from './api'
 import LoadState from './LoadState.vue'
+import OnboardingGuide from './OnboardingGuide.vue'
 import {compileRender,descendants,flush,node,provideSfc,renderer,text,type Host} from '../test/host-renderer'
 
-const harness=vi.hoisted(()=>({push:vi.fn(),message:vi.fn()}))
-vi.mock('vue-router',()=>({useRouter:()=>({push:harness.push})}))
+const harness=vi.hoisted(()=>({push:vi.fn(),message:vi.fn(),route:{query:{}}}))
+vi.mock('vue-router',()=>({useRoute:()=>harness.route,useRouter:()=>({push:harness.push,replace:vi.fn()})}))
 vi.mock('../stores/app',()=>({useApp:()=>({message:harness.message,user:{id:'u1'}})}))
 vi.mock('../platform/request-scope',()=>({useRequestScope:()=>{let disposed=false;onUnmounted(()=>{disposed=true});return()=>({valid:()=>!disposed})}}))
 vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{Check:stub,History:stub,MessagesSquare:stub,Search:stub,Upload:stub}})
@@ -21,6 +22,7 @@ vi.mock('./api',()=>({
 
 compileRender(TavernCharactersPage,new URL('./TavernCharactersPage.vue',import.meta.url))
 compileRender(LoadState,new URL('./LoadState.vue',import.meta.url))
+compileRender(OnboardingGuide,new URL('./OnboardingGuide.vue',import.meta.url))
 
 const cards=Array.from({length:6},(_,index)=>({
   id:'c'+(index+1),name:'角色'+String.fromCharCode(65+index),description:'简介'+(index+1),tags:[],hasAvatar:false,
@@ -125,4 +127,43 @@ describe('TavernCharactersPage preset badge',()=>{
     expect(text(host)).not.toContain('Foreverse')
   })
 })
+
+  describe('TavernCharactersPage first-run hint and guide',()=>{
+    const storage={getItem:vi.fn(()=>null),setItem:vi.fn(),removeItem:vi.fn()}
+    beforeEach(()=>{
+      harness.route.query={}
+      vi.stubGlobal('window',{localStorage:storage,addEventListener:vi.fn(),removeEventListener:vi.fn()})
+      storage.getItem.mockReset().mockReturnValue(null)
+      storage.setItem.mockReset()
+    })
+
+    it('shows the dismissible hint and remembers the dismissal',async()=>{
+      mount();await flush()
+      const hintRow=()=>descendants(host,item=>String(item.props.class||'').includes('tavern-hint')&&!String(item.props.class||'').includes('tavern-hint-'))
+      expect(hintRow().length).toBeGreaterThan(0)
+      expect(text(hintRow()[0]!)).toContain('点任意角色卡，立即开始聊天')
+      const close=descendants(host,item=>item.props['aria-label']==='关闭提示')[0]
+      close!.props.onClick?.()
+      await flush()
+      expect(storage.setItem).toHaveBeenCalledWith('tavern:hint-dismissed','1')
+      expect(hintRow()).toHaveLength(0)
+    })
+
+    it('opens the onboarding guide on the first visit and marks it seen when skipped',async()=>{
+      mount();await flush()
+      expect(text(host)).toContain('欢迎来到酒馆')
+      expect(text(host)).toContain('选一张角色卡')
+      const skip=descendants(host,item=>item.tag==='button'&&text(item).trim()==='跳过')[0]
+      skip!.props.onClick?.()
+      await flush()
+      expect(storage.setItem).toHaveBeenCalledWith('tavern:guide-seen','1')
+      expect(text(host)).not.toContain('欢迎来到酒馆')
+    })
+
+    it('can be reopened from the help link with ?guide=1',async()=>{
+      harness.route.query={guide:'1'}
+      mount();await flush()
+      expect(text(host)).toContain('欢迎来到酒馆')
+    })
+  })
 })

@@ -28,6 +28,7 @@ export const router=createRouter({
     {path:'/chats',component:()=>import('./tavern/TavernChatsPage.vue'),meta:{title:'聊天历史'}},
     {path:'/chats/:id',component:()=>import('./tavern/TavernChatPage.vue'),meta:{title:'聊天',immersive:true}},
     {path:'/settings/regex',component:()=>import('./tavern/TavernRegexPage.vue'),meta:{title:'输出替换规则'}},
+    {path:'/settings/help',component:()=>import('./tavern/TavernHelpPage.vue'),meta:{title:'使用帮助'}},
     {path:'/settings',component:()=>import('./tavern/TavernSettingsPage.vue'),meta:{title:'设置'}},
     {path:'/login',component:()=>import('./pages/AuthPage.vue'),meta:{public:true,title:'登录'}},
     {path:'/register',component:()=>import('./pages/AuthPage.vue'),meta:{public:true,title:'注册'}},

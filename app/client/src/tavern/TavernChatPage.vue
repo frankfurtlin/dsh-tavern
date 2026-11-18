@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import {computed,nextTick,onMounted,onUnmounted,ref,watch} from 'vue'
 import {useRoute,useRouter} from 'vue-router'
-import {ArrowLeft,ChevronDown,ChevronLeft,ChevronRight,ChevronUp,Download,Pencil,RefreshCw,Search,Send,Square,Trash2,X} from 'lucide-vue-next'
+import {ArrowLeft,ChevronDown,ChevronLeft,ChevronRight,ChevronUp,Download,Pencil,Quote,RefreshCw,Search,Send,Square,Trash2,X} from 'lucide-vue-next'
 import {authorizationHeaders} from '../api'
 import {useApp} from '../stores/app'
 import {useRequestScope} from '../platform/request-scope'
-import {deleteMessage,editMessage,exportChatBlob,getCharacter,getChat,listCharacters,messageText,selectSwipe,tavernAvatarUrl,updateChat,updateChatMembers,updateChatSampling,type ChatDetail,TavernCharacter,TavernMessage} from './api'
+import {deleteMessage,editMessage,exportChatBlob,getCharacter,getChat,listCharacters,messageText,selectSwipe,sendMessage,tavernAvatarUrl,updateChat,updateChatMembers,updateChatSampling,type ChatDetail,TavernCharacter,TavernMessage} from './api'
 import {saveBlob,safeFileName} from '../platform/download'
 import {streamChat} from './sse'
 import Sheet from '../components/Sheet.vue'
@@ -46,7 +46,11 @@ const searchQuery=ref('')
 const searchIndex=ref(0)
 const searchHitId=ref('')
 const searchInput=ref<HTMLInputElement|null>(null)
+const quote=ref<{text:string;messageId:string}|null>(null)
+const quotePreview=computed(()=>quote.value?quote.value.text.slice(0,120):'')
 const keyboardOffset=ref(0)
+let quoteLongPressTimer:ReturnType<typeof setTimeout>|undefined
+let quotePulseTimer:ReturnType<typeof setTimeout>|undefined
 let searchPulseTimer:ReturnType<typeof setTimeout>|undefined
 const membersOpen=ref(false)
 const memberCards=ref<TavernCharacter[]>([])
@@ -83,6 +87,9 @@ const nextSpeaker=computed(()=>{
   if(!members.length)return null
   return members[assistantCount.value%members.length]??null
 })
+const exampleChips=['你好','继续','我来了'] as const
+const showChips=computed(()=>!streaming.value&&!allMembersDeleted.value&&!input.value.trim()&&messages.value.length>0&&!messages.value.some(message=>message.role==='user'))
+function useChip(text:string){input.value=text}
 const canRegenerate=computed(()=>!streaming.value&&!allMembersDeleted.value&&messages.value.length>0&&messages.value[messages.value.length-1]?.role==='assistant')
 const searchHits=computed<TavernMessage[]>(()=>{
   const query=searchQuery.value.trim().toLowerCase()
@@ -98,7 +105,7 @@ const searchCountLabel=computed(()=>{
 function toggleSearch(){
   if(searchOpen.value){closeSearch();return}
   searchOpen.value=true
-  void nextTick(()=>searchInput.value?.focus())
+  void nextTick(()=>searchInput.value?.focus?.())
 }
 
 function closeSearch(){
@@ -361,9 +368,39 @@ async function finishStream(){
 function send(){
   const text=input.value.trim()
   if(!text||streaming.value||allMembersDeleted.value)return
+  const request=sendMessage(chatId.value,text,quote.value)
   input.value=''
+  quote.value=null
   streamSpeaker.value=nextSpeaker.value
-  void runStream('/chats/'+encodeURIComponent(chatId.value)+'/messages',{text})
+  void runStream(request.path,request.body)
+}
+
+function quoteMessage(message:TavernMessage){
+  if(streaming.value||allMembersDeleted.value||editingId.value===message.id)return
+  quote.value={text:messageText(message).slice(0,2000),messageId:message.id}
+  const field=typeof document!=='undefined'&&typeof document.getElementById==='function'?document.getElementById('chat-input') as HTMLTextAreaElement|null:null
+  field?.focus?.()
+}
+
+function clearQuote(){quote.value=null}
+
+function startQuoteLongPress(message:TavernMessage){
+  cancelQuoteLongPress()
+  quoteLongPressTimer=setTimeout(()=>{quoteLongPressTimer=undefined;quoteMessage(message)},500)
+}
+
+function cancelQuoteLongPress(){
+  if(quoteLongPressTimer!==undefined){clearTimeout(quoteLongPressTimer);quoteLongPressTimer=undefined}
+}
+
+function jumpToQuote(text:string){
+  const needle=text.trim().slice(0,40)
+  const target=messages.value.find(message=>needle&&messageText(message).includes(needle))
+  if(!target)return
+  searchHitId.value=target.id
+  if(quotePulseTimer!==undefined)clearTimeout(quotePulseTimer)
+  quotePulseTimer=setTimeout(()=>{searchHitId.value=''},1500)
+  if(typeof document!=='undefined'&&typeof document.querySelector==='function')document.querySelector('[data-message-id="'+target.id+'"]')?.scrollIntoView?.({block:'center',behavior:'smooth'})
 }
 
 function stop(){
@@ -477,8 +514,13 @@ function goBack(){
 
 watch(chatId,()=>void load())
 watch([messages,character],()=>{publishSnapshot();ensureGroupAvatars()})
+function onGlobalKeydown(event:KeyboardEvent){
+  if(event.key==='Escape'&&quote.value)quote.value=null
+}
+
 onMounted(()=>{
   void load()
+  if(typeof window!=='undefined')window.addEventListener?.('keydown',onGlobalKeydown)
   if(typeof window!=='undefined'&&window.visualViewport){
     window.visualViewport.addEventListener('resize',syncKeyboardOffset)
     window.visualViewport.addEventListener('scroll',syncKeyboardOffset)
@@ -487,6 +529,9 @@ onMounted(()=>{
 })
 onUnmounted(()=>{
   mounted=false
+  if(typeof window!=='undefined')window.removeEventListener?.('keydown',onGlobalKeydown)
+  if(quoteLongPressTimer!==undefined){clearTimeout(quoteLongPressTimer);quoteLongPressTimer=undefined}
+  if(quotePulseTimer!==undefined){clearTimeout(quotePulseTimer);quotePulseTimer=undefined}
   if(typeof window!=='undefined'&&window.visualViewport){
     window.visualViewport.removeEventListener('resize',syncKeyboardOffset)
     window.visualViewport.removeEventListener('scroll',syncKeyboardOffset)
@@ -518,6 +563,7 @@ onUnmounted(()=>{
     </div>
    </div>
    <div class="chat-menu">
+    <button type="button" class="chat-icon" aria-label="使用帮助" title="使用帮助" @click="router.push('/settings/help')">?</button>
     <button type="button" class="chat-icon" aria-label="搜索聊天内容" :aria-expanded="searchOpen" @click="toggleSearch"><Search :size="19"/></button>
     <button type="button" class="chat-icon" aria-label="聊天菜单" @click="exportMenuOpen=!exportMenuOpen"><Download :size="19"/></button>
     <div v-if="exportMenuOpen" class="chat-menu-pop" role="menu">
@@ -556,8 +602,12 @@ onUnmounted(()=>{
      </span>
      <span class="bubble-speaker-name">{{speakerNameFor(message)}}</span>
     </div>
-    <div class="bubble" :class="message.role">
+    <div class="bubble" :class="message.role"
+     @touchstart.passive="startQuoteLongPress(message)" @touchend="cancelQuoteLongPress" @touchmove="cancelQuoteLongPress">
      <p v-if="message.role==='user'" class="bubble-meta">你</p>
+     <button v-if="message.quotedText&&editingId!==message.id" type="button" class="bubble-quote" aria-label="查看被引用的消息" @click="jumpToQuote(message.quotedText||'')">
+      <Quote :size="13"/><span class="bubble-quote-text">{{message.quotedText}}</span>
+     </button>
      <template v-if="editingId===message.id">
       <textarea v-model="editText" rows="3" aria-label="编辑消息"></textarea>
       <div class="bubble-actions">
@@ -577,6 +627,7 @@ onUnmounted(()=>{
       <button type="button" @click="deletingId=''">取消</button>
      </template>
      <template v-else>
+      <button type="button" aria-label="引用这条消息" @click="quoteMessage(message)"><Quote :size="15"/>引用</button>
       <template v-if="message.role==='user'">
        <button type="button" aria-label="编辑这条消息" @click="startEdit(message)"><Pencil :size="15"/>编辑</button>
       </template>
@@ -656,8 +707,18 @@ onUnmounted(()=>{
    </form>
   </Sheet>
 
+  <div v-if="quote" class="chat-quote" role="status">
+   <Quote :size="15"/>
+   <span class="chat-quote-text">{{quotePreview}}</span>
+   <button type="button" class="chat-quote-clear" aria-label="取消引用" @click="clearQuote"><X :size="15"/></button>
+  </div>
+
+  <div v-if="showChips" class="chat-chips" role="group" aria-label="示例回复">
+   <button v-for="chip in exampleChips" :key="chip" type="button" class="chat-chip" @click="useChip(chip)">{{chip}}</button>
+  </div>
+
   <form class="chat-compose" @submit.prevent="send">
-   <textarea v-model="input" rows="1" :placeholder="allMembersDeleted?'群聊成员已全部删除':'说点什么…'" aria-label="聊天输入框" :disabled="streaming||allMembersDeleted" @keydown.enter.exact.prevent="send"></textarea>
+   <textarea id="chat-input" v-model="input" rows="1" :placeholder="allMembersDeleted?'群聊成员已全部删除':'说点什么…'" aria-label="聊天输入框" :disabled="streaming||allMembersDeleted" @keydown.enter.exact.prevent="send" @keydown.esc="clearQuote"></textarea>
    <button v-if="streaming" type="button" class="chat-stop" aria-label="停止生成" @click="stop"><Square :size="18"/>停止</button>
    <button v-else type="submit" class="chat-send" aria-label="发送消息" :disabled="!input.trim()||allMembersDeleted"><Send :size="18"/>发送</button>
   </form>
@@ -669,7 +730,7 @@ onUnmounted(()=>{
 .chat-top{display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:8px;min-height:56px;padding:6px 10px;padding-top:calc(6px + env(safe-area-inset-top));border-bottom:1px solid var(--edge);background:var(--paper);position:sticky;top:0;z-index:20}
 .chat-icon{display:flex;align-items:center;justify-content:center;width:44px;height:44px;border:0;background:transparent;color:var(--quiet);border-radius:10px;cursor:pointer}
 .chat-icon:hover{background:var(--wash);color:var(--ink)}
-.chat-menu{position:relative}
+.chat-menu{position:relative;display:flex;align-items:center;gap:2px}
 .chat-menu-pop{position:absolute;right:0;top:46px;z-index:30;min-width:190px;padding:6px;border:1px solid var(--edge);border-radius:12px;background:var(--canvas);box-shadow:0 12px 32px rgba(0,0,0,.12);display:flex;flex-direction:column;gap:2px}
 .chat-menu-pop button{min-height:40px;justify-content:flex-start;border:0;background:transparent;color:var(--ink);text-align:left;padding:0 10px;border-radius:8px;cursor:pointer}
 .chat-menu-pop button:hover:not(:disabled){background:var(--wash)}
@@ -738,6 +799,9 @@ onUnmounted(()=>{
 .swipe-controls{display:inline-flex;align-items:center;gap:2px}
 .swipe-count{font-size:12px;min-width:34px;text-align:center}
 .chat-stream-error{margin:0 auto;max-width:860px;width:100%}
+.chat-chips{display:flex;gap:8px;flex-wrap:wrap;max-width:860px;width:100%;margin:0 auto;padding:0 clamp(12px,3vw,24px) 8px}
+.chat-chip{min-height:40px;padding:0 14px;border:1px solid var(--edge);border-radius:999px;background:var(--wash);color:var(--ink);font-size:13.5px;cursor:pointer}
+.chat-chip:hover{border-color:var(--accent);color:var(--accent)}
 .chat-compose{position:sticky;bottom:0;display:flex;gap:8px;align-items:flex-end;padding:10px clamp(12px,3vw,24px);padding-bottom:calc(10px + env(safe-area-inset-bottom) + var(--chat-keyboard-offset,0px));border-top:1px solid var(--edge);background:var(--paper);max-width:860px;width:100%;margin:0 auto}
 .chat-compose textarea{flex:1;min-height:46px;max-height:160px;resize:none;padding:11px 12px;font-size:15px;line-height:1.5}
 .chat-send,.chat-stop{display:flex;align-items:center;gap:6px;min-height:46px;padding:0 16px;border-radius:12px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer;white-space:nowrap}
@@ -757,7 +821,17 @@ onUnmounted(()=>{
  .bubble-speaker-name{display:block;max-width:min(56vw,240px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
  .bubble-actions button{min-height:40px}
  .chat-compose{gap:6px}
+ .chat-chip{min-height:44px;padding:0 16px;font-size:14px}
  .chat-send,.chat-stop{min-height:44px;padding:0 12px}
  .chat-search{padding:6px 10px}
 }
+
+.chat-quote{display:flex;align-items:center;gap:8px;margin:8px 12px 0;padding:8px 10px;border-left:3px solid var(--accent);border-radius:8px;background:var(--wash);color:var(--quiet);font-size:13px}
+.chat-quote-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-quote-clear{flex:none;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border:0;border-radius:8px;background:transparent;color:var(--quiet);cursor:pointer}
+.chat-quote-clear:hover{background:var(--edge);color:var(--ink)}
+.bubble-quote{display:flex;align-items:flex-start;gap:6px;width:100%;margin:0 0 6px;padding:6px 8px;border:0;border-left:2px solid var(--accent);border-radius:6px;background:rgba(0,0,0,.04);color:var(--quiet);font-size:12px;line-height:1.4;text-align:left;cursor:pointer}
+.bubble-quote:hover{color:var(--ink);background:rgba(0,0,0,.07)}
+.bubble-quote-text{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+@media (max-width:767px){.bubble-quote{min-height:40px}.chat-quote-clear{width:40px;height:40px}}
 </style>

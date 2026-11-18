@@ -22,6 +22,7 @@ const chats=[
 ]
 
 let app:ReturnType<typeof renderer.createApp>|undefined,host:Host
+function state(){return (app as unknown as {_instance:{setupState:Record<string,unknown>}})._instance.setupState}
 function mount(){
   host=node('root')
   app=renderer.createApp(TavernChatsPage)
@@ -30,10 +31,11 @@ function mount(){
 }
 
 beforeEach(()=>{
+  vi.stubGlobal('document',{activeElement:null})
   harness.push.mockReset()
   vi.mocked(listChats).mockReset().mockResolvedValue(chats as never)
 })
-afterEach(()=>{app?.unmount();app=undefined;vi.unstubAllGlobals()})
+afterEach(()=>{vi.useRealTimers();app?.unmount();app=undefined;vi.unstubAllGlobals()})
 
 describe('TavernChatsPage',()=>{
   it('lists chats newest first with member names and the last line',async()=>{
@@ -66,5 +68,43 @@ describe('TavernChatsPage',()=>{
     retry.props.onClick?.()
     await flush()
     expect(listChats).toHaveBeenCalledTimes(2)
+  })
+
+  describe('global chat search',()=>{
+    async function searchFor(term:string,results:unknown[]){
+      vi.useFakeTimers()
+      vi.mocked(listChats).mockReset().mockResolvedValueOnce(chats as never).mockResolvedValueOnce(results as never)
+      mount();await flush()
+      const input=descendants(host,item=>item.props['aria-label']==='搜索聊天')[0]!
+      input.props['onUpdate:modelValue']?.(term)
+      await flush()
+      vi.advanceTimersByTime(320)
+      await flush()
+    }
+
+    it('debounces the query, calls the search endpoint and shows the count',async()=>{
+      await searchFor('雨',[chats[1]])
+      expect(vi.mocked(listChats).mock.calls[0]).toEqual([])
+      expect(vi.mocked(listChats)).toHaveBeenLastCalledWith({q:'雨'})
+      expect(text(host)).toContain('找到 1 个聊天')
+    })
+
+    it('shows the no-match empty state and clears the search',async()=>{
+      await searchFor('不存在的词',[])
+      expect(text(host)).toContain('没有匹配的聊天')
+      vi.mocked(listChats).mockResolvedValueOnce(chats as never)
+      const clear=descendants(host,item=>item.tag==='button'&&text(item).trim()==='清空搜索')[0]!
+      clear.props.onClick?.()
+      await flush()
+      expect(vi.mocked(listChats)).toHaveBeenLastCalledWith()
+      expect(text(host)).toContain('林渡 · 阿青')
+      expect(text(host)).not.toContain('找到 0 个聊天')
+    })
+
+    it('highlights the matched keyword in the chat title',async()=>{
+      await searchFor('作家',[chats[1]])
+      const mark=descendants(host,item=>item.tag==='mark'&&text(item).trim()==='作家')
+      expect(mark).toHaveLength(1)
+    })
   })
 })

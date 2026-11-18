@@ -23,15 +23,21 @@ vi.mock('./api',()=>({
   listCharacters:vi.fn(),
   updateChatSampling:vi.fn(),
   exportChatBlob:vi.fn(),
+  sendMessage:(chatId:string,content:string,quote?:{text:string}|null)=>{
+    const body:{message:string;quote?:{text:string}}={message:content}
+    const text=(typeof quote==='string'?quote:quote?.text??'').trim()
+    if(text)body.quote={text}
+    return {path:'/chats/'+chatId+'/messages',body}
+  },
   messageText:(message:{swipes?:{content:string}[];activeSwipe?:number})=>message.swipes?.[message.activeSwipe??0]?.content??'',
 }))
 vi.mock('../platform/download',()=>({saveBlob:vi.fn(),safeFileName:(name:string,fallback:string)=>name||fallback}))
 vi.mock('./sse',()=>({streamChat:vi.fn()}))
 vi.mock('../components/Sheet.vue',()=>({default:defineComponent({props:{title:{type:String,default:''}},emits:['close'],setup:(props,{slots})=>()=>h('section',{class:'sheet-stub'},[h('h2',{},props.title),slots.default?.()])})}))
-vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{ArrowLeft:stub,ChevronDown:stub,ChevronLeft:stub,ChevronRight:stub,ChevronUp:stub,Download:stub,Pencil:stub,RefreshCw:stub,Search:stub,Send:stub,Square:stub,Trash2:stub,X:stub}})
+vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{ArrowLeft:stub,ChevronDown:stub,ChevronLeft:stub,ChevronRight:stub,ChevronUp:stub,Download:stub,Pencil:stub,Quote:stub,RefreshCw:stub,Search:stub,Send:stub,Square:stub,Trash2:stub,X:stub}})
 compileRender(TavernChatPage,new URL('./TavernChatPage.vue',import.meta.url))
 
-type Msg={id:string;role:'user'|'assistant';sequence:number;swipes:{content:string}[];activeSwipe:number}
+type Msg={id:string;role:'user'|'assistant';sequence:number;swipes:{content:string}[];activeSwipe:number;quotedText?:string|null}
 const userMessage:Msg={id:'u1',role:'user',sequence:1,swipes:[{content:'你好'}],activeSwipe:0}
 const assistantMessage:Msg={id:'a1',role:'assistant',sequence:2,swipes:[{content:'风起了'}],activeSwipe:0}
 const detail=(messages:Msg[]=[userMessage,assistantMessage])=>({chat:{id:'chat-1',cardId:'c1',title:'林渡 · 聊天',characterName:'林渡'},messages})
@@ -98,7 +104,7 @@ describe('TavernChatPage',()=>{
     state().input='再讲一段'
     submit()
     await flush()
-    expect(streamChat).toHaveBeenCalledWith('/chats/chat-1/messages',{text:'再讲一段'},expect.any(Object),expect.objectContaining({signal:expect.anything()}))
+    expect(streamChat).toHaveBeenCalledWith('/chats/chat-1/messages',{message:'再讲一段'},expect.any(Object),expect.objectContaining({signal:expect.anything()}))
     expect(vi.mocked(getChat).mock.calls.length).toBeGreaterThanOrEqual(2)
     expect(text(host)).toContain('雨停了')
   })
@@ -378,5 +384,74 @@ describe('TavernChatPage',()=>{
     await flush()
     expect(text(host)).toContain('阿青（已删除）')
     expect(descendants(host,item=>String(item.props.class??'').includes('member-deleted-row')).length).toBe(1)
+  })
+
+  describe('example chips',()=>{
+    it('fills the composer with a starter chip when only the greeting exists',async()=>{
+      vi.mocked(getChat).mockResolvedValue(detail([assistantMessage]) as never)
+      mount();await flush()
+      const chip=button('你好')
+      expect(chip).toBeTruthy()
+      expect(button('继续')).toBeTruthy()
+      chip!.props.onClick?.()
+      await flush()
+      expect(state().input).toBe('你好')
+      expect(button('发送')).toBeTruthy()
+    })
+
+    it('hides chips once the user has spoken',async()=>{
+      mount();await flush()
+      expect(button('你好')).toBeUndefined()
+    })
+  })
+
+  describe('quote replies',()=>{
+    function setInput(value:string){(state() as {input:string}).input=value}
+
+    it('quotes a message and sends it with the quote payload',async()=>{
+      mount();await flush()
+      aria('引用这条消息')!.props.onClick?.()
+      await flush()
+      expect((state() as {quote:{text:string}|null}).quote?.text).toBe('你好')
+      expect(aria('取消引用')).toBeTruthy()
+      setInput('收到')
+      await flush()
+      submit()
+      await flush()
+      expect(streamChat).toHaveBeenCalledWith('/chats/chat-1/messages',{message:'收到',quote:{text:'你好'}},expect.any(Object),expect.anything())
+    })
+
+    it('cancels the quote before sending',async()=>{
+      mount();await flush()
+      aria('引用这条消息')!.props.onClick?.()
+      await flush()
+      aria('取消引用')!.props.onClick?.()
+      await flush()
+      expect((state() as {quote:unknown}).quote).toBeNull()
+      setInput('收到')
+      await flush()
+      submit()
+      await flush()
+      expect(streamChat).toHaveBeenCalledWith('/chats/chat-1/messages',{message:'收到'},expect.any(Object),expect.anything())
+    })
+
+    it('clears the quote with Escape',async()=>{
+      mount();await flush()
+      aria('引用这条消息')!.props.onClick?.()
+      await flush()
+      const listener=vi.mocked(window.addEventListener).mock.calls.find(call=>call[0]==='keydown')![1] as unknown as (event:{key:string})=>void
+      listener({key:'Escape'})
+      await flush()
+      expect((state() as {quote:unknown}).quote).toBeNull()
+    })
+
+    it('renders quotedText on saved messages and jumps to the source message',async()=>{
+      vi.mocked(getChat).mockResolvedValue(detail([{...userMessage,quotedText:'风起了'},assistantMessage]) as never)
+      mount();await flush()
+      expect(text(host)).toContain('风起了')
+      aria('查看被引用的消息')!.props.onClick?.()
+      await flush()
+      expect((state() as {searchHitId:string}).searchHitId).toBe('a1')
+    })
   })
 })
