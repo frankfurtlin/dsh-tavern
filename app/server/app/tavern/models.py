@@ -43,6 +43,9 @@ class TavernMessage(WorldOwned, WorldBase):
     sequence: Mapped[int] = mapped_column(Integer)
     swipes: Mapped[list] = mapped_column(JSONB, default=list)
     active_swipe: Mapped[int] = mapped_column(Integer, default=0)
+    # P0-B quote reply: the quoted snippet shown above a user message (text only;
+    # the source message may be edited/deleted, so a copy is stored).
+    quoted_text: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 

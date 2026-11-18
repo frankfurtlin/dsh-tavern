@@ -203,12 +203,12 @@ iframe → 父（主动，节流）：
 | `GET` | `/characters/{id}/chats` | 该卡聊天列表（`lastText`/`messageCount`）+ `card` |
 | `POST` | `/characters/{id}/chats` | 新建**单聊**（201）；`greetingId` 选备用开场白；开场白作为第一条 assistant 消息 |
 | `POST` | `/chats` | 新建**群聊**（201）；body `{cardIds:[2..5], title?}`，也接受 `{cardId}` 走单聊；群聊 `mode='group'`、`members=[{cardId,name,order}]` |
-| `GET` | `/chats` | 全部聊天历史列表（`limit` 1–100 默认 20、`offset`），按 `lastMessageAt` 倒序；每项带 `mode`/`members`/`lastMessage`/`messageCount`（群聊标题/成员名由 `members` 拼） |
+| `GET` | `/chats` | 全部聊天历史列表（`limit` 1–100 默认 20、`offset`），按 `lastMessageAt` 倒序；`q` 可选（trim 后 1–100 字符）按聊天标题或**当前版本消息正文**搜索，`%`/`_`/`\` 按字面匹配；超长 422 `CHAT_SEARCH_INVALID`；每项带 `mode`/`members`/`lastMessage`/`messageCount`（群聊标题/成员名由 `members` 拼） |
 | `GET` | `/chats/{id}` | `{chat, messages, hasMore, latestSequence}`；`before=<sequence>`、`limit=1..500`（默认 200）向后翻页 |
 | `PATCH` | `/chats/{id}` | 改 `title`（1–160）/ `presetId`（null 清空）/ `sampling`（见 §10）/ 群聊 `cardIds`（2–5，去重保序，替换成员）；返回与 `GET /chats/{id}` 相同的 `chat`；空 body 422 |
 | `DELETE` | `/chats/{id}` | 连消息一起删（204） |
 | `GET` | `/chats/{id}/export?format=jsonl\|json` | 导出聊天（附件）；群聊 JSONL 每行带 `speaker_name`；其它 format → 422 |
-| `POST` | `/chats/{id}/messages` | 发消息 → **SSE**；body `{message}`（兼容 `{text}`，≤4000），可选 `personaId`；群聊首帧带本轮 `speaker` |
+| `POST` | `/chats/{id}/messages` | 发消息 → **SSE**；body `{message}`（兼容 `{text}`，≤4000），可选 `personaId`、可选引用回复 `quote:{text}`（trim 后 1–2000，空/超长 422 `QUOTE_INVALID`）；群聊首帧带本轮 `speaker`；首帧 `userMessage.quotedText` 回显引用 |
 | `POST` | `/chats/{id}/regenerate` | 对最后一条 assistant 重新生成 → **SSE**（追加 swipe；群聊沿用该条 `speaker_card_id`） |
 | `POST` | `/chats/{id}/messages/{mid}/swipes/{index}/select` | 切版本（下标 0 起），返回 `{message}` |
 | `PATCH` | `/chats/{id}/messages/{mid}` | 只能改 user 消息；截断其后消息，返回 `{message, deleted}` |
@@ -305,6 +305,13 @@ iframe → 父（主动，节流）：
 - `GET /chats/{id}?before=<sequence>&limit=<1..500>`（默认 200）：返回
   `{chat, messages, hasMore, latestSequence}`；`before` 为空即取最新一页，
   向上翻页把当前最早 `sequence` 传给 `before`。
+- **引用回复（P0-B，已实现）**：`POST /chats/{id}/messages` 可带
+  `{"quote": {"text": "..."}}`（也接受扁平 `{"quotedText": "..."}`，`quote` 优先）；
+  文本 trim 后 1–2000 字符，否则 `422 QUOTE_INVALID`。引用片段复制保存到用户消息的
+  `quoted_text`（源消息删除/编辑不影响），assistant 消息恒为 null；`GET /chats/{id}`
+  的每条 message 与 SSE 首帧用户回执都带 `quotedText`（可为 null）。重新生成不会改动
+  上一条用户消息的引用。prompt 中该用户回合前会插入
+  `[引用] <quoted_text 截断到 500 字>` 块（群聊同样生效）。
 - **导入只建单聊**：接口挂在 `/characters/{id}/chats/imports` 下，按 ST JSONL 逐行
   解析成 user/assistant 消息；群聊导出文件可以下载，但暂不支持重新导入成群聊
   （导入后会是一条单聊，`speaker_name` 被忽略）。

@@ -75,6 +75,7 @@ export interface TavernMessage{
   id:string
   role:'user'|'assistant'
   sequence:number
+  quotedText?:string|null
   speakerCardId?:string|null
   speakerName?:string|null
   swipes:Swipe[]
@@ -193,9 +194,27 @@ export async function createGroupChat(cardIds:string[],title?:string):Promise<Ta
   return unwrap<TavernChat>(result,'chat')
 }
 
-export async function listChats():Promise<TavernChat[]>{
-  const result=await api<{items:TavernChat[]}|TavernChat[]>(TAVERN+'/chats')
+export interface ListChatsParams{limit?:number;offset?:number;q?:string}
+
+export async function listChats(params:ListChatsParams={}):Promise<TavernChat[]>{
+  const search=new URLSearchParams()
+  if(params.limit!==undefined)search.set('limit',String(params.limit))
+  if(params.offset!==undefined)search.set('offset',String(params.offset))
+  const query=params.q?.trim()
+  if(query)search.set('q',query)
+  const suffix=search.toString()
+  const result=await api<{items:TavernChat[]}|TavernChat[]>(TAVERN+'/chats'+(suffix?'?'+suffix:''))
   return itemsOf(result)
+}
+
+export interface ChatSendRequest{path:string;body:{message:string;quote?:{text:string}}}
+
+// The message endpoint streams over SSE; ChatPage feeds this request into streamChat.
+export function sendMessage(chatId:string,content:string,quote?:{text:string}|string|null):ChatSendRequest{
+  const body:{message:string;quote?:{text:string}}={message:content}
+  const quoted=(typeof quote==='string'?quote:quote?.text??'').trim()
+  if(quoted)body.quote={text:quoted.slice(0,2000)}
+  return {path:'/chats/'+encodeURIComponent(chatId)+'/messages',body}
 }
 
 export async function createCharacterChat(cardId:string,greetingId?:string):Promise<TavernChat>{

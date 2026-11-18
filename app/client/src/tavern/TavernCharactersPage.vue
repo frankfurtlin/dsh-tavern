@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import {computed,onMounted,onUnmounted,ref,watch} from 'vue'
-import {useRouter} from 'vue-router'
+import {useRoute,useRouter} from 'vue-router'
 import {Check,History,MessagesSquare,Search,Upload} from 'lucide-vue-next'
 import {useApp} from '../stores/app'
 import {useRequestScope} from '../platform/request-scope'
 import {importCharacter,listCharacters,characterAvatarBlob,listCharacterChats,createCharacterChat,createGroupChat,type TavernCharacter} from './api'
 import LoadState from './LoadState.vue'
+import OnboardingGuide from './OnboardingGuide.vue'
+import {dismissHint,guideSeen,hintDismissed} from './guide'
 
-const router=useRouter()
+const route=useRoute(),router=useRouter()
 const store=useApp()
 const scope=useRequestScope()
 const cards=ref<TavernCharacter[]>([])
@@ -22,6 +24,8 @@ const selected=ref<string[]>([])
 const grouping=ref(false)
 const groupError=ref('')
 const avatars=ref<Record<string,string>>({})
+const hintVisible=ref(false)
+const guideOpen=ref(false)
 let epoch=0
 let debounce:ReturnType<typeof setTimeout>|undefined
 
@@ -112,7 +116,16 @@ async function startGroup(){
     groupError.value=(e as Error).message||'发起群聊失败，请稍后重试。'
   }finally{grouping.value=false}
 }
-onMounted(()=>void load())
+function closeHint(){hintVisible.value=false;dismissHint()}
+function closeGuide(){
+  guideOpen.value=false
+  if(route.query.guide!==undefined)void router.replace({path:'/',query:{}})
+}
+onMounted(()=>{
+  hintVisible.value=!hintDismissed()
+  guideOpen.value=route.query.guide==='1'||!guideSeen()
+  void load()
+})
 onUnmounted(()=>{clearTimeout(debounce);for(const url of Object.values(avatars.value))URL.revokeObjectURL(url)})
 </script>
 
@@ -130,6 +143,12 @@ onUnmounted(()=>{clearTimeout(debounce);for(const url of Object.values(avatars.v
     <span>{{importing?'正在导入…':'导入卡'}}</span>
     <input type="file" accept=".png,.json" :disabled="importing" aria-label="导入角色卡文件" @change="onImport">
    </label>
+  </div>
+
+  <div v-if="hintVisible" class="tavern-hint" role="note">
+   <span class="tavern-hint-text">点任意角色卡，立即开始聊天 · 预设卡可直接删</span>
+   <button type="button" class="tavern-hint-help" aria-label="使用帮助" title="使用帮助" @click="router.push('/settings/help')">?</button>
+   <button type="button" class="tavern-hint-close" aria-label="关闭提示" @click="closeHint">×</button>
   </div>
 
   <p v-if="groupError" class="error" role="alert">{{groupError}}<button class="inline-link" type="button" @click="groupError=''">知道了</button></p>
@@ -182,12 +201,17 @@ onUnmounted(()=>{clearTimeout(debounce);for(const url of Object.values(avatars.v
     <button type="button" class="tavern-card-edit" :aria-label="'编辑角色卡 '+card.name" title="角色设置" @click="openDetail(card)">设置</button>
    </div>
   </div>
+  <OnboardingGuide :open="guideOpen" @close="closeGuide"/>
  </section>
 </template>
 
 <style scoped>
 .tavern-home{width:100%;max-width:1120px;margin:0 auto;padding:22px clamp(14px,3vw,28px) 64px}
 .tavern-toolbar{display:flex;gap:10px;align-items:center;margin-bottom:22px}
+.tavern-hint{display:flex;align-items:center;gap:10px;margin:-8px 0 18px;padding:8px 10px 8px 14px;border:1px solid var(--edge);border-radius:10px;background:var(--wash);color:var(--quiet);font-size:13px;line-height:1.5}
+.tavern-hint-text{flex:1;min-width:0}
+.tavern-hint-help,.tavern-hint-close{flex:none;width:32px;height:32px;min-height:32px;padding:0;display:flex;align-items:center;justify-content:center;border:1px solid var(--edge);border-radius:50%;background:var(--canvas);color:var(--ink);font-size:15px;line-height:1;cursor:pointer}
+.tavern-hint-help{color:var(--accent);font-weight:600}
 .tavern-search{flex:1;display:flex;align-items:center;gap:8px;padding:0 12px;min-height:46px;border:1px solid var(--edge);border-radius:12px;background:var(--canvas);color:var(--quiet)}
 .tavern-search input{flex:1;min-width:0;border:0;background:transparent;min-height:44px;font-size:15px;color:var(--ink);outline:none}
 .tavern-searching{font-size:13px}
@@ -231,6 +255,8 @@ onUnmounted(()=>{clearTimeout(debounce);for(const url of Object.values(avatars.v
 .tavern-empty-action{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;border:1px solid var(--accent);border-radius:10px;background:var(--accent);color:#fff;font-size:14px;cursor:pointer}
 @media(max-width:767px){
  .tavern-toolbar{flex-wrap:wrap;gap:8px;margin-bottom:16px}
+ .tavern-hint{margin:-4px 0 14px;padding:8px 8px 8px 12px;font-size:12.5px}
+ .tavern-hint-help,.tavern-hint-close{width:40px;height:40px;min-height:40px}
  .tavern-search{flex:1 1 100%;order:-1}
  .tavern-history,.tavern-import{flex:1;justify-content:center;min-height:44px;padding:0 10px}
  .tavern-grid.tavern-card-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}

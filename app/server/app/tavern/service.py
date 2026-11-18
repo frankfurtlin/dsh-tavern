@@ -1,7 +1,7 @@
 """Shared helpers for native tavern chats (serialization, lookup, import)."""
 from datetime import datetime
 
-from sqlalchemy import delete, func, select, text, update
+from sqlalchemy import String, cast, delete, exists, func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 
 from ..cards import parse as card_parse
@@ -61,6 +61,7 @@ def message_out(row, names=None):
         "swipes": swipes,
         "activeSwipe": active,
         "text": swipe_content(swipes, active),
+        "quotedText": getattr(row, "quoted_text", None),
         "createdAt": iso(row.created_at),
         "updatedAt": iso(row.updated_at),
     }
@@ -138,9 +139,10 @@ def truncate_after(db, chat, sequence):
                                            TavernMessage.sequence > sequence))
 
 
-def add_message(db, chat, owner, role, content, model="", speaker_card_id=None):
+def add_message(db, chat, owner, role, content, model="", speaker_card_id=None,
+                quoted_text=None):
     row = TavernMessage(id=uid(), owner_id=owner, chat_id=chat.id, role=role,
-                        speaker_card_id=speaker_card_id,
+                        speaker_card_id=speaker_card_id, quoted_text=quoted_text,
                         sequence=next_sequence(db, chat),
                         swipes=[{"content": content, "model": model, "createdAt": now().isoformat()}],
                         active_swipe=0, updated_at=now())
@@ -428,9 +430,27 @@ def chats_out(db, rows):
     return items
 
 
-def list_chats(db, owner, limit=20, offset=0):
-    statement = (select(TavernChat).where(TavernChat.owner_id == owner)
-                 .order_by(TavernChat.last_message_at.desc().nulls_last(),
-                           TavernChat.updated_at.desc(), TavernChat.id)
+def _like_pattern(term):
+    escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return "%" + escaped + "%"
+
+
+def list_chats(db, owner, limit=20, offset=0, q=""):
+    """Chats for ``owner``; ``q`` filters by title or the active message text."""
+    statement = select(TavernChat).where(TavernChat.owner_id == owner)
+    term = (q or "").strip()
+    if term:
+        pattern = _like_pattern(term)
+        # Messages store text in swipes[active_swipe].content (JSONB), not a
+        # plain content column, so search the visible swipe only.
+        message_text = func.jsonb_extract_path_text(
+            TavernMessage.swipes, cast(TavernMessage.active_swipe, String), "content")
+        message_hit = exists(select(1).where(
+            TavernMessage.chat_id == TavernChat.id,
+            message_text.ilike(pattern, escape="\\")))
+        statement = statement.where(or_(
+            TavernChat.title.ilike(pattern, escape="\\"), message_hit))
+    statement = (statement.order_by(TavernChat.last_message_at.desc().nulls_last(),
+                                    TavernChat.updated_at.desc(), TavernChat.id)
                  .offset(offset).limit(limit))
     return list(db.scalars(statement))

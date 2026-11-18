@@ -8,7 +8,7 @@ import {compileRender,descendants,flush,node,provideSfc,renderer,text,type Host}
 const harness=vi.hoisted(()=>({message:vi.fn()}))
 vi.mock('vue-router',()=>({RouterLink:defineComponent({props:{to:{type:[String,Object]}},setup:(props,{slots})=>()=>h('a',{href:String(props.to)},slots.default?.())})}))
 vi.mock('../stores/app',()=>({useApp:()=>({message:harness.message})}))
-vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{BookMarked:stub,Brush:stub,Download:stub,UserRound:stub}})
+vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{BookMarked:stub,Brush:stub,Download:stub,HelpCircle:stub,UserRound:stub}})
 vi.mock('../characters/PersonaControl.vue',()=>({default:defineComponent({props:{modelValue:{type:String,default:null}},setup:()=>()=>h('section',{'aria-label':'人设'},'人设控件')})}))
 vi.mock('./TavernPresetsPanel.vue',()=>({default:defineComponent({setup:()=>()=>h('section',{'aria-label':'预设管理'},'预设面板')})}))
 vi.mock('../characters/api',()=>({listPersonas:vi.fn()}))

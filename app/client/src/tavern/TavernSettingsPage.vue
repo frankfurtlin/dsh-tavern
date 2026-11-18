@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed,onMounted,ref} from 'vue'
-import {BookMarked,Brush,Download,UserRound} from 'lucide-vue-next'
+import {BookMarked,Brush,Download,HelpCircle,UserRound} from 'lucide-vue-next'
 import PersonaControl from '../characters/PersonaControl.vue'
 import {listPersonas,type Persona} from '../characters/api'
 import TavernPresetsPanel from './TavernPresetsPanel.vue'
@@ -71,6 +71,12 @@ onMounted(()=>{
    <h2><Brush :size="18"/>输出替换规则</h2>
    <p class="section-hint">角色回复保存前按正则改写文字。规则按角色卡保存，可在对应角色卡里维护。</p>
    <RouterLink to="/settings/regex" class="settings-link">打开输出替换规则</RouterLink>
+  </section>
+
+  <section class="settings-section" aria-label="使用帮助">
+   <h2><HelpCircle :size="18"/>使用帮助</h2>
+   <p class="section-hint">新手引导、角色卡导入、导出备份、正则与世界书说明都在帮助页。</p>
+   <RouterLink to="/settings/help" class="settings-link">打开使用帮助</RouterLink>
   </section>
 
   <section class="settings-section" aria-label="导入与导出">

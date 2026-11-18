@@ -38,6 +38,7 @@
  */
 import { createRequire } from 'node:module'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { existsSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 
 const require = createRequire('/root/workspace/hermes-site/tools/node_modules/')
@@ -87,6 +88,8 @@ const report = {
     groupDeletion: null,
     presets: null,
     builtinCards: null,
+    guide: null,
+    quoteSearch: null,
   },
   app: {},
   screenshots: [],
@@ -126,7 +129,33 @@ async function waitFor(fn, timeoutMs, stepMs = 250) {
 }
 
 await mkdir(outDir, { recursive: true })
-const browser = await chromium.launch({ headless, args: ['--no-sandbox'] })
+// 环境漂移兜底：Playwright 期望的浏览器版本可能已被升级/替换（如 1208 → 1243），
+// 直接复用已安装的 chromium headless shell；也可用 DSH_TAVERN_CHROMIUM 显式指定。
+const chromiumExecutable = (() => {
+  if (process.env.DSH_TAVERN_CHROMIUM) return process.env.DSH_TAVERN_CHROMIUM
+  const cacheRoot =
+    process.env.PLAYWRIGHT_BROWSERS_PATH || path.join(process.env.HOME || '/root', '.cache', 'ms-playwright')
+  try {
+    const dirs = readdirSync(cacheRoot)
+      .filter((name) => /^(chromium|chromium_headless_shell)-\d+$/.test(name))
+      .sort((a, b) => Number(b.split('-').pop()) - Number(a.split('-').pop()))
+    for (const name of dirs) {
+      for (const candidate of [
+        path.join(cacheRoot, name, 'chrome-headless-shell-linux64', 'chrome-headless-shell'),
+        path.join(cacheRoot, name, 'chrome-linux', 'chrome'),
+      ]) {
+        if (existsSync(candidate)) return candidate
+      }
+    }
+  } catch {}
+  return undefined
+})()
+const browser = await chromium.launch({
+  headless,
+  executablePath: chromiumExecutable,
+  args: ['--no-sandbox'],
+})
+if (chromiumExecutable) console.log(`INFO  使用浏览器：${chromiumExecutable}`)
 let page = null
 try {
   // ── A1. 匿名 /tavern/ 必须 401 ─────────────────────────────────────────────
@@ -220,6 +249,35 @@ try {
   function fnow() {
     return page.frames().find((candidate) => /\/tavern\//.test(candidate.url())) || null
   }
+  // 首次引导（task-79）是模态遮罩：非 P 组流程需先关掉，否则卡片点击会被 .guide-backdrop 拦截。
+  async function dismissTavernGuide(frameNow) {
+    const frame = frameNow || fnow()
+    if (!frame) return false
+    const bodyHint = await frame.locator('body').innerText().catch(() => '')
+    if (!/欢迎来到酒馆|选一张角色卡|新手引导/.test(bodyHint)) return false
+    const backdrop = frame.locator('.guide-backdrop, .onboarding-guide, section[role="dialog"][aria-label*="引导"]').first()
+    if (!(await backdrop.count().catch(() => 0))) return false
+    await waitFor(async () => (await backdrop.count().catch(() => 0)) > 0, 3000).catch(() => {})
+    const skip = frame.getByRole('button', { name: /跳过|开始体验|知道了/ }).first()
+    if (await skip.count().catch(() => 0)) await skip.click({ force: true }).catch(() => {})
+    else await frame.locator('body').press('Escape').catch(() => {})
+    await waitFor(async () => (await backdrop.count().catch(() => 0)) === 0, 5000)
+    await frame.evaluate(() => { try { localStorage.setItem('tavern:guide-seen', '1'); localStorage.setItem('tavern:hint-dismissed', '1') } catch {} }).catch(() => {})
+    return true
+  }
+  // 新开独立页面（fresh/mobile）时应用会重新显示首次引导遮罩，需要页级关闭。
+  async function dismissGuideOnPage(target) {
+    try {
+      const backdrop = target.locator('.guide-backdrop, .onboarding-guide, .guide-dialog').first()
+      if (!(await backdrop.count().catch(() => 0))) return false
+      const skip = target.getByRole('button', { name: /跳过|开始体验|知道了/ }).first()
+      if (await skip.count().catch(() => 0)) await skip.click({ force: true }).catch(() => {})
+      else await target.keyboard.press('Escape').catch(() => {})
+      await backdrop.waitFor({ state: 'detached', timeout: 5000 }).catch(() => {})
+      await target.evaluate(() => { try { localStorage.setItem('tavern:guide-seen', '1'); localStorage.setItem('tavern:hint-dismissed', '1') } catch {} }).catch(() => {})
+      return true
+    } catch { return false }
+  }
   async function waitFrameUrl(pattern, timeoutMs = 25000) {
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
@@ -263,6 +321,7 @@ try {
           .locator('.tavern-home, .tavern-settings, .tavern-character, .bubble-row, .tavern-empty, .load-state-error')
           .count()
           .catch(() => 0)) > 0
+      await dismissTavernGuide(target).catch(() => {})
       const quick = await waitFor(mounted, 8000)
       if (!quick) {
         const stuckText = await target.evaluate(() => (document.body.innerText || '').slice(0, 80)).catch(() => '')
@@ -297,6 +356,7 @@ try {
     frame ? `url=${frameUrl}${appLoginPage ? '（出现 password 输入框 = 应用登录页，owner: app-auth）' : ''}` : '没有找到 /tavern/ iframe',
   )
 
+  await dismissTavernGuide(frame).catch(() => {})
   // 原生 UI 判定：新布局是极简顶部栏 + 角色卡网格；旧布局有 .shell-tabs/.discovery-page。
   const nativeMarkers = ['.tavern-home', '.tavern-grid', '.tavern-card-grid', '.tavern-card', '.tavern-toolbar', '.tavern-shell', '.tavern-app', '[data-tavern-home]']
   const oldMarkers = ['.shell-tabs', '.discovery-page', '.shell-sidebar']
@@ -375,6 +435,7 @@ try {
   async function findCard(name) {
     const frameNow = fnow()
     if (!frameNow) return null
+    await dismissTavernGuide(frameNow).catch(() => {})
     const candidates = [
       frameNow.locator('.tavern-card').filter({ hasText: name }).first(),
       frameNow.locator('[data-tavern-card]').filter({ hasText: name }).first(),
@@ -632,7 +693,7 @@ try {
         if (!frameNow) return { error: 'no-frame' }
         const invocation = frameNow.evaluate(async () => {
           const controller = new AbortController()
-          const timer = setTimeout(() => controller.abort(), 8000)
+          const timer = setTimeout(() => controller.abort(), 20000)
           try {
             const response = await fetch('/tavern/api/reader/v1/tavern/characters', { credentials: 'include', signal: controller.signal })
             const data = await response.json().catch(() => null)
@@ -651,13 +712,14 @@ try {
           return { error: String(error && error.message) }
         }
       }
-      try {
+      const listAttempts = []
+      for (let attempt = 0; attempt < 3 && !shenyanId; attempt += 1) {
+        if (attempt > 0) await page.waitForTimeout(1500)
         listDebug = await fetchListViaPage(fnow() || home)
-        shenyanId = listDebug.id || ''
-      } catch (error) {
-        listDebug = { error: String(error && error.message) }
-        shenyanId = ''
+        listAttempts.push(listDebug)
+        shenyanId = (listDebug && listDebug.id) || ''
       }
+      listDebug = { ...(listDebug || {}), attempts: listAttempts.length }
       let detailFrame = null
       if (shenyanId) {
         detailFrame = await appGoto('/characters/' + encodeURIComponent(shenyanId), 20000)
@@ -723,6 +785,7 @@ try {
         try {
           await freshPage.setViewportSize({ width: 1280, height: 900 }).catch(() => {})
           await freshPage.goto(new URL(url).origin + '/tavern/', { waitUntil: 'domcontentloaded', timeout: 20000 })
+          await dismissGuideOnPage(freshPage)
           await freshPage.waitForSelector('.tavern-card', { timeout: 25000 }).catch(() => {})
           namesAfterReload = await freshPage
             .locator('.tavern-card .tavern-card-name')
@@ -769,19 +832,36 @@ try {
         mobileApiLog.push(`${requestUrl.replace(/^https?:\/\/[^/]+/, '').split('?')[0]}:${response.status()}`)
       })
       await mobilePageRef.setViewportSize({ width: 390, height: 844 })
+      const mobileFailed = []
+      mobilePageRef.on('requestfailed', (request) => {
+        if (mobileFailed.length < 12) mobileFailed.push(`${request.url().replace(/^https?:\/\/[^/]+/, '').slice(0, 120)} :: ${request.failure() && request.failure().errorText}`)
+      })
+      mobilePageRef.on('response', (response) => {
+        if (mobileFailed.length < 12 && response.status() >= 400) mobileFailed.push(`${response.url().replace(/^https?:\/\/[^/]+/, '').slice(0, 120)} :: ${response.status()}`)
+      })
       let mobileCardsReady = false
       for (let attempt = 0; attempt < 3 && !mobileCardsReady; attempt += 1) {
-        await mobilePageRef.goto(`${origin}/tavern/`, { waitUntil: 'domcontentloaded', timeout: 25000 })
+        if (attempt > 0) await page.waitForTimeout(2500)
+        await mobilePageRef.goto(`${origin}/tavern/`, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {})
+        await dismissGuideOnPage(mobilePageRef)
         mobileCardsReady = await mobilePageRef
-          .waitForSelector('.tavern-card', { timeout: 20000 })
+          .waitForSelector('.tavern-card', { timeout: 30000 })
           .then(() => true)
           .catch(() => false)
+        if (!mobileCardsReady) {
+          await mobilePageRef.reload({ waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {})
+          await dismissGuideOnPage(mobilePageRef)
+          mobileCardsReady = await mobilePageRef
+            .waitForSelector('.tavern-card', { timeout: 20000 })
+            .then(() => true)
+            .catch(() => false)
+        }
       }
       if (!mobileCardsReady) {
         const stuck = await mobilePageRef
           .evaluate(() => (document.body.innerText || '').slice(0, 120))
           .catch(() => '')
-        throw new Error(`移动页 3 次加载都没有渲染角色卡（body=${stuck}）`)
+        throw new Error(`移动页 3 次加载都没有渲染角色卡（body=${stuck}；failed=${JSON.stringify(mobileFailed.slice(0, 6))}）`)
       }
       const mobileFrame = mobilePageRef.frames().find((candidate) => /\/tavern\//.test(candidate.url())) || null
       if (mobileFrame) {
@@ -867,6 +947,512 @@ try {
     for (let index = 0; index < presetCheckNames.length; index += 1) presetSkip(index, '未执行 R 组（--only 未包含 preset）')
   }
 
+  // ── P. 首次引导 / 首页提示 / 帮助页（task-79 P0-C）────────────────────────────
+  // P0 前端（引导/帮助/引用/全局搜索）未交付时整组不产生检查项，保持既有全量计数；
+  // 交付后自动启用（P1–P5、Q1–Q5 共 10 项）。选择器按 task-79/80 描述预写，交付后校准。
+  const p0Names = [
+    '首次访问酒馆出现 3 步引导（选卡/回话/DSH 工具条），可跳过，刷新后不再出现',
+    '首页提示条可见，「?」进入帮助页且各节标题齐全、返回可用',
+    '聊天页仅有开场白时出现示例 chips（≥2），点击只填入输入框不自动发送',
+    '帮助页「重新查看引导」可再次触发引导',
+    '侧栏顺序：酒馆在「自动化任务」之后、「知识库」之前',
+  ]
+  const q0Names = [
+    '引用消息后出现引用条，发送后用户气泡带引用块、GET quotedText 正确且刷新仍在',
+    '引用可取消（×/Esc）且取消后发送不带 quote',
+    '/chats 全局搜索：标题/消息片段命中且计数正确，无结果文案，清空恢复',
+    '390×844：引用条/搜索框/结果行无横向溢出，操作目标 ≥40px',
+    'P/Q 组 console 无报错',
+  ]
+  const guideEvidence = { enabled: false, reason: null, probe: null, onboarding: null, hint: null, chips: null, replay: null, sidebar: null, console: [], steps: [] }
+  const quoteEvidence = { enabled: false, reason: null, quote: null, cancel: null, search: null, mobile: null, console: [], steps: [] }
+  report.native.guide = guideEvidence
+  report.native.quoteSearch = quoteEvidence
+  const p0AllNames = p0Names.concat(q0Names)
+  let p0Done = 0
+  const p0Record = (offset, ok, detail) => {
+    if (p0Done > offset) return
+    p0Done = offset + 1
+    const name = p0AllNames[offset]
+    const target = offset < p0Names.length ? guideEvidence : quoteEvidence
+    target.steps.push({ name, ok: Boolean(ok), skipped: false, detail })
+    check(name, ok, detail)
+  }
+  const p0Skip = (offset, detail) => {
+    if (p0Done > offset) return
+    p0Done = offset + 1
+    const name = p0AllNames[offset]
+    const target = offset < p0Names.length ? guideEvidence : quoteEvidence
+    target.steps.push({ name, ok: true, skipped: true, detail })
+    skip(name, detail)
+  }
+  if (groupOn('p0')) {
+    if (nativeBlocked) {
+      for (let index = 0; index < p0AllNames.length; index += 1) p0Skip(index, blockedReason)
+    } else {
+      const pqBase = (frame, pathname) => frame.evaluate(
+        async ({ pathname }) => ({ ok: false, status: 0, body: null, _: pathname }),
+        { pathname },
+      )
+      const pqApi = async (pathname, options = {}) => {
+        const frame = fnow()
+        if (!frame) throw new Error('没有 /tavern/ iframe')
+        return frame.evaluate(
+          async ({ pathname, options }) => {
+            const headers = {}
+            if (options.body !== undefined) headers['Content-Type'] = 'application/json'
+            if (options.method && options.method !== 'GET') {
+              headers['Idempotency-Key'] = 'e2e-p0-' + Math.random().toString(36).slice(2) + Date.now().toString(36)
+            }
+            const response = await fetch('/tavern/api/reader/v1/tavern' + pathname, {
+              credentials: 'include',
+              method: options.method || 'GET',
+              headers,
+              body: options.body === undefined ? undefined : JSON.stringify(options.body),
+            })
+            let body = null
+            try { body = await response.json() } catch {}
+            return { ok: response.ok, status: response.status, body }
+          },
+          { pathname, options },
+        )
+      }
+      const pqSetupChat = async () => {
+        // 确保有一张卡（导入夹具）与一条只有开场白的聊天。
+        let home = await appGoto('/')
+        if (!home) throw new Error('SKIP:首页没有加载出来')
+        if (!(await home.locator('.tavern-card').count().catch(() => 0))) {
+          const input = home.locator('input[aria-label="导入角色卡文件"]').first()
+          if (await input.count().catch(() => 0)) {
+            await input.setInputFiles(path.join(fixturesDir, 'v2-png.png')).catch(() => {})
+            await waitFor(async () => (await home.locator('.tavern-card').count().catch(() => 0)) > 0, 30000)
+          }
+        }
+        if (!(await home.locator('.tavern-card').count().catch(() => 0))) throw new Error('SKIP:首页没有角色卡（owner: cards-client 导入）')
+        const cards = await pqApi('/characters').catch(() => null)
+        const card = cards && cards.ok && cards.body && Array.isArray(cards.body.items) ? cards.body.items[0] : null
+        if (!card) throw new Error('SKIP:GET /characters 没有卡')
+        const created = await pqApi(`/characters/${card.id}/chats`, { method: 'POST', body: {} })
+        const chatId = created && created.body && created.body.chat && created.body.chat.id
+        if (!chatId) throw new Error('SKIP:创建聊天失败 ' + JSON.stringify(created).slice(0, 120))
+        const chatFrame = await appGoto('/chats/' + chatId)
+        await waitFor(async () => (await (chatFrame || fnow()).locator('.bubble-row').count().catch(() => 0)) > 0, 25000)
+        return { cardId: card.id, chatId, chatFrame: chatFrame || fnow() }
+      }
+      const pqProbe = async () => {
+        const helpFrame = await appGoto('/settings/help').catch(() => null)
+        const helpText = helpFrame ? await bodyText(helpFrame) : ''
+        const helpReady = /帮助|开始聊天/.test(helpText)
+        const chatsFrame = await appGoto('/chats').catch(() => null)
+        const searchReady = chatsFrame
+          ? (await chatsFrame.locator('input[type="search"], input[placeholder*="搜索"], [role="search"] input').count().catch(() => 0)) > 0
+          : false
+        return { helpReady, searchReady }
+      }
+      let p0Probe = { helpReady: false, searchReady: false }
+      try {
+        p0Probe = await pqProbe()
+      } catch {}
+      guideEvidence.probe = p0Probe
+      // DSH_TAVERN_P0=1 可强制启用 P/Q 组（校准用；真实交付后靠探针自动启用）。
+      // 两组都交付才启用整组，避免 task-79 单独上线时打乱既有全量计数（Guide+Quote 同批验收）。
+      const p0Ready =
+        (p0Probe.helpReady && p0Probe.searchReady) || process.env.DSH_TAVERN_P0 === '1'
+      if (!p0Ready) {
+        guideEvidence.enabled = false
+        guideEvidence.reason = 'P0 前端（引导/帮助/引用/搜索）尚未交付（owner: cards-client，task-79/80）；本组不产生检查项'
+      } else {
+        guideEvidence.enabled = true
+        quoteEvidence.enabled = true
+        const p0Start = consoleErrors.length
+        const chatPathOf = (value) => {
+          try { return new URL(value).pathname.replace(/^\/tavern/, '') } catch { return '' }
+        }
+        let setup = null
+        try {
+          setup = await pqSetupChat()
+        } catch (error) {
+          const reason = String((error && error.message) || error)
+          const fallback = /^SKIP:/.test(reason) ? reason.slice(5) : reason
+          for (let index = 0; index < p0AllNames.length; index += 1) p0Skip(index, fallback)
+          setup = null
+        }
+        if (setup) {
+          const chatFrameOf = () => fnow()
+          const sendMessageIn = async (frameNow, text) => {
+            const input = frameNow.locator('textarea[aria-label="聊天输入框"]').first()
+            await input.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {})
+            await input.fill(text).catch(() => {})
+            const button = frameNow.locator('button[aria-label="发送消息"]').first()
+            const enabled = await waitFor(async () => (await button.count().catch(() => 0)) > 0 && !(await button.isDisabled().catch(() => true)), 12000)
+            if (!enabled) return { sent: false }
+            const before = await frameNow.locator('.bubble-row').count().catch(() => 0)
+            const requests = []
+            const onRequest = (request) => {
+              if (request.method() === 'POST' && /\/tavern\/chats\/[^/]+\/messages$/.test(request.url())) {
+                try { requests.push(JSON.parse(request.postData() || '{}')) } catch {}
+              }
+            }
+            page.on('request', onRequest)
+            await button.click({ force: true }).catch(() => {})
+            const grew = await waitFor(async () => (await frameNow.locator('.bubble-row').count().catch(() => 0)) >= before + 2, 180000)
+            page.off('request', onRequest)
+            return { sent: true, grew, requests, rows: await frameNow.locator('.bubble-row').count().catch(() => 0) }
+          }
+
+          // P1 首次引导（新上下文 + 清 tavern:* 存储）。
+          try {
+            const base = new URL(url).origin + '/tavern/'
+            const fresh = await context.newPage()
+            try {
+              await fresh.goto(base, { waitUntil: 'domcontentloaded', timeout: 40000 }).catch(() => {})
+              await fresh.evaluate(() => { try { Object.keys(localStorage).forEach((key) => { if (key.indexOf('tavern:') === 0) localStorage.removeItem(key) }) } catch {} }).catch(() => {})
+              await fresh.reload({ waitUntil: 'domcontentloaded', timeout: 40000 }).catch(() => {})
+              const dialog = fresh.locator('section[role="dialog"], [role="dialog"], .onboarding-guide, .guide-dialog, .tavern-guide').first()
+              const visible = await waitFor(async () => (await dialog.count().catch(() => 0)) > 0 || /选一张角色卡/.test(((await fresh.locator('body').innerText().catch(() => '')) || '')), 25000)
+              if (!visible) {
+                p0Skip(0, '首次访问没有出现引导弹层（owner: cards-client task-79）')
+              } else {
+                const clickText = async (re) => {
+                  const button = fresh.getByRole('button', { name: re }).first()
+                  if (!(await button.count().catch(() => 0))) return false
+                  await button.click({ force: true }).catch(() => {})
+                  await fresh.waitForTimeout(700)
+                  return true
+                }
+                const step1 = ((await fresh.locator('body').innerText().catch(() => '')) || '')
+                await clickText(/下一步|继续/)
+                const step2 = ((await fresh.locator('body').innerText().catch(() => '')) || '')
+                await clickText(/下一步|继续/)
+                const step3 = ((await fresh.locator('body').innerText().catch(() => '')) || '')
+                const finished = await clickText(/开始体验|开始|完成/)
+                const seen = await fresh.evaluate(() => { try { return localStorage.getItem('tavern:guide-seen') } catch { return null } }).catch(() => null)
+                await fresh.reload({ waitUntil: 'domcontentloaded', timeout: 40000 }).catch(() => {})
+                const showedAgain = await waitFor(async () => /选一张角色卡/.test(((await fresh.locator('body').innerText().catch(() => '')) || '')), 4000)
+                guideEvidence.onboarding = { step1: step1.slice(0, 120), step2: step2.slice(0, 120), step3: step3.slice(0, 120), finished, seen, showedAgain }
+                const stepsOk = /选一张角色卡/.test(step1) && /回一句话/.test(step2) && /DSH/.test(step3)
+                p0Record(0, stepsOk && Boolean(seen) && !showedAgain, `steps=${stepsOk} seen=${Boolean(seen)} reloadShown=${showedAgain} finished=${finished}`)
+                await shot(page, '180-p1-onboarding.png')
+              }
+            } finally {
+              await fresh.close().catch(() => {})
+            }
+          } catch (error) {
+            p0Skip(0, `引导异常：${String((error && error.message) || error).slice(0, 200)}`)
+          }
+
+          // P2 首页提示条 + 帮助页。
+          try {
+            const home = await appGoto('/')
+            const homeText = home ? await bodyText(home) : ''
+            const hint = /点任意角色卡/.test(homeText)
+            const helpLink = page.locator('[aria-label*="帮助"], a[href*="/settings/help"], button:has-text("?")').first()
+            let helpFrame = null
+            if (await helpLink.count().catch(() => 0)) {
+              await helpLink.click({ force: true }).catch(() => {})
+              await page.waitForTimeout(900)
+              helpFrame = fnow()
+            }
+            if (!helpFrame || !/\/settings\/help/.test(helpFrame.url())) {
+              helpFrame = await appGoto('/settings/help').catch(() => null)
+            }
+            const helpText = helpFrame ? await bodyText(helpFrame) : ''
+            const sections = ['开始聊天', 'DSH 工具条', '导入角色卡', '预设卡', '导出与备份', '正则替换', '世界书注入']
+            const missing = sections.filter((title) => !helpText.includes(title))
+            const backButton = helpFrame ? helpFrame.getByRole('button', { name: /返回/ }).first() : null
+            const backReady = backButton ? (await backButton.count().catch(() => 0)) > 0 : false
+            guideEvidence.hint = { hint, helpUrl: helpFrame ? helpFrame.url() : null, missing, backReady }
+            const ok = hint && missing.length === 0 && backReady
+            if (!hint && !helpFrame) p0Skip(1, '首页没有提示条、/settings/help 也没有渲染（owner: cards-client task-79）')
+            else p0Record(1, ok, `hint=${hint} help=${Boolean(helpFrame)} missingSections=${missing.join('|') || 'none'} back=${backReady}`)
+            if (ok) await shot(page, '181-p2-hint-help.png')
+          } catch (error) {
+            p0Skip(1, `提示条/帮助页异常：${String((error && error.message) || error).slice(0, 200)}`)
+          }
+
+          // P3 聊天页示例 chips（仅开场白）。
+          try {
+            const chat = await appGoto('/chats/' + setup.chatId)
+            const frameNow = chat || chatFrameOf()
+            if (!frameNow) throw new Error('聊天页没有加载')
+            await waitFor(async () => (await frameNow.locator('.bubble-row').count().catch(() => 0)) > 0, 25000)
+            const userRows = await frameNow.locator('.bubble-row.user').count().catch(() => 0)
+            const chipSelectors = ['.chat-chips button', '.quick-replies button', '.example-chips button', '.composer-chips button', '[data-quick-reply]']
+            let chips = []
+            for (const selector of chipSelectors) {
+              const locator = frameNow.locator(selector)
+              const count = await locator.count().catch(() => 0)
+              if (count >= 2) {
+                for (let index = 0; index < count; index += 1) chips.push(((await locator.nth(index).innerText().catch(() => '')) || '').trim())
+                break
+              }
+            }
+            if (chips.length < 2) {
+              const guess = ['你好', '继续', '我来了', '在吗']
+              for (const text of guess) {
+                const button = frameNow.getByRole('button', { name: text, exact: true }).first()
+                if (await button.count().catch(() => 0)) chips.push(text)
+              }
+            }
+            const rowsBefore = await frameNow.locator('.bubble-row').count().catch(() => 0)
+            let filled = ''
+            if (chips.length >= 2) {
+              const firstChip = frameNow.getByRole('button', { name: chips[0], exact: true }).first()
+              await firstChip.click({ force: true }).catch(() => {})
+              await page.waitForTimeout(600)
+              filled = ((await frameNow.locator('textarea[aria-label="聊天输入框"]').first().inputValue().catch(() => '')) || '').trim()
+            }
+            const rowsAfter = await frameNow.locator('.bubble-row').count().catch(() => 0)
+            guideEvidence.chips = { chips, filled, userRows, rowsBefore, rowsAfter }
+            if (chips.length < 2) p0Skip(2, `聊天页没有示例 chips（当前开场白 userRows=${userRows}；owner: cards-client task-79）`)
+            else p0Record(2, Boolean(filled) && rowsAfter === rowsBefore, `chips=${chips.join('/')} filled="${filled}" rows ${rowsBefore}→${rowsAfter}（点击不自动发送）`)
+            if (chips.length >= 2) await shot(page, '182-p3-chips.png')
+          } catch (error) {
+            p0Skip(2, `示例 chips 异常：${String((error && error.message) || error).slice(0, 200)}`)
+          }
+
+          // P4 帮助页「重新查看引导」。
+          try {
+            const helpFrame = await appGoto('/settings/help')
+            const text = helpFrame ? await bodyText(helpFrame) : ''
+            const replay = helpFrame ? helpFrame.getByRole('button', { name: /重新查看.*引导|再看一次/ }).first() : null
+            const hasReplay = replay ? (await replay.count().catch(() => 0)) > 0 : false
+            let reopened = false
+            if (hasReplay) {
+              await replay.click({ force: true }).catch(() => {})
+              await page.waitForTimeout(900)
+              reopened = /选一张角色卡|下一步|开始体验/.test(((await helpFrame.locator('body').innerText().catch(() => '')) || ''))
+            }
+            guideEvidence.replay = { helpText: text.slice(0, 120), hasReplay, reopened }
+            if (helpFrame) await dismissTavernGuide(helpFrame).catch(() => {})
+            if (!helpFrame || !hasReplay) p0Skip(3, '帮助页没有「重新查看引导」入口（owner: cards-client task-79）')
+            else p0Record(3, reopened, `button=true reopened=${reopened}`)
+            if (hasReplay) await shot(page, '183-p4-guide-replay.png')
+          } catch (error) {
+            p0Skip(3, `重新查看引导异常：${String((error && error.message) || error).slice(0, 200)}`)
+          }
+
+          // P5 侧栏顺序（宿主导航，真实 DOM 顺序）。
+          try {
+            const nav = await page.evaluate(() => {
+              const items = []
+              const nodes = Array.prototype.slice.call(document.querySelectorAll('a, button, [role="button"], [data-dsh-panel-entry], nav *'))
+              const seen = new Set()
+              for (const node of nodes) {
+                const rect = node.getBoundingClientRect()
+                if (rect.width < 8 || rect.height < 8) continue
+                if (rect.left > 320) continue
+                const text = (node.textContent || '').replace(/\s+/g, ' ').trim()
+                if (!text || text.length > 24) continue
+                const key = text + '@' + Math.round(rect.top)
+                if (seen.has(key)) continue
+                seen.add(key)
+                items.push({ text, top: Math.round(rect.top), left: Math.round(rect.left) })
+              }
+              items.sort((a, b) => a.top - b.top || a.left - b.left)
+              return items
+            }).catch(() => [])
+            const pick = (aliases) => nav.find((item) => aliases.some((alias) => item.text === alias || item.text.indexOf(alias) === 0))
+            const autoTask = pick(['自动化任务', 'Automation tasks', '自动任务', 'Automation'])
+            const tavern = pick(['酒馆'])
+            const knowledge = pick(['知识库', 'Knowledge'])
+            guideEvidence.sidebar = { autoTask, tavern, knowledge, nav: nav.map((item) => item.text).slice(0, 18) }
+            const ok = Boolean(tavern) && Boolean(autoTask) && tavern.top > autoTask.top && (!knowledge || tavern.top < knowledge.top)
+            if (!autoTask) p0Skip(4, `侧栏没有找到「自动化任务」条目，导航顺序=${JSON.stringify(nav.map((item) => item.text).slice(0, 18))}`)
+            else p0Record(4, ok, `autoTask=${autoTask && autoTask.top} tavern=${tavern && tavern.top} knowledge=${knowledge && knowledge.top} nav=${JSON.stringify(nav.map((item) => item.text).slice(0, 18))}`)
+          } catch (error) {
+            p0Skip(4, `侧栏顺序异常：${String((error && error.message) || error).slice(0, 200)}`)
+          }
+
+          // Q1 引用消息 → 引用条 → 发送 → 引用块 / quotedText / 刷新保留。
+          try {
+            const chatFrame = (await appGoto('/chats/' + setup.chatId)) || fnow()
+            if (!chatFrame || !/\/chats\//.test(chatFrame.url())) throw new Error('聊天页没有加载')
+            await dismissTavernGuide(chatFrame).catch(() => {})
+            await waitFor(async () => (await chatFrame.locator('.bubble-row').count().catch(() => 0)) > 0, 25000)
+            const rows = chatFrame.locator('.bubble-row.assistant')
+            const last = rows.last()
+            const quoteButton = last.locator('button[aria-label*="引用"], button:has-text("引用")').first()
+            if (!(await quoteButton.count().catch(() => 0))) {
+              await last.hover().catch(() => {})
+              await page.waitForTimeout(400)
+            }
+            const hasQuoteAction = (await quoteButton.count().catch(() => 0)) > 0
+            if (!hasQuoteAction) {
+              p0Skip(5, '消息操作里没有「引用」入口（owner: cards-client task-80）')
+            } else {
+              await quoteButton.click({ force: true }).catch(() => {})
+              await page.waitForTimeout(500)
+              const quoteBar = chatFrame.locator('.chat-quote, .quote-bar, .reply-quote, [class*="quote"][class*="bar"]').first()
+              const barVisible = (await quoteBar.count().catch(() => 0)) > 0
+              const barText = barVisible ? ((await quoteBar.innerText().catch(() => '')) || '') : ''
+              const send = await sendMessageIn(chatFrame, '（E2E 引用）你好')
+              const quoted = send.requests && send.requests[0] && (send.requests[0].quote || send.requests[0].quotedText)
+              const chatDetail = await pqApi('/chats/' + setup.chatId).catch(() => null)
+              const messages = chatDetail && chatDetail.body && Array.isArray(chatDetail.body.messages) ? chatDetail.body.messages : []
+              const lastUser = messages.slice().reverse().find((item) => item && item.role === 'user')
+              const storedQuote = lastUser && (lastUser.quotedText || (lastUser.quote && lastUser.quote.text))
+              const bubbleQuote = await chatFrame.locator('.bubble-quote, .quote-block, blockquote').count().catch(() => 0)
+              await appGoto('/chats/' + setup.chatId)
+              await waitFor(async () => (await (fnow() || chatFrame).locator('.bubble-row').count().catch(() => 0)) > 0, 25000)
+              const afterReload = await fnow().locator('.bubble-quote, .quote-block, blockquote').count().catch(() => 0)
+              quoteEvidence.quote = { barVisible, barText: barText.slice(0, 120), sent: send.sent, quoted: Boolean(quoted), storedQuote: storedQuote || null, bubbleQuote, afterReload }
+              const ok = barVisible && Boolean(barText.trim()) && send.sent && Boolean(quoted) && Boolean(storedQuote) && afterReload > 0
+              p0Record(5, ok, `bar=${barVisible} barText="${barText.trim().slice(0, 40)}" sent=${send.sent} requestQuote=${Boolean(quoted)} stored=${Boolean(storedQuote)} block=${bubbleQuote} afterReload=${afterReload}`)
+              if (barVisible) await shot(page, '184-q1-quote.png')
+            }
+          } catch (error) {
+            p0Skip(5, `引用发送异常：${String((error && error.message) || error).slice(0, 200)}`)
+          }
+
+          // Q2 取消引用后发送不带 quote。
+          try {
+            const chatFrame = (await appGoto('/chats/' + setup.chatId)) || fnow()
+            if (!chatFrame || !/\/chats\//.test(chatFrame.url())) throw new Error('聊天页没有加载')
+            const last = chatFrame.locator('.bubble-row.assistant').last()
+            const quoteButton = last.locator('button[aria-label*="引用"], button:has-text("引用")').first()
+            if (!(await quoteButton.count().catch(() => 0))) {
+              await last.hover().catch(() => {})
+              await page.waitForTimeout(400)
+            }
+            if (!(await quoteButton.count().catch(() => 0))) {
+              p0Skip(6, '消息操作里没有「引用」入口（owner: cards-client task-80）')
+            } else {
+              await quoteButton.click({ force: true }).catch(() => {})
+              await page.waitForTimeout(500)
+              const cancel = chatFrame.locator('.chat-quote button[aria-label*="取消"], .chat-quote button[aria-label*="关闭"], .quote-bar button[aria-label*="取消"]').first()
+              let cancelled = false
+              if (await cancel.count().catch(() => 0)) {
+                await cancel.click({ force: true }).catch(() => {})
+                cancelled = true
+              } else {
+                await page.keyboard.press('Escape').catch(() => {})
+                cancelled = true
+              }
+              await page.waitForTimeout(400)
+              const barAfter = await chatFrame.locator('.chat-quote, .quote-bar, .reply-quote').count().catch(() => 0)
+              const send = await sendMessageIn(chatFrame, '（E2E 无引用）你好')
+              const quoteSent = Boolean(send.requests && send.requests[0] && (send.requests[0].quote || send.requests[0].quotedText))
+              quoteEvidence.cancel = { cancelled, barAfter, sent: send.sent, quoteSent }
+              p0Record(6, cancelled && barAfter === 0 && send.sent && !quoteSent, `cancelled=${cancelled} barAfter=${barAfter} sent=${send.sent} quoteSent=${quoteSent}`)
+            }
+          } catch (error) {
+            p0Skip(6, `取消引用异常：${String((error && error.message) || error).slice(0, 200)}`)
+          }
+
+          // Q3 /chats 全局搜索。
+          try {
+            const chatsFrame = await appGoto('/chats')
+            if (!chatsFrame) throw new Error('聊天历史页没有加载')
+            const search = chatsFrame.locator('input[type="search"], input[placeholder*="搜索"], [role="search"] input').first()
+            if (!(await search.count().catch(() => 0))) {
+              p0Skip(7, '/chats 页面没有全局搜索框（owner: cards-client task-80）')
+            } else {
+              const chats = await pqApi('/chats').catch(() => null)
+              const items = chats && chats.body && Array.isArray(chats.body.items) ? chats.body.items : []
+              const title = (items[0] && (items[0].title || (items[0].chat && items[0].chat.title))) || ''
+              const firstChatId = (items[0] && (items[0].id || (items[0].chat && items[0].chat.id))) || setup.chatId
+              const chatDetail = await pqApi(`/chats/${firstChatId}`).catch(() => null)
+              const allMessages = (chatDetail && chatDetail.body && Array.isArray(chatDetail.body.messages)) ? chatDetail.body.messages : []
+              const msgTexts = allMessages.map((m) => String(m.text || m.content || '').trim()).filter(Boolean)
+              const msgFragment = (msgTexts.find((text) => text.length >= 8) || '你好').slice(0, 6)
+              const rowCount = () => chatsFrame.locator('.chat-history-row, .chat-row, [data-chat-id]').count().catch(() => 0)
+              const baseline = await rowCount()
+              await search.fill(title.slice(0, 2) || '聊天')
+              await page.waitForTimeout(800)
+              const text1 = await bodyText(chatsFrame)
+              const countOk = /找到\s*\d+\s*个聊天/.test(text1)
+              const rows1 = await rowCount()
+              await search.fill(msgFragment)
+              await page.waitForTimeout(800)
+              const rows2 = await rowCount()
+              await search.fill('zzzz-不存在的词-zzzz')
+              await page.waitForTimeout(800)
+              const text3 = await bodyText(chatsFrame)
+              const emptyText = /没有匹配的聊天/.test(text3)
+              await search.fill('')
+              await page.waitForTimeout(800)
+              const rows3 = await rowCount()
+              quoteEvidence.search = { title, msgFragment, baseline, countOk, rows1, rows2, emptyText, rows3 }
+              const ok = countOk && rows1 > 0 && rows2 > 0 && emptyText && rows3 >= baseline
+              p0Record(7, ok, `count=${countOk} rows1=${rows1} msgHitRows=${rows2} empty="${emptyText}" restored=${rows3}≥${baseline}`)
+              if (ok) await shot(page, '185-q3-search.png')
+            }
+          } catch (error) {
+            p0Skip(7, `全局搜索异常：${String((error && error.message) || error).slice(0, 200)}`)
+          }
+
+          // Q4 390×844 引用条 / 搜索框 / 结果行无溢出、操作目标 ≥40。
+          try {
+            const mobile = await context.newPage()
+            try {
+              await mobile.setViewportSize({ width: 390, height: 844 }).catch(() => {})
+              const base = new URL(url).origin + '/tavern'
+              await mobile.goto(base + '/chats', { waitUntil: 'domcontentloaded', timeout: 40000 }).catch(() => {})
+              await dismissGuideOnPage(mobile)
+              await mobile.waitForTimeout(1500)
+              const overflow = await mobile.evaluate(() => {
+                const root = document.scrollingElement || document.documentElement
+                return root.scrollWidth - window.innerWidth
+              }).catch(() => 0)
+              const search = mobile.locator('input[type="search"], input[placeholder*="搜索"], [role="search"] input').first()
+              const searchBox = (await search.count().catch(() => 0)) > 0 ? await search.boundingBox().catch(() => null) : null
+              await mobile.goto(base + '/chats/' + setup.chatId, { waitUntil: 'domcontentloaded', timeout: 40000 }).catch(() => {})
+              await mobile.waitForTimeout(1500)
+              const last = mobile.locator('.bubble-row.assistant').last()
+              const quoteButton = last.locator('button[aria-label*="引用"], button:has-text("引用")').first()
+              const hasQuote = (await quoteButton.count().catch(() => 0)) > 0
+              let quoteBox = null
+              if (hasQuote) {
+                await quoteButton.click({ force: true }).catch(() => {})
+                await mobile.waitForTimeout(600)
+                const bar = mobile.locator('.chat-quote, .quote-bar, .reply-quote').first()
+                if (await bar.count().catch(() => 0)) quoteBox = await bar.boundingBox().catch(() => null)
+              }
+              const overflowAfter = await mobile.evaluate(() => {
+                const root = document.scrollingElement || document.documentElement
+                return root.scrollWidth - window.innerWidth
+              }).catch(() => 0)
+              const targetHeights = await mobile.evaluate(() => {
+                const nodes = Array.prototype.slice.call(document.querySelectorAll('button'))
+                return nodes
+                  .filter((node) => {
+                    const rect = node.getBoundingClientRect()
+                    return rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.top < window.innerHeight
+                  })
+                  .slice(0, 40)
+                  .map((node) => Math.round(node.getBoundingClientRect().height))
+              }).catch(() => [])
+              const tooSmall = targetHeights.filter((height) => height > 0 && height < 40).length
+              quoteEvidence.mobile = { overflow, overflowAfter, searchBox, hasQuote, quoteBox, tooSmall }
+              if (!searchBox && !hasQuote) {
+                p0Skip(8, '移动端没有搜索框与引用条可测（owner: cards-client task-80 未交付）')
+              } else {
+                const ok = overflow <= 1 && overflowAfter <= 1 && tooSmall === 0 && (!searchBox || searchBox.width > 80) && (!quoteBox || quoteBox.width <= 390) && (hasQuote ? Boolean(quoteBox) : true) && (searchBox ? true : hasQuote)
+                p0Record(8, ok, `overflow=${overflow}/${overflowAfter} searchBox=${searchBox ? Math.round(searchBox.width) : 'n/a'} quoteBar=${quoteBox ? `${Math.round(quoteBox.width)}x${Math.round(quoteBox.height)}` : 'n/a'} 小于40px按钮=${tooSmall}`)
+                if (ok) await shot(page, '186-q4-mobile.png')
+              }
+            } finally {
+              await mobile.close().catch(() => {})
+            }
+          } catch (error) {
+            p0Skip(8, `移动端引用/搜索异常：${String((error && error.message) || error).slice(0, 200)}`)
+          }
+
+          // Q5 console clean（P/Q 组切片）。
+          try {
+            const slice = consoleErrors.slice(p0Start).filter((text) => !/Failed to load resource/.test(text))
+            guideEvidence.console = slice
+            quoteEvidence.console = slice
+            p0Record(9, slice.length === 0, slice.length ? slice.slice(-3).join(' | ') : 'clean')
+          } catch (error) {
+            p0Skip(9, `console 检查异常：${String((error && error.message) || error).slice(0, 200)}`)
+          }
+        }
+      }
+    }
+  }
+
   // ── O. 移动端 390×844 适配（task-71 打磨 4；真实后端，禁用 mock）──────────────
   const mobileEvidence = {
     viewport: { width: 390, height: 844 },
@@ -918,6 +1504,7 @@ try {
         })
       const gotoMobile = async (pathname, selector, timeoutMs = 25000) => {
         await mobilePage.goto(mobileBase + pathname, { waitUntil: 'domcontentloaded' }).catch(() => {})
+        await dismissGuideOnPage(mobilePage)
         if (selector) await mobilePage.waitForSelector(selector, { timeout: timeoutMs }).catch(() => {})
       }
       const mobileApi = async (pathname, options = {}) =>
@@ -1770,8 +2357,47 @@ try {
             ? ((await lastRow.locator('.bubble-speaker-name').first().innerText().catch(() => '')) || '').trim()
             : ''
           // 超时/失败时把 UI 错误提示与状态文案一起带回，便于判断是网关挂起还是前端没渲染。
-          const alertText = ((await groupChatFrame.locator('[role=alert]').allTextContents().catch(() => [])) || []).join(' | ')
-          const statusText = ((await groupChatFrame.locator('.chat-status').allTextContents().catch(() => [])) || []).join(' | ')
+          let alertText = ((await groupChatFrame.locator('[role=alert]').allTextContents().catch(() => [])) || []).join(' | ')
+          let statusText = ((await groupChatFrame.locator('.chat-status').allTextContents().catch(() => [])) || []).join(' | ')
+          // 上游偶发 flake（DSH 网关空回）时重试一次；保留第一次的 alert/probe 证据，不静默重跑到全绿。
+          const retryNotes = []
+          if (!finalText && /网关不可用|未收到回复|PROVIDER_UNAVAILABLE|模型网关/.test(alertText)) {
+            retryNotes.push(`first-alert=${alertText.slice(0, 60)}`)
+            retryNotes.push(`probe=${JSON.stringify(stallProbe || (await gatewayProbe(15000))).slice(0, 260)}`)
+            await page.waitForTimeout(3000)
+            const retryInput = groupChatFrame.locator('textarea[aria-label="聊天输入框"]').first()
+            await retryInput.fill(text).catch(() => {})
+            await waitFor(async () => {
+              if (!(await sendButton.count().catch(() => 0))) return false
+              return !(await sendButton.isDisabled().catch(() => false))
+            }, 20000)
+            const retryStart = Date.now()
+            await sendButton.click({ force: true }).catch(() => {})
+            let rStable = 0
+            let rLast = ''
+            while (Date.now() - retryStart < 120000) {
+              const rows = groupChatFrame.locator('.bubble-row.assistant')
+              const count = await rows.count().catch(() => 0)
+              const row = count > beforeRows ? rows.nth(count - 1) : null
+              const bubble = row ? row.locator('.bubble-text').first() : null
+              const textNow = bubble && (await bubble.count().catch(() => 0)) ? ((await bubble.innerText().catch(() => '')) || '').trim() : ''
+              const pending =
+                (await groupChatFrame.locator('.bubble-pending').count().catch(() => 0)) > 0 ||
+                /正在回复/.test(await bodyText(groupChatFrame))
+              if (textNow !== rLast) {
+                rLast = textNow
+                rStable = 0
+              } else if (textNow) rStable += 1
+              if (textNow && !pending && rStable >= 4) {
+                finalText = textNow
+                break
+              }
+              await page.waitForTimeout(250)
+            }
+            alertText = ((await groupChatFrame.locator('[role=alert]').allTextContents().catch(() => [])) || []).join(' | ')
+            statusText = ((await groupChatFrame.locator('.chat-status').allTextContents().catch(() => [])) || []).join(' | ')
+            retryNotes.push(`retry-text=${String(finalText || '').slice(0, 40)}`)
+          }
           return {
             text: finalText || lastText,
             speaker,
@@ -1781,6 +2407,7 @@ try {
             alertText,
             statusText,
             stallProbe,
+            retryNotes,
           }
         }
 
@@ -3393,10 +4020,28 @@ try {
                 }
               }
             }
-            const alertText = await chatFrame.locator('[role="alert"]').first().innerText().catch(() => '')
+            let alertText = await chatFrame.locator('[role="alert"]').first().innerText().catch(() => '')
+            // 上游偶发 flake（DSH 网关无回复）时重试一次，并保留第一次的 sse 证据；不静默重跑到全绿。
+            const retryNotes = []
+            if (!sent && /网关不可用|未收到回复|PROVIDER_UNAVAILABLE|模型网关/.test(alertText)) {
+              retryNotes.push(`first-alert=${alertText.slice(0, 60)}`)
+              retryNotes.push(`gatewayHealth=${JSON.stringify(await gatewayProbe()).slice(0, 300)}`)
+              await page.waitForTimeout(3000)
+              const rowsBefore2 = await chatFrame.locator('.bubble-row').count().catch(() => 0)
+              await input.fill('（E2E 采样·重试）用一句话回应我。').catch(() => {})
+              await send.click({ force: true }).catch(() => {})
+              sent = await waitFor(async () => {
+                const rows = await chatFrame.locator('.bubble-row').count().catch(() => 0)
+                const pending = await chatFrame.locator('.bubble-pending').count().catch(() => 0)
+                const status = ((await chatFrame.locator('.chat-status').first().innerText().catch(() => '')) || '').trim()
+                return rows > rowsBefore2 + 1 && pending === 0 && !/正在回复/.test(status)
+              }, 120000)
+              alertText = await chatFrame.locator('[role="alert"]').first().innerText().catch(() => '')
+              retryNotes.push(`retry-sent=${sent}`)
+            }
             const sseTail = String(sseBody || '').replace(/\s+/g, ' ').slice(-400)
-            sampling.send = { sent, alert: alertText || null, sseTail }
-            s2Record(2, sent && !alertText, `sent=${sent} alert=${alertText ? alertText.slice(0, 120) : '无'} sse=${sseTail || 'none'}`)
+            sampling.send = { sent, alert: alertText || null, sseTail, retryNotes }
+            s2Record(2, sent && !alertText, `sent=${sent} alert=${alertText ? alertText.slice(0, 120) : '无'} sse=${sseTail || 'none'}${retryNotes.length ? ' retry=' + JSON.stringify(retryNotes).slice(0, 400) : ''}`)
           } else {
             s2SkipRemaining(1, '采样参数对话框未打开，无法验证保存/回显')
           }

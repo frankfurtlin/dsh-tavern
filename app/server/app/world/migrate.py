@@ -46,6 +46,8 @@ def migrate():
         conn.execute(text("ALTER TABLE world.tavern_chats ADD COLUMN IF NOT EXISTS members jsonb NOT NULL DEFAULT '[]'::jsonb"))
         conn.execute(text("ALTER TABLE world.tavern_chats ALTER COLUMN card_id DROP NOT NULL"))
         conn.execute(text("ALTER TABLE world.tavern_messages ADD COLUMN IF NOT EXISTS speaker_card_id varchar(32)"))
+        # P0-B quote replies: the quoted snippet is copied onto the user message.
+        conn.execute(text("ALTER TABLE world.tavern_messages ADD COLUMN IF NOT EXISTS quoted_text text"))
         # P4 preset cards: bundled cards are seeded per owner and marked by slug;
         # the partial unique index keeps the lazy seed idempotent (soft-deleted
         # rows still occupy their slug so a deleted preset card is not re-seeded).

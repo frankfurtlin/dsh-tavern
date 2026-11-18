@@ -70,12 +70,37 @@ class ChatPatch(Strict):
     cardIds: list[str] | None = None  # group chats only: replace members (2..5, deduped)
 
 
+class QuoteInput(Strict):
+    # Empty/long values reach _quote_text so the error code is QUOTE_INVALID
+    # instead of the generic validation envelope.
+    text: str = Field(default="", max_length=4000)
+
+
 class MessageInput(Strict):
     # Accept both {"message": ...} (contract) and {"text": ...} (P0 client payload).
     message: str = Field(min_length=1, max_length=4000,
                          validation_alias=AliasChoices("message", "text"))
     personaId: str | None = Field(default=None, max_length=32)
+    # Quote reply: canonical shape {"quote": {"text": ...}}; the flat
+    # {"quotedText": ...} form is accepted for convenience.
+    quote: QuoteInput | None = None
+    quotedText: str | None = Field(default=None, max_length=4000)
 
+
+QUOTE_MAX_CHARS = 2000
+
+
+def _quote_text(payload: MessageInput) -> str | None:
+    """Validate and normalize the optional quote reply payload."""
+    raw = payload.quote.text if payload.quote is not None else payload.quotedText
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        raise Problem("QUOTE_INVALID", "引用内容不能为空", 422)
+    if len(text) > QUOTE_MAX_CHARS:
+        raise Problem("QUOTE_INVALID", f"引用内容最多 {QUOTE_MAX_CHARS} 个字符", 422)
+    return text
 
 class MessageEdit(Strict):
     text: str = Field(min_length=1, max_length=4000)
@@ -242,8 +267,6 @@ def _build_prompt(db, owner, card, chat, history_rows, message, persona_id,
     names = service.speaker_name_map(chat) if group else {}
     history = [_history_item(row, names) for row in history_rows]
     char_name = speaker_card.name
-    if not group:
-        history = [{"role": item["role"], "text": item["text"]} for item in history]
     world_info = (service.group_world_info(db, cards) if group
                   else service.world_info_rows(db, speaker_card))
     builder = prompt_builder.build_group if group else prompt_builder.build
@@ -308,6 +331,9 @@ def _chat_speaker(db, owner, chat, card_id=None):
 
 def _history_item(row, names):
     item = {"role": row.role, "text": service.swipe_content(row.swipes, row.active_swipe)}
+    quoted = getattr(row, "quoted_text", None)
+    if quoted:
+        item["quotedText"] = quoted
     speaker = getattr(row, "speaker_card_id", None)
     if row.role == "assistant" and speaker:
         item["speaker"] = names.get(speaker, "")
@@ -476,10 +502,14 @@ def create_group_chat(payload: ChatCreate, user=Depends(current_user), db=Depend
 
 
 @router.get("/chats")
-def list_chat_history(limit: int = Query(default=20, ge=1, le=100),
+def list_chat_history(q: str = Query(default=""),
+                      limit: int = Query(default=20, ge=1, le=100),
                       offset: int = Query(default=0, ge=0),
                       user=Depends(current_user), db=Depends(get_db)):
-    rows = service.list_chats(db, user.id, limit=limit, offset=offset)
+    term = (q or "").strip()
+    if len(term) > 100:
+        raise Problem("CHAT_SEARCH_INVALID", "搜索词最多 100 个字符", 422)
+    rows = service.list_chats(db, user.id, limit=limit, offset=offset, q=term)
     return {"items": service.chats_out(db, rows), "limit": limit, "offset": offset}
 
 
@@ -673,10 +703,12 @@ def send_message(chat_id: str, payload: MessageInput, user=Depends(current_user)
     text = payload.message.strip()
     if not text:
         raise Problem("MESSAGE_REQUIRED", "消息不能为空", 422)
+    quoted = _quote_text(payload)
+    prompt_text = (prompt_builder.quote_prefix(quoted) + text) if quoted else text
     names = service.speaker_name_map(chat) if group else {}
     system_prompt, data, limit, profile, model_name, sampling, preset, speaker = _reply_context(
-        db, user.id, chat, card, _history(db, chat), text, payload.personaId, speaker)
-    user_row = service.add_message(db, chat, user.id, "user", text, "")
+        db, user.id, chat, card, _history(db, chat), prompt_text, payload.personaId, speaker)
+    user_row = service.add_message(db, chat, user.id, "user", text, "", quoted_text=quoted)
     db.commit()
     initial = {"type": "message", "userMessage": service.message_out(user_row),
                "assistantSequence": user_row.sequence + 1}
@@ -714,8 +746,10 @@ def regenerate(chat_id: str, payload: RegenerateInput | None = None,
         card = service.card_or_404(db, user.id, chat.card_id)
     history = [row for row in service.list_messages(db, chat) if row.sequence < target.sequence]
     persona_id = payload.personaId if payload else None
-    message = next((service.swipe_content(row.swipes, row.active_swipe)
-                    for row in reversed(history) if row.role == "user"), "")
+    last_user = next((row for row in reversed(history) if row.role == "user"), None)
+    # The user turn is already part of ``history`` (history_lines renders its
+    # quoted snippet); do not prepend it again to the message passed along.
+    message = service.swipe_content(last_user.swipes, last_user.active_swipe) if last_user is not None else ""
     system_prompt, data, limit, profile, model_name, sampling, preset, speaker = _reply_context(
         db, user.id, chat, card, history, message, persona_id, speaker)
     initial = {"type": "message", "messageId": target.id,

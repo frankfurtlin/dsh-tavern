@@ -47,6 +47,18 @@ POSITION_LABELS = {
 }
 DEFAULT_REPLY_INSTRUCTION = "Only write {char}'s next reply now. Do not write {user}'s lines or any name prefix."
 
+QUOTE_LABEL = "[引用]"
+# The quoted copy is stored up to 2000 chars; prompts only need the gist.
+QUOTE_PROMPT_MAX_CHARS = 500
+
+
+def quote_prefix(quoted_text):
+    """Return the ``[引用] ...`` block prepended to a quoted user turn."""
+    text = str(quoted_text or "").strip()
+    if not text:
+        return ""
+    return f"{QUOTE_LABEL} {text[:QUOTE_PROMPT_MAX_CHARS]}\n"
+
 
 def replace_macros(text, char_name, user_name):
     if not text:
@@ -178,6 +190,9 @@ def history_lines(card, history, char_name, user_name, budget_chars):
         if not text:
             continue
         if item.get("role") == "user":
+            quoted = quote_prefix(item.get("quotedText"))
+            if quoted:
+                text = quoted + text
             speaker = user_name
         else:
             speaker = str(item.get("speaker") or char_name)

@@ -3,7 +3,7 @@ import {api} from '../api'
 import {
   characterAvatarBlob,createCharacterChat,createGroupChat,createWorldInfo,editMessage,exportCharacterBlob,
   exportChatBlob,getCharacter,getChat,getPrompt,importCharacter,importChats,listCharacterChats,
-  listCharacters,listChats,listPresets,listWorldInfo,messageText,previewWorldInfo,selectSwipe,setDefaultPreset,
+  listCharacters,listChats,listPresets,listWorldInfo,messageText,previewWorldInfo,selectSwipe,setDefaultPreset,sendMessage,
   updateCharacter,updateChat,updateChatSampling,updatePreset,updatePrompt,updateWorldInfo,worldInfoKeys,
   createPreset,type TavernCharacter,
 } from './api'
@@ -229,5 +229,20 @@ describe('tavern chat pagination and import/export',()=>{
     vi.mocked(api).mockResolvedValueOnce({items:[{id:'chat-1',cardId:'c1',title:'单聊'}]}).mockResolvedValueOnce([{id:'chat-2',cardId:'',mode:'group',title:'群聊'}])
     await expect(listChats()).resolves.toHaveLength(1)
     await expect(listChats()).resolves.toHaveLength(1)
+  })
+
+  it('passes search and pagination params to the chat list endpoint',async()=>{
+    vi.mocked(api).mockResolvedValueOnce({items:[]}).mockResolvedValueOnce([])
+    await listChats({q:' 雨 ',limit:20,offset:40})
+    expect(vi.mocked(api)).toHaveBeenCalledWith('/tavern/chats?limit=20&offset=40&q=%E9%9B%A8')
+    await listChats({q:'   '})
+    expect(vi.mocked(api)).toHaveBeenLastCalledWith('/tavern/chats')
+  })
+
+  it('builds the message request with an optional quote',async()=>{
+    expect(sendMessage('chat-1','你好')).toEqual({path:'/chats/chat-1/messages',body:{message:'你好'}})
+    expect(sendMessage('chat-1','收到',{text:'  风起了  '})).toEqual({path:'/chats/chat-1/messages',body:{message:'收到',quote:{text:'风起了'}}})
+    expect(sendMessage('chat-1','收到','')).toEqual({path:'/chats/chat-1/messages',body:{message:'收到'}})
+    expect(sendMessage('chat-1','收到',{text:'x'.repeat(2100)}).body.quote?.text).toHaveLength(2000)
   })
 })

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed,onMounted,onUnmounted,ref} from 'vue'
+import {computed,onMounted,onUnmounted,ref,watch} from 'vue'
 import {useRouter} from 'vue-router'
 import {useApp} from '../stores/app'
 import {useRequestScope} from '../platform/request-scope'
@@ -13,7 +13,11 @@ const scope=useRequestScope()
 const chats=ref<TavernChat[]>([])
 const loading=ref(true)
 const error=ref('')
+const query=ref('')
+const searchBusy=ref(false)
+const searchTerm=ref('')
 const avatars=ref<Record<string,string>>({})
+let searchTimer:ReturnType<typeof setTimeout>|undefined
 let mounted=true
 
 function chatName(chat:TavernChat){
@@ -61,10 +65,49 @@ async function load(){
   }
 }
 
+function escapeRegExp(value:string){return value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}
+
+function nameParts(chat:TavernChat):{text:string;hit:boolean}[]{
+  const name=chatName(chat)
+  const term=searchTerm.value.trim()
+  if(!term)return [{text:name,hit:false}]
+  const pattern=new RegExp('('+escapeRegExp(term)+')','gi')
+  return name.split(pattern).filter(part=>part!=='').map(part=>({text:part,hit:part.toLowerCase()===term.toLowerCase()}))
+}
+
+async function search(q:string){
+  searchBusy.value=true;error.value=''
+  const ticket=scope()
+  try{
+    const list=await listChats({q})
+    if(!ticket.valid())return
+    chats.value=[...list].sort((a,b)=>{
+      const left=a.lastMessageAt||a.updatedAt||''
+      const right=b.lastMessageAt||b.updatedAt||''
+      return right.localeCompare(left)
+    })
+    searchTerm.value=q
+    for(const chat of chats.value)for(const cardId of chatCardIds(chat))void loadAvatar(cardId)
+    if(typeof window!=='undefined')window.scrollTo?.({top:0,behavior:'smooth'})
+  }catch(e){
+    if(ticket.valid())error.value=(e as Error).message||'搜索失败，请稍后重试。'
+  }finally{
+    if(ticket.valid())searchBusy.value=false
+  }
+}
+
+watch(query,(value)=>{
+  if(searchTimer!==undefined){clearTimeout(searchTimer);searchTimer=undefined}
+  const term=value.trim()
+  if(!term){searchTerm.value='';if(!loading.value)void load();return}
+  searchTimer=setTimeout(()=>{searchTimer=undefined;void search(term)},300)
+})
+
 const empty=computed(()=>!loading.value&&!error.value&&!chats.value.length)
+const searching=computed(()=>!!query.value.trim())
 
 onMounted(()=>void load())
-onUnmounted(()=>{mounted=false;for(const url of Object.values(avatars.value))URL.revokeObjectURL(url)})
+onUnmounted(()=>{mounted=false;if(searchTimer!==undefined)clearTimeout(searchTimer);for(const url of Object.values(avatars.value))URL.revokeObjectURL(url)})
 </script>
 
 <template>
@@ -73,12 +116,19 @@ onUnmounted(()=>{mounted=false;for(const url of Object.values(avatars.value))URL
    <h1>聊天历史</h1>
    <button type="button" class="tavern-back" @click="router.push('/')">返回角色卡</button>
   </header>
+  <div class="chat-search-box" role="search">
+   <input v-model="query" type="search" aria-label="搜索聊天" placeholder="搜索标题或消息内容">
+   <button v-if="query" type="button" class="chat-search-clear" aria-label="清空搜索" @click="query=''">×</button>
+  </div>
+  <p v-if="searching" class="chat-search-count" role="status">{{searchBusy?'搜索中…':'找到 '+chats.length+' 个聊天'}}</p>
+
   <LoadState v-if="loading||error" :loading="loading" :error="error" loading-text="正在加载聊天…" @retry="load"/>
 
-  <LoadState v-else-if="empty" empty empty-title="还没有聊天"
-   empty-text="挑一张角色卡开始聊天，历史会自动出现在这里。">
+  <LoadState v-else-if="empty" empty :empty-title="searching?'没有匹配的聊天':'还没有聊天'"
+   :empty-text="searching?'换个关键词试试。':'挑一张角色卡开始聊天，历史会自动出现在这里。'">
    <template #action>
-    <button type="button" class="tavern-empty-action" @click="router.push('/')">去选角色</button>
+    <button v-if="searching" type="button" class="tavern-empty-action" @click="query=''">清空搜索</button>
+    <button v-else type="button" class="tavern-empty-action" @click="router.push('/')">去选角色</button>
    </template>
   </LoadState>
   <div v-else class="chat-history-list">
@@ -90,7 +140,7 @@ onUnmounted(()=>{mounted=false;for(const url of Object.values(avatars.value))URL
      </span>
     </span>
     <span class="chat-history-copy">
-     <span class="chat-history-name">{{chatName(chat)}}<span v-if="chat.mode==='group'" class="chat-history-mode">群聊</span></span>
+     <span class="chat-history-name"><template v-for="(part,index) in nameParts(chat)" :key="index"><mark v-if="part.hit" class="chat-history-mark">{{part.text}}</mark><template v-else>{{part.text}}</template></template><span v-if="chat.mode==='group'" class="chat-history-mode">群聊</span></span>
      <span class="chat-history-last">{{chat.lastMessage||'还没有消息'}}</span>
     </span>
     <span class="chat-history-time">{{when(chat)}}</span>
@@ -127,4 +177,13 @@ onUnmounted(()=>{mounted=false;for(const url of Object.values(avatars.value))URL
  .chat-history-time{display:none}
 }
 @media(max-width:520px){.chat-history-last{max-width:100%}}
+
+.chat-search-box{display:flex;align-items:center;gap:8px;margin:0 0 12px;padding:6px 10px;border:1px solid var(--edge);border-radius:12px;background:var(--canvas)}
+.chat-search-box input{flex:1;min-width:0;min-height:40px;border:0;background:transparent;color:var(--ink);padding:0 4px}
+.chat-search-box input::-webkit-search-cancel-button,.chat-search-box input::-webkit-search-decoration{-webkit-appearance:none;appearance:none;display:none}
+.chat-search-clear{flex:none;width:40px;height:40px;border:0;border-radius:8px;background:transparent;color:var(--quiet);font-size:20px;line-height:1;cursor:pointer}
+.chat-search-clear:hover{background:var(--wash);color:var(--ink)}
+.chat-search-count{margin:-6px 0 12px;font-size:13px;color:var(--quiet)}
+.chat-history-mark{padding:0 1px;border-radius:3px;background:rgba(196,120,66,.22);color:inherit}
+@media (max-width:767px){.chat-search-box input{min-height:44px}.chat-search-clear{width:44px;height:44px}}
 </style>

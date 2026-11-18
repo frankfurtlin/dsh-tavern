@@ -739,6 +739,32 @@ L 组 140/142、G 组 130–132、C/R/E 证据（90/91/92/94/95/101/102/152）�
 R 组收尾只删除**预设卡**及其聊天（按 `builtin`/`builtinSlug` 过滤；软删后种子不会重灌），
 不会动后续分组导入的角色卡/聊天——早期版本曾误删全部卡导致 S2 等后续分组受影响，已修正。
 
+## 首次引导 / 帮助 / 引用 / 全局搜索断言（P/Q 组 / task-81，P0 打磨）
+
+前置：task-79（引导 + 帮助页）与 task-80（引用回复 + /chats 全局搜索）都交付后自动启用。
+探针判定：`/settings/help` 渲染出帮助内容 **且** `/chats` 出现全局搜索框 → 整组启用；否则整组不产生检查项
+（保持既有 82 项计数不变，避免半交付状态打乱全量回归）。校准/提前演练可用 `DSH_TAVERN_P0=1` 强制启用。
+
+| # | 断言 | 证据字段 |
+| --- | --- | --- |
+| P1 | 首次访问酒馆（新上下文 + 清 `tavern:*` 存储）出现 3 步引导：①选一张角色卡 ②回一句话 ③DSH 工具条；可「开始体验」；`tavern:guide-seen` 写入；刷新不再出现 | `report.native.guide.onboarding`（step1/step2/step3/seen/showedAgain） |
+| P2 | 首页提示条含「点任意角色卡」；「?」进入 `/settings/help`；七节标题齐全（开始聊天/DSH 工具条/导入角色卡/预设卡/导出与备份/正则替换/世界书注入）；有返回入口 | `guide.hint`（hint/helpUrl/missing/backReady） |
+| P3 | 聊天页只有开场白时出现示例 chips（≥2 个，如 你好/继续/我来了）；点击只填入输入框、不自动发送 | `guide.chips`（chips/filled/rowsBefore/rowsAfter） |
+| P4 | 帮助页「重新查看（新手）引导」可再次触发引导弹层 | `guide.replay`（hasReplay/reopened） |
+| P5 | 侧栏顺序：酒馆在「Automation tasks / 自动化任务」之后、「知识库」之前（读宿主侧栏真实 DOM 顺序） | `guide.sidebar`（autoTask/tavern/knowledge/nav） |
+| Q1 | 消息操作「引用」→ 引用条含引文 → 发送：POST body 带 quote/quotedText；用户气泡显示引用块；GET `/chats/{id}` 该消息 `quotedText` 正确；刷新后仍在 | `report.native.quoteSearch.quote` |
+| Q2 | 引用可取消（× 或 Esc）→ 引用条消失；随后发送的 POST body 不带 quote | `quoteSearch.cancel` |
+| Q3 | `/chats` 全局搜索：标题片段命中且显示「找到 N 个聊天」；消息内容片段也能命中；无结果显示「没有匹配的聊天」；清空恢复列表 | `quoteSearch.search` |
+| Q4 | 390×844：搜索框/结果行/引用条无横向溢出，可见按钮触摸目标 ≥40px；没有搜索框与引用条时记 SKIP（owner cards-client） | `quoteSearch.mobile` |
+| Q5 | P/Q 组 console 无报错 | `guide.console` / `quoteSearch.console` |
+
+预期（两组全部交付）：**82 + 10 = 92 PASS / 0 FAIL / 0 SKIP**；真实生成 +1（Q1 发送，QI 可忽略）。
+截图：180-p1-onboarding.png、181-p2-hint-help.png、182-p3-chips.png、183-p4-guide-replay.png、
+184-q1-quote.png、185-q3-search.png、186-q4-mobile.png。
+
+> 浏览器版本漂移兜底：verify.mjs 启动时若 Playwright 期望的浏览器缺失，会自动复用本机已安装的
+> `chromium*` headless shell（也可用 `DSH_TAVERN_CHROMIUM=/path/to/chrome` 显式指定），并打印 `INFO 使用浏览器：…`。
+
 ## 实测记录（打磨 5 / task-76，2026-11-10）
 
 两轮验收（先清库，均真实生成）：
@@ -783,3 +809,57 @@ M 组 145、L 组 140、G 组 130/132、C/E 证据（90/91/92/93/100/101/110/112
 剩余风险：真实生成依赖 DSH 网关与上游模型（`opencode-go/deepseek-v4.1-flash`），偶发上游超时会在
 S2-3/G2 等真实生成断言上表现为「DSH 模型网关不可用，未收到回复」；本轮两轮均未复现（隔离 run1 曾出现一次，
 重跑即恢复），harness 对 S2-3 已捕获 SSE 错误尾部写入 `report.native.sampling.send.sseTail` 便于归因。
+
+## 实测记录（P0 引导/引用/搜索，task-81，2026-11-18）
+
+交付背景：dist 13:02:14（含 task-79 引导/帮助/chips、task-78+80 引用、task-77+80 全局搜索）；生产库已 migrate
+`quoted_text`，`dsh-tavern-api` ready；`client.js` 侧栏 order 已提交 c8d2f42（自动化任务 10 < 酒馆 12 < 知识库 14）。
+
+两轮验收（先清库，均真实生成）：
+
+- 隔离全量：`bash scripts/check.sh --instance`（systemd-run 独立 cgroup，3099 + 生产 app 8001/8810 + 生产网关）
+  → **92 PASS / 0 FAIL / 0 SKIP**，`ok=true`，报告 `/tmp/dsh-tavern-native/check/report.json`
+  （startedAt `2026-11-18T06:36:01Z`）。
+- 生产冒烟 prod-p0：`node verify.mjs --url "http://127.0.0.1:3080/?token=…" --out /tmp/dsh-tavern-native/prod-p0 --fixtures /tmp/dsh-tavern-native/cards`
+  → **92 PASS / 0 FAIL / 0 SKIP**，`ok=true`，报告 `/tmp/dsh-tavern-native/prod-p0/report.json`
+  （startedAt `2026-11-18T06:58:44Z`）。
+
+P/Q 证据（两轮一致）：
+
+- P1 引导 3 步：`steps=true seen=true reloadShown=false`（`tavern:guide-seen` 写入，刷新不再出现）。
+- P2 首页提示条 + `?` → `/settings/help`：`hint=true help=true missingSections=none back=true`（七节标题齐全）。
+- P3 示例 chips：`chips=你好/继续/我来了 filled="你好" rows 1→1`（点击只填入，不自动发送）。
+- P4 帮助页「重新查看（新手）引导」：`hasReplay=true reopened=true`（关闭后回到聊天继续后续断言）。
+- P5 侧栏顺序（宿主真实 DOM）：`autoTask=196 tavern=234 knowledge=272`，
+  nav 顺序 `Automation tasks → 酒馆 → 知识库`；生产 3080 同样生效，**无需重启 DSH**。
+- Q1 引用：引用条显示被引用原文；POST body `quote={text}`；用户气泡引用块 1 个；GET `quotedText` 与原文一致；刷新后仍在（`afterReload=1`）。
+- Q2 取消：`cancelled=true barAfter=0 sent=true quoteSent=false`（取消后发送不带 quote）。
+- Q3 搜索：标题片段 `找到 N 个聊天`；消息片段（取真实消息前 6 字）命中；无结果「没有匹配的聊天」；清空恢复列表。
+- Q4 390×844：`overflow=0/0`，搜索框 340×44、引用条 366×60，`<40px` 按钮 0。
+- Q5 P/Q console clean。
+
+harness 侧修复（未放宽断言，只修时序/环境）：
+
+- 浏览器版本漂移兜底：Playwright 1.58 期望 chromium-1208，本机只有 1243；launch 时自动探测
+  `~/.cache/ms-playwright/chromium*`（或 `DSH_TAVERN_CHROMIUM`）并复用，打印 `INFO 使用浏览器：…`。
+- 首次引导模态遮罩 `.guide-backdrop` 会拦截所有卡片点击：新增 `dismissTavernGuide()`（点「跳过/开始体验」或 Esc，
+  并写 `tavern:guide-seen`/`hint-dismissed`），在 `appGoto` 挂载、`findCard` 点击、fresh/mobile 新页面都先关闭；
+  P1 仍用「新上下文 + 清 `tavern:*`」单独验证引导本身。
+- P4 点击「重新查看引导」后必须把引导关掉再继续（否则后续 Q 组在遮罩下找不到引用入口）——已在其后 `dismissTavernGuide`。
+- Q1/Q2 入口前显式 `appGoto('/chats/<id>')` 回到聊天页（P4 结束时停在帮助页），并等 `.bubble-row` 渲染后再找
+  `.bubble-actions button[aria-label="引用这条消息"]`。
+- Q3 消息片段改为从 `GET /chats/{id}` 的真实消息文本取前 6 字（原先用固定串，Q1 未执行时会搜不到）。
+- R5 页面内列表 fetch 超时 8s→20s 且重试 3 次（隔离实例偶发列表请求 >8s 被 abort，报「卡库没有沈砚」）。
+- R6 移动页加载加 3 次重试（每次失败 reload 一次），失败时把 404/502 资源 URL 写入 detail。
+- G2/G3 上游偶发 flake（POST 200 但无 delta、UI 报「DSH 模型网关不可用」）增加**一次**重试并记录第一次 alert +
+  `gatewayProbe` + SSE 尾部，不静默重跑到全绿；S2-3 同样处理（`report.native.sampling.send.retryNotes`）。
+
+截图精选：`docs/screenshots/native-p0/`（7 张，1.3MB）：180-p1-onboarding、181-p2-hint-help、182-p3-chips、
+183-p4-guide-replay、184-q1-quote、185-q3-search、186-q4-mobile；生产全量 63 张在 `/tmp/dsh-tavern-native/prod-p0/`。
+
+清理核对：`world.tavern_messages=0`、`tavern_chats=0`、`tavern_world_info=0`、`character_cards=0`（物理删）、
+`tavern_personas=0`、`tavern_presets=1`（内置「默认」）、`regex_scripts=0`；`card-avatar-*.png`、`tavern-card-*.png` 已删；
+3099 无监听、`/tmp/dsh-tavern-native/instance` 已删除。未 commit。
+
+剩余风险：真实生成依赖 DSH 网关与上游模型，偶发「POST 200 但无 delta / 模型网关不可用」；本轮隔离与生产两轮
+均未复现（隔离调试轮曾 3 次命中，重试后恢复），已把 alert/probe/SSE 尾部写入报告便于归因，不当作产品缺陷。
