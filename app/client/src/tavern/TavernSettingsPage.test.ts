@@ -60,3 +60,10 @@ describe('TavernSettingsPage',()=>{
     expect(text(host)).toContain('返回角色卡')
   })
 })
+
+describe('TavernSettingsPage A1 layout',()=>{
+  it('renders without a duplicate page heading',async()=>{
+    mount();await flush()
+    expect(descendants(host,item=>item.tag==='h1')).toHaveLength(0)
+  })
+})

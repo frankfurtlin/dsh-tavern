@@ -416,14 +416,31 @@ def group_world_info(db, cards):
     return rows
 
 
+PREVIEW_MAX_CHARS = 80
+
+
+def preview_text(row):
+    """Plain-text preview of one message for the chat list.
+
+    The list row renders ``lastMessage`` directly, so it must be a string:
+    only the active swipe's text, whitespace folded (newlines become spaces),
+    trimmed, and capped at 80 Python characters.
+    """
+    if row is None:
+        return None
+    text = " ".join(str(swipe_content(row.swipes, row.active_swipe)).split())
+    if len(text) > PREVIEW_MAX_CHARS:
+        text = text[:PREVIEW_MAX_CHARS]
+    return text or None
+
+
 def chats_out(db, rows):
     items = []
     for row in rows:
         item = chat_out(row)
         messages = list_messages(db, row)
         last = messages[-1] if messages else None
-        names = speaker_name_map(row)
-        item["lastMessage"] = (message_out(last, names) if last is not None else None)
+        item["lastMessage"] = preview_text(last)
         item["lastMessageAt"] = iso(row.last_message_at)
         item["messageCount"] = len(messages)
         items.append(item)

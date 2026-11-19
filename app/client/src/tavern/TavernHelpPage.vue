@@ -41,7 +41,6 @@ const sections=[
 
 <template>
  <section class="tavern-help" aria-label="使用帮助">
-  <h1>使用帮助</h1>
   <p class="help-intro">花两分钟了解酒馆怎么用；也可以随时回来重新查看新手引导。</p>
 
   <section v-for="section in sections" :key="section.title" class="help-section" :aria-label="section.title">
@@ -59,19 +58,19 @@ const sections=[
 </template>
 
 <style scoped>
-.tavern-help{width:100%;max-width:760px;margin:0 auto;padding:24px clamp(14px,3vw,28px) 72px;display:flex;flex-direction:column;gap:18px}
-h1{font-family:var(--font-serif);font-size:28px;margin:0}
+.tavern-help{width:100%;max-width:760px;margin:0 auto;padding:24px clamp(16px,3vw,28px) 72px;display:flex;flex-direction:column;gap:20px}
+.tavern-help :focus-visible{outline:2px solid var(--accent-ink);outline-offset:2px}
 .help-intro{margin:0;color:var(--quiet);font-size:14px;line-height:1.7}
 .help-section{border-top:1px solid var(--edge);padding-top:16px;display:flex;flex-direction:column;gap:8px}
-.help-section h2{font-family:var(--font-serif);font-size:17px;margin:0;color:var(--ink)}
+.help-section h2{font-family:var(--font-serif);font-size:17px;font-weight:600;margin:0;color:var(--ink)}
 .help-section ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
 .help-section li{color:var(--quiet);font-size:14px;line-height:1.7}
 .help-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
-.help-actions button{min-height:44px;padding:0 18px;border-radius:10px;border:1px solid var(--edge);background:var(--canvas);color:var(--ink);cursor:pointer;font-size:14px}
-.help-actions .primary{border-color:var(--accent);background:var(--accent);color:#fff}
+.help-actions button{min-height:44px;padding:0 18px;border-radius:var(--r-control);border:1px solid var(--edge);background:var(--canvas);color:var(--ink);cursor:pointer;font-size:14px}
+.help-actions .primary{border-color:var(--accent);background:var(--accent);color:var(--on-accent)}
 @media(max-width:767px){
  .tavern-help{padding-bottom:96px}
- .help-actions{position:sticky;bottom:0;background:var(--canvas);border-top:1px solid var(--edge);padding:10px 0 calc(6px + env(safe-area-inset-bottom));margin:0 -14px -96px;padding-left:14px;padding-right:14px}
+ .help-actions{position:sticky;bottom:0;background:var(--canvas);border-top:1px solid var(--edge);padding:10px 0 calc(6px + env(safe-area-inset-bottom));margin:0 -16px -96px;padding-left:16px;padding-right:16px}
  .help-actions button{flex:1}
 }
 </style>

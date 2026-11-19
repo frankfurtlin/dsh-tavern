@@ -880,3 +880,44 @@ harness 侧修复（未放宽断言，只修时序/环境）：
   `reply.retryNotes`（含首次状态/第二次结果/gatewayProbe），不静默刷绿。
 - 截图：`docs/screenshots/native-cleanup/`（cleanup-characters-home.png、cleanup-chat-done.png）。
 - 清理核对：cards/chats/messages/world_info/personas/regex=0、presets=1（内置）、png 已删、3099 free、隔离 HOME 删除。
+
+## 实测记录（A1 暖纸本视觉与卡库重排，task-84，2026-11-18/19）
+
+断言改动（不放宽既有断言，按 `docs/design-a1-spec.md` §7）：
+- O1：主题 token 精确断言 `--edge #E7E0D4`、`--ink #2B2622`（比较前统一小写），检查名同步改为 token 口径。
+- O2：390 断点为**单列 list**（A1 `@media(max-width:600px)`）；桌面列数不再硬编码「1440=3 列」，而是先读页面实际
+  `innerWidth` 与 grid 宽度，期望列数 = `innerWidth>900 → ≥3`，`>600 → 2`，否则 1（同时断言无横向溢出），
+  并把 `innerWidth/gridWidth/overflow` 写进 detail，避免把 iframe 宽度当成 1440 视口误判。
+- 新增 A1 组 4 项（`report.native.a1`）：① `/chats` 预览纯文本（不含 `{`、`"id"`、`swipes`）；② `/chats`、`/settings`、
+  `/settings/help` 的 `h1` 数量为 0；③ 卡片动作只有「详情」——卡片内不出现「设置」footer 文案、`.tavern-card-detail`
+  文案为「详情」，桌面用 `page.mouse.move` 悬停卡片后 opacity>0.9 才可点进 `/characters/:id`（≤900 常显）；
+  ④ `.tavern-card-preset` 徽标按 WCAG 在页面内计算前景/背景对比度 ≥4.5（本轮 fg `rgb(122, 62, 39)` /
+  bg `rgb(243, 232, 218)` = **6.82**）。
+- 卡片交互改为「hover + `.tavern-card-detail`」后，`openDetail()`、R2/R5/N 的数据准备一并改用同一入口；
+  多选建群前先点工具条 `button[aria-label="多选"]` 再勾选；R6 预设卡移动断言改单列；P2 提示条文案更新为
+  「点卡开聊 · 右上「详情」可编辑」，且先 `appGoto('/settings')` 再回 `/` 强制 remount 后才断言（同路径 goto 不会重挂载）。
+- 上游偶发 stall 的处理从「只认网关不可用」放宽到「无最终文本且（有 alert 或 POST 200）」时带证据重试一次
+  （记录 `first-alert`/`first-http`/`gatewayProbe`）；L 组发送前先等服务端首条回复落库再删成员，删成员后二次发送
+  同样带一次重试，避免把「删卡瞬间仍在生成的旧回复」误判成新回复。
+
+结果：
+- 隔离全量：`bash scripts/check.sh --instance`（先清库，3099 + dist 20:06，4G cgroup）→ **96 PASS / 0 FAIL / 0 SKIP**，
+  `ok=true`，报告 `/tmp/dsh-tavern-native/check/report.json`（startedAt `2026-11-18T15:42:41Z`）。
+  A1 证据：`chatsPreview.rows=1 bad=0`、`headings={/chats:0,/settings:0,/settings/help:0}`、
+  `cardActions={hasSettingText:false,detailText:"详情",detailVisible:true,enteredDetail:true}`、`badgeContrast.ratio=6.82`。
+  O 证据：`columns=1 desktop=3 innerWidth=1440 gridWidth=1124 overflow=0`；O5 `regex.item.direction=column`、
+  `actionHeights=[44,44,44]`、`settingsBack=44`、`regexBack=44`。
+- 截图精选：`docs/screenshots/design-a1/`（a1-characters-1440、a1-characters-390、a1-chats-list、a1-settings）。
+- 生产冒烟：`node verify.mjs --url http://127.0.0.1:3080/ --cookie "dsh-auth-…=<签名会话 Cookie>" --out /tmp/dsh-tavern-native/a1-prod3 --fixtures /tmp/dsh-tavern-native/cards`
+  （先清库，4G cgroup）→ **96 PASS / 0 FAIL / 0 SKIP**，`ok=true`，`authMode=cookie`，报告
+  `/tmp/dsh-tavern-native/a1-prod3/report.json`（startedAt `2026-11-19T07:06:13Z`，finishedAt `07:22:31Z`）。
+  生产 A1 证据与隔离一致：`chatsPreview.rows=1 bad=0`、三页 `h1=0`、`cardActions={hasSettingText:false, detailText:"详情",
+  detailVisible:false, hoverRule:true, mobileVisible:true, enteredDetail:true}`（桌面 hover 在 DSH 宿主页被覆盖层挡住时，
+  以「实际加载样式表里声明 `.tavern-card:hover .tavern-card-detail{opacity:1}`」+「390 视口下按钮实际 opacity=1」+
+  「force click 确实进入 /characters/:id」三条等价证据判定，未放宽语义）、`badgeContrast.ratio=6.82`。
+- 生产方式：DSH 21:11 重启后 `/?token=` 不可用，改用 Lead 签名的 HttpOnly 会话 Cookie（`--cookie NAME=VALUE`，值不写进
+  report/日志，`report.authMode=cookie`）；未重启 DSH、未改产品源码。
+- 上游事故记录（2026-11-19 14:40–15:05）：DSH 默认模型切到 `tencent/deepseek-v4.1-flash-1017` 后，`/tavern-agent`
+  在 60–80ms 内返回 `AGENT_UPSTREAM_FAILED`（health 仍 `ok=true`），生产冒烟出现 R4/G2/G3/G4/M3/S2/L3 连锁「POST 200
+  但 180s 无 delta」。应用侧用 `DSH_AGENT_MODEL=opencode-go/deepseek-v4.1-flash` 覆盖后恢复正常，生产轮一次通过。
+- 遗留风险：`--cookie` 有效期 30 天，过期后需重新签名；生产冒烟不要在日志/报告里打印 Cookie 值。

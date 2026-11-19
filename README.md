@@ -161,6 +161,7 @@ chat 的 `POST /api/reader/v1/tavern/chats/<id>/messages` 由 8001 **直接在�
 | --- | --- | --- |
 | `app/.env` | `AI_MODE` | `dsh` = 应用走插件网关用 DSH 模型真生成；`mock` = 内置确定性回复（离线自测/回滚）；默认 `real`（应用自己的 provider 通道，与插件无关） |
 | `app/.env` | `DSH_AGENT_URL` | 应用侧调网关的地址，生产是 `http://127.0.0.1:3080/tavern-agent/v1` |
+| `app/.env` | `DSH_AGENT_MODEL` | 可选，指定这一路用的模型（`provider/model`），默认沿用 DSH 当前模型 |
 | `app/.env` | `DSH_AGENT_SECRET` | 应用调网关的 Bearer secret，与 `DSH_TAVERN_AGENT_SECRET` 配同一个值 |
 | `app/.env` | `DSH_TRUSTED_SECRET` | 应用侧校验可信登录头的 secret，插件转发 API 请求时附加 |
 | `app/.env` 或宿主环境 | `DSH_TAVERN_AGENT_SECRET` | 模型网关 Bearer secret；缺省回退 `DSH_TRUSTED_SECRET`，都没有则网关一律 401 |

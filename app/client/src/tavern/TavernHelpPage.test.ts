@@ -44,3 +44,10 @@ describe('TavernHelpPage',()=>{
     expect(harness.push).toHaveBeenCalledWith({path:'/',query:{guide:'1'}})
   })
 })
+
+describe('TavernHelpPage A1 layout',()=>{
+  it('renders without a duplicate page heading',async()=>{
+    mount();await flush()
+    expect(descendants(host,item=>item.tag==='h1')).toHaveLength(0)
+  })
+})

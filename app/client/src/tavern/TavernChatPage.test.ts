@@ -34,7 +34,7 @@ vi.mock('./api',()=>({
 vi.mock('../platform/download',()=>({saveBlob:vi.fn(),safeFileName:(name:string,fallback:string)=>name||fallback}))
 vi.mock('./sse',()=>({streamChat:vi.fn()}))
 vi.mock('../components/Sheet.vue',()=>({default:defineComponent({props:{title:{type:String,default:''}},emits:['close'],setup:(props,{slots})=>()=>h('section',{class:'sheet-stub'},[h('h2',{},props.title),slots.default?.()])})}))
-vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{ArrowLeft:stub,ChevronDown:stub,ChevronLeft:stub,ChevronRight:stub,ChevronUp:stub,Download:stub,Pencil:stub,Quote:stub,RefreshCw:stub,Search:stub,Send:stub,Square:stub,Trash2:stub,X:stub}})
+vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{ArrowLeft:stub,ChevronDown:stub,ChevronLeft:stub,ChevronRight:stub,ChevronUp:stub,Download:stub,HelpCircle:stub,Pencil:stub,Quote:stub,RefreshCw:stub,Search:stub,Send:stub,Square:stub,Trash2:stub,X:stub}})
 compileRender(TavernChatPage,new URL('./TavernChatPage.vue',import.meta.url))
 
 type Msg={id:string;role:'user'|'assistant';sequence:number;swipes:{content:string}[];activeSwipe:number;quotedText?:string|null}
