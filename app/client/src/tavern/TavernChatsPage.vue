@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {computed,onMounted,onUnmounted,ref,watch} from 'vue'
 import {useRouter} from 'vue-router'
+import {X} from 'lucide-vue-next'
 import {useApp} from '../stores/app'
 import {useRequestScope} from '../platform/request-scope'
 import {authorizationHeaders} from '../api'
@@ -112,13 +113,9 @@ onUnmounted(()=>{mounted=false;if(searchTimer!==undefined)clearTimeout(searchTim
 
 <template>
  <section class="tavern-home" aria-label="聊天历史">
-  <header class="tavern-page-head">
-   <h1>聊天历史</h1>
-   <button type="button" class="tavern-back" @click="router.push('/')">返回角色卡</button>
-  </header>
   <div class="chat-search-box" role="search">
    <input v-model="query" type="search" aria-label="搜索聊天" placeholder="搜索标题或消息内容">
-   <button v-if="query" type="button" class="chat-search-clear" aria-label="清空搜索" @click="query=''">×</button>
+   <button v-if="query" type="button" class="chat-search-clear" aria-label="清空搜索" title="清空搜索" @click="query=''"><X :size="18"/></button>
   </div>
   <p v-if="searching" class="chat-search-count" role="status">{{searchBusy?'搜索中…':'找到 '+chats.length+' 个聊天'}}</p>
 
@@ -150,38 +147,37 @@ onUnmounted(()=>{mounted=false;if(searchTimer!==undefined)clearTimeout(searchTim
 </template>
 
 <style scoped>
-.tavern-home{width:100%;max-width:1120px;margin:0 auto;padding:22px clamp(14px,3vw,28px) 64px}
+.tavern-home{width:100%;max-width:1180px;margin:0 auto;padding:24px clamp(16px,3vw,28px) 64px}
+.tavern-home :focus-visible{outline:2px solid var(--accent-ink);outline-offset:2px}
 .tavern-page-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px}
 .tavern-page-head h1{font-family:var(--font-serif);font-size:24px;margin:0;color:var(--ink)}
 .tavern-back{min-height:40px;padding:0 14px;border:1px solid var(--edge);border-radius:10px;background:var(--canvas);color:var(--quiet);font-size:13px;cursor:pointer}
 .tavern-back:hover{color:var(--accent);border-color:var(--accent)}
 .chat-history-list{display:flex;flex-direction:column;gap:8px}
-.chat-history-row{display:flex;align-items:center;gap:12px;width:100%;padding:12px 14px;min-height:52px;border:1px solid var(--edge);border-radius:14px;background:var(--canvas);color:inherit;text-align:left;cursor:pointer}
+.chat-history-row{display:flex;align-items:center;gap:12px;width:100%;padding:10px 14px;min-height:64px;border:1px solid var(--edge);border-radius:var(--r-card);background:var(--canvas);color:inherit;text-align:left;cursor:pointer;transition:border-color 140ms ease-out}
 .chat-history-row:hover{border-color:var(--accent)}
 .chat-history-avatars{display:flex;flex:none}
-.chat-history-avatar{width:34px;height:34px;margin-left:-8px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--wash);color:var(--accent);font-size:13px;border:2px solid var(--canvas)}
+.chat-history-avatar{width:34px;height:34px;margin-left:-8px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--wash);color:var(--accent-ink);font-size:13px;border:2px solid var(--canvas)}
 .chat-history-avatar:first-child{margin-left:0}
 .chat-history-avatar img{width:100%;height:100%;object-fit:cover;display:block}
 .chat-history-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
-.chat-history-name{font-size:15px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.chat-history-mode{display:inline-block;margin-left:6px;padding:0 6px;border-radius:6px;background:var(--wash);color:var(--accent);font-size:11px}
-.chat-history-last{font-size:13px;color:var(--quiet);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-history-name{font-size:15px;font-weight:500;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-history-mode{display:inline-block;margin-left:6px;padding:0 6px;border-radius:6px;background:var(--wash);color:var(--accent-ink);font-size:11px}
+.chat-history-last{font-size:13px;color:var(--quiet);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.5}
 .chat-history-time{flex:none;font-size:12px;color:var(--quiet)}
 .tavern-empty{display:flex;flex-direction:column;align-items:center;gap:8px;padding:64px 16px;text-align:center;color:var(--quiet)}
-.tavern-empty-action{min-height:40px;padding:0 16px;border:1px solid var(--accent);border-radius:10px;background:var(--accent);color:#fff;font-size:14px;cursor:pointer}
-.tavern-empty-action{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;border:1px solid var(--accent);border-radius:10px;background:var(--accent);color:#fff;font-size:14px;cursor:pointer}
+.tavern-empty-action{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;border:1px solid var(--accent);border-radius:var(--r-control);background:var(--accent);color:var(--on-accent);font-size:14px;cursor:pointer}
 @media(max-width:767px){
- .tavern-page-head h1{font-size:21px}
- .chat-history-row{gap:10px;padding:12px}
+ .chat-history-row{gap:10px;padding:10px 12px}
  .chat-history-avatar{width:30px;height:30px}
  .chat-history-time{display:none}
 }
 @media(max-width:520px){.chat-history-last{max-width:100%}}
 
-.chat-search-box{display:flex;align-items:center;gap:8px;margin:0 0 12px;padding:6px 10px;border:1px solid var(--edge);border-radius:12px;background:var(--canvas)}
-.chat-search-box input{flex:1;min-width:0;min-height:40px;border:0;background:transparent;color:var(--ink);padding:0 4px}
+.chat-search-box{display:flex;align-items:center;gap:8px;margin:0 0 14px;padding:4px 8px 4px 12px;border:1px solid var(--edge);border-radius:var(--r-control);background:var(--canvas)}
+.chat-search-box input{flex:1;min-width:0;min-height:44px;border:0;background:transparent;color:var(--ink);padding:0 4px}
 .chat-search-box input::-webkit-search-cancel-button,.chat-search-box input::-webkit-search-decoration{-webkit-appearance:none;appearance:none;display:none}
-.chat-search-clear{flex:none;width:40px;height:40px;border:0;border-radius:8px;background:transparent;color:var(--quiet);font-size:20px;line-height:1;cursor:pointer}
+.chat-search-clear{flex:none;display:flex;align-items:center;justify-content:center;width:40px;height:40px;border:0;border-radius:8px;background:transparent;color:var(--quiet);cursor:pointer}
 .chat-search-clear:hover{background:var(--wash);color:var(--ink)}
 .chat-search-count{margin:-6px 0 12px;font-size:13px;color:var(--quiet)}
 .chat-history-mark{padding:0 1px;border-radius:3px;background:rgba(196,120,66,.22);color:inherit}

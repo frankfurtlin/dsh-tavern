@@ -10,7 +10,7 @@ vi.mock('vue-router',()=>({useRouter:()=>({push:harness.push})}))
 vi.mock('../stores/app',()=>({useApp:()=>({message:vi.fn()})}))
 vi.mock('../platform/request-scope',()=>({useRequestScope:()=>{let disposed=false;onUnmounted(()=>{disposed=true});return()=>({valid:()=>!disposed})}}))
 vi.mock('../api',()=>({authorizationHeaders:()=>({})}))
-vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{MessageSquareText:stub}})
+vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{MessageSquareText:stub,X:stub}})
 vi.mock('./api',()=>({listChats:vi.fn(),tavernAvatarUrl:(cardId:string)=>'/avatar/'+cardId}))
 
 compileRender(TavernChatsPage,new URL('./TavernChatsPage.vue',import.meta.url))
@@ -106,5 +106,20 @@ describe('TavernChatsPage',()=>{
       const mark=descendants(host,item=>item.tag==='mark'&&text(item).trim()==='作家')
       expect(mark).toHaveLength(1)
     })
+  })
+})
+
+describe('TavernChatsPage A1 layout',()=>{
+  it('renders no page heading or back-to-characters button',async()=>{
+    mount();await flush()
+    expect(descendants(host,item=>item.tag==='h1')).toHaveLength(0)
+    expect(text(host)).not.toContain('返回角色卡')
+    expect(text(host)).not.toContain('聊天历史')
+  })
+
+  it('renders the plain-text preview without JSON fragments',async()=>{
+    mount();await flush()
+    expect(text(host)).toContain('雨停了')
+    expect(text(host)).not.toContain('swipes')
   })
 })

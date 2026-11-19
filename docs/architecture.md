@@ -620,6 +620,7 @@ DSH 切到别的面板会卸载 main 座位，iframe 一并销毁。插件侧做
 | --- | --- | --- |
 | `AI_MODE` | `app/.env` | `dsh` = 应用走插件网关真生成；`mock` = 内置确定性回复（离线自测/回滚）；默认 `real`（应用自己的 provider 通道） |
 | `DSH_AGENT_URL` | `app/.env` | 应用侧调网关的地址，生产 `http://127.0.0.1:3080/tavern-agent/v1` |
+| `DSH_AGENT_MODEL` | `app/.env` | 可选，`provider/model`（如 `opencode-go/deepseek-v4.1-flash`）；DSH 默认模型切到未给网关配好凭据的 provider 时由应用侧覆盖，不必重启 DSH |
 | `DSH_AGENT_SECRET` | `app/.env` | 应用调网关用的 Bearer secret，与 `DSH_TAVERN_AGENT_SECRET` 同值 |
 | `DSH_TRUSTED_SECRET` | `app/.env` | 应用侧校验可信头的 secret；插件启动时读入 |
 | `DSH_TAVERN_TRUSTED_SECRET` | 宿主环境 | 覆盖上面的 secret（隔离测试/应急） |

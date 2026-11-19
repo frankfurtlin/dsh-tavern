@@ -43,7 +43,6 @@ onMounted(()=>{
 
 <template>
  <section class="tavern-settings" aria-label="设置">
-  <h1>设置</h1>
   <p class="muted">酒馆 2.0 的全局设置：你的身份、提示词预设与导入导出。所有数据都保存在你自己的账号下。</p>
 
   <section class="settings-section" aria-label="人设（我是谁）">
@@ -96,18 +95,18 @@ onMounted(()=>{
 </template>
 
 <style scoped>
-.tavern-settings{width:100%;max-width:760px;margin:0 auto;padding:24px clamp(14px,3vw,28px) 72px;display:flex;flex-direction:column;gap:26px}
-h1{font-family:var(--font-serif);font-size:28px;margin:0 0 8px}
+.tavern-settings{width:100%;max-width:760px;margin:0 auto;padding:24px clamp(16px,3vw,28px) 72px;display:flex;flex-direction:column;gap:24px}
+.tavern-settings :focus-visible{outline:2px solid var(--accent-ink);outline-offset:2px}
 .muted{color:var(--quiet);font-size:14px;line-height:1.7;margin:0}
-.settings-section{display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--edge);padding-top:20px}
+.settings-section{display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--edge);padding-top:22px}
 .settings-section h2{display:flex;align-items:center;gap:8px;font-size:17px;margin:0;font-family:var(--font-serif)}
-.settings-section h2 svg{color:var(--accent)}
+.settings-section h2 svg{color:var(--accent-ink)}
 .section-hint{color:var(--quiet);font-size:13px;line-height:1.6;margin:0}
 .default-persona{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--quiet);max-width:320px}
 .import-list{margin:0;padding-left:18px;color:var(--quiet);font-size:14px;line-height:1.9}
-.settings-link{color:var(--accent);text-decoration:underline}
+.settings-link{color:var(--accent-ink);text-decoration:underline}
 .settings-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.settings-back{display:inline-flex;min-height:44px;align-items:center;color:var(--accent)}
+.settings-back{display:inline-flex;min-height:44px;align-items:center;color:var(--accent-ink)}
 .settings-footer small{color:var(--quiet)}
 @media(max-width:767px){
  .tavern-settings{padding-bottom:96px;gap:22px}

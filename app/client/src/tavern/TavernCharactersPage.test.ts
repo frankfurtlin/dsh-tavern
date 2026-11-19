@@ -10,7 +10,7 @@ const harness=vi.hoisted(()=>({push:vi.fn(),message:vi.fn(),route:{query:{}}}))
 vi.mock('vue-router',()=>({useRoute:()=>harness.route,useRouter:()=>({push:harness.push,replace:vi.fn()})}))
 vi.mock('../stores/app',()=>({useApp:()=>({message:harness.message,user:{id:'u1'}})}))
 vi.mock('../platform/request-scope',()=>({useRequestScope:()=>{let disposed=false;onUnmounted(()=>{disposed=true});return()=>({valid:()=>!disposed})}}))
-vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{Check:stub,History:stub,MessagesSquare:stub,Search:stub,Upload:stub}})
+vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{Check:stub,HelpCircle:stub,History:stub,ListChecks:stub,MessagesSquare:stub,Search:stub,Upload:stub,X:stub}})
 vi.mock('./api',()=>({
   listCharacters:vi.fn(),
   characterAvatarBlob:vi.fn(async()=>null),
@@ -36,6 +36,8 @@ function mount(){
   app.mount(host)
 }
 function state(){return (app as unknown as {_instance:{setupState:Record<string,unknown>}})._instance.setupState}
+function toggleMulti(){descendants(host,item=>item.props['aria-label']==='多选')[0]!.props.onClick?.()}
+function detailButton(name:string){return descendants(host,item=>item.props['aria-label']==='查看 '+name+' 详情')[0]}
 function selectButton(name:string){return descendants(host,item=>item.props['aria-label']==='选择 '+name+' 加入群聊')[0]}
 function groupButton(){return descendants(host,item=>item.tag==='button'&&text(item).trim().startsWith('发起群聊'))[0]}
 
@@ -50,6 +52,7 @@ afterEach(()=>{app?.unmount();app=undefined;vi.unstubAllGlobals()})
 describe('TavernCharactersPage group selection',()=>{
   it('creates a group chat from two selected cards and opens it',async()=>{
     mount();await flush()
+    toggleMulti();await flush()
     selectButton('角色A')!.props.onClick?.()
     await flush()
     selectButton('角色B')!.props.onClick?.()
@@ -64,6 +67,7 @@ describe('TavernCharactersPage group selection',()=>{
 
   it('disables the group action until at least two cards are selected',async()=>{
     mount();await flush()
+    toggleMulti();await flush()
     selectButton('角色A')!.props.onClick?.()
     await flush()
     expect(groupButton()!.props.disabled).toBe(true)
@@ -71,6 +75,7 @@ describe('TavernCharactersPage group selection',()=>{
 
   it('stops at five members and explains the limit',async()=>{
     mount();await flush()
+    toggleMulti();await flush()
     for(const name of ['角色A','角色B','角色C','角色D','角色E']){
       selectButton(name)!.props.onClick?.()
       await flush()
@@ -83,6 +88,7 @@ describe('TavernCharactersPage group selection',()=>{
 
   it('clears the selection from the action bar',async()=>{
     mount();await flush()
+    toggleMulti();await flush()
     selectButton('角色A')!.props.onClick?.()
     selectButton('角色B')!.props.onClick?.()
     await flush()
@@ -141,7 +147,7 @@ describe('TavernCharactersPage preset badge',()=>{
       mount();await flush()
       const hintRow=()=>descendants(host,item=>String(item.props.class||'').includes('tavern-hint')&&!String(item.props.class||'').includes('tavern-hint-'))
       expect(hintRow().length).toBeGreaterThan(0)
-      expect(text(hintRow()[0]!)).toContain('点任意角色卡，立即开始聊天')
+      expect(text(hintRow()[0]!)).toContain('点卡开聊')
       const close=descendants(host,item=>item.props['aria-label']==='关闭提示')[0]
       close!.props.onClick?.()
       await flush()
@@ -165,5 +171,41 @@ describe('TavernCharactersPage preset badge',()=>{
       mount();await flush()
       expect(text(host)).toContain('欢迎来到酒馆')
     })
+  })
+})
+
+describe('TavernCharactersPage A1 layout',()=>{
+  it('hides selection checkboxes until multi-select mode is enabled',async()=>{
+    mount();await flush()
+    expect(selectButton('角色A')).toBeUndefined()
+    toggleMulti();await flush()
+    expect(selectButton('角色A')).toBeDefined()
+    expect(descendants(host,item=>item.props['aria-pressed']===true&&String(item.props['aria-label']||'').startsWith('选择 '))).toHaveLength(0)
+    selectButton('角色A')!.props.onClick?.()
+    await flush()
+    expect(descendants(host,item=>item.props['aria-pressed']===true&&String(item.props['aria-label']||'').startsWith('选择 '))).toHaveLength(1)
+    toggleMulti();await flush()
+    expect(selectButton('角色A')).toBeUndefined()
+    expect((state().selected as string[])).toEqual([])
+  })
+
+  it('shows only a detail action on the card and opens the detail page',async()=>{
+    mount();await flush()
+    expect(text(host)).not.toContain('设置')
+    const detail=detailButton('角色A')!
+    expect(text(detail).trim()).toBe('详情')
+    detail.props.onClick?.()
+    expect(harness.push).toHaveBeenCalledWith('/characters/c1')
+  })
+
+  it('trims a long description to a complete sentence without a dangling ellipsis',async()=>{
+    vi.mocked(listCharacters).mockResolvedValue([{...cards[0],
+      description:'雨夜的街道很安静，侦探把伞收在门口，抬头看见二楼还亮着一盏昏黄的灯。',
+    }] as never)
+    mount();await flush()
+    const clamp=(state().descPreview as (card:unknown)=>string)({description:'这是一个非常长的简介，' .repeat(4)+'最后一句应当完整收尾。还有不显示的部分。'})
+    expect(clamp.endsWith('。')||clamp.endsWith('…')).toBe(true)
+    expect(clamp).not.toContain('…。')
+    expect(text(host)).toContain('雨夜的街道很安静')
   })
 })

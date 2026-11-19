@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed,nextTick,onMounted,onUnmounted,ref,watch} from 'vue'
 import {useRoute,useRouter} from 'vue-router'
-import {ArrowLeft,ChevronDown,ChevronLeft,ChevronRight,ChevronUp,Download,Pencil,Quote,RefreshCw,Search,Send,Square,Trash2,X} from 'lucide-vue-next'
+import {ArrowLeft,ChevronDown,ChevronLeft,ChevronRight,ChevronUp,Download,HelpCircle,Pencil,Quote,RefreshCw,Search,Send,Square,Trash2,X} from 'lucide-vue-next'
 import {authorizationHeaders} from '../api'
 import {useApp} from '../stores/app'
 import {useRequestScope} from '../platform/request-scope'
@@ -563,7 +563,7 @@ onUnmounted(()=>{
     </div>
    </div>
    <div class="chat-menu">
-    <button type="button" class="chat-icon" aria-label="使用帮助" title="使用帮助" @click="router.push('/settings/help')">?</button>
+    <button type="button" class="chat-icon" aria-label="使用帮助" title="使用帮助" @click="router.push('/settings/help')"><HelpCircle :size="19"/></button>
     <button type="button" class="chat-icon" aria-label="搜索聊天内容" :aria-expanded="searchOpen" @click="toggleSearch"><Search :size="19"/></button>
     <button type="button" class="chat-icon" aria-label="聊天菜单" @click="exportMenuOpen=!exportMenuOpen"><Download :size="19"/></button>
     <div v-if="exportMenuOpen" class="chat-menu-pop" role="menu">

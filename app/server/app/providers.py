@@ -344,6 +344,14 @@ class DshAgentAdapter(ChatCompletionsAdapter):
         # 保持同一段对话的路由/缓存稳定，避免每轮被当成一次性请求。
         if conversation_id:
             body["sessionId"] = str(conversation_id)[:200]
+        # 可选覆盖：DSH 默认模型切到某条未配好网关凭据的 provider 时（如 tencent），
+        # 由 app/.env 的 DSH_AGENT_MODEL=provider/model 指定这一路用哪个模型，
+        # 不需要重启 DSH 宿主。格式不对则忽略，仍走默认模型。
+        chosen = (settings.dsh_agent_model or "").strip()
+        if "/" in chosen:
+            provider, model = (part.strip() for part in chosen.split("/", 1))
+            if provider and model:
+                body["model"] = {"provider": provider, "model": model}
         if data.get("_structured"):
             body["temperature"] = 0.2
         return body

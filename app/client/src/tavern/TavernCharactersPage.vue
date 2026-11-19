@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed,onMounted,onUnmounted,ref,watch} from 'vue'
 import {useRoute,useRouter} from 'vue-router'
-import {Check,History,MessagesSquare,Search,Upload} from 'lucide-vue-next'
+import {Check,HelpCircle,History,ListChecks,MessagesSquare,Search,Upload,X} from 'lucide-vue-next'
 import {useApp} from '../stores/app'
 import {useRequestScope} from '../platform/request-scope'
 import {importCharacter,listCharacters,characterAvatarBlob,listCharacterChats,createCharacterChat,createGroupChat,type TavernCharacter} from './api'
@@ -21,6 +21,7 @@ const importing=ref(false)
 const opening=ref('')
 const importError=ref('')
 const selected=ref<string[]>([])
+const multiselect=ref(false)
 const grouping=ref(false)
 const groupError=ref('')
 const avatars=ref<Record<string,string>>({})
@@ -96,6 +97,22 @@ const empty=computed(()=>!loading.value&&!error.value&&!cards.value.length)
 const selectedCards=computed(()=>selected.value.map(id=>cards.value.find(card=>card.id===id)).filter((card):card is TavernCharacter=>!!card))
 const canGroup=computed(()=>selected.value.length>=2)
 
+function toggleMultiselect(){
+  multiselect.value=!multiselect.value
+  if(!multiselect.value)selected.value=[]
+}
+
+function descPreview(card:TavernCharacter){
+  const raw=(card.description||'还没有简介').replace(/\s+/g,' ').trim()
+  if(raw.length<=68)return raw
+  const head=raw.slice(0,66)
+  const marks='。！？!?；;，,'
+  for(let i=head.length-1;i>=Math.max(0,head.length-26);i--){
+    if(marks.includes(head[i]))return head.slice(0,i+1)
+  }
+  return head.replace(/[。！？!?；;，,、]+$/,'')+'…'
+}
+
 function toggleSelect(card:TavernCharacter){
   const index=selected.value.indexOf(card.id)
   if(index>=0){selected.value=selected.value.filter(id=>id!==card.id);return}
@@ -137,6 +154,7 @@ onUnmounted(()=>{clearTimeout(debounce);for(const url of Object.values(avatars.v
     <input v-model="query" type="search" placeholder="搜索角色名或简介" aria-label="搜索角色卡" autocomplete="off">
     <span v-if="searching" class="tavern-searching" aria-hidden="true">…</span>
    </label>
+   <button type="button" class="tavern-history" :class="{on:multiselect}" :aria-pressed="multiselect" aria-label="多选" @click="toggleMultiselect"><ListChecks :size="17" aria-hidden="true"/><span>{{multiselect?'完成':'多选'}}</span></button>
    <button type="button" class="tavern-history" aria-label="聊天历史" @click="router.push('/chats')"><History :size="17" aria-hidden="true"/><span>聊天历史</span></button>
    <label class="tavern-import" :class="{busy:importing}">
     <Upload :size="17" aria-hidden="true"/>
@@ -146,14 +164,14 @@ onUnmounted(()=>{clearTimeout(debounce);for(const url of Object.values(avatars.v
   </div>
 
   <div v-if="hintVisible" class="tavern-hint" role="note">
-   <span class="tavern-hint-text">点任意角色卡，立即开始聊天 · 预设卡可直接删</span>
-   <button type="button" class="tavern-hint-help" aria-label="使用帮助" title="使用帮助" @click="router.push('/settings/help')">?</button>
-   <button type="button" class="tavern-hint-close" aria-label="关闭提示" @click="closeHint">×</button>
+   <span class="tavern-hint-text">点卡开聊 · 右上「详情」可编辑</span>
+   <button type="button" class="tavern-hint-help" aria-label="使用帮助" title="使用帮助" @click="router.push('/settings/help')"><HelpCircle :size="18"/></button>
+   <button type="button" class="tavern-hint-close" aria-label="关闭提示" title="关闭提示" @click="closeHint"><X :size="18"/></button>
   </div>
 
   <p v-if="groupError" class="error" role="alert">{{groupError}}<button class="inline-link" type="button" @click="groupError=''">知道了</button></p>
 
-  <div v-if="selected.length" class="tavern-select-bar" role="status">
+  <div v-if="multiselect&&selected.length" class="tavern-select-bar" role="status">
    <span class="tavern-select-count">已选 {{selected.length}} 张</span>
    <span class="tavern-select-names">{{selectedCards.map(card=>card.name).join('、')}}</span>
    <button type="button" class="tavern-select-clear" @click="clearSelection">清空</button>
@@ -177,9 +195,9 @@ onUnmounted(()=>{clearTimeout(debounce);for(const url of Object.values(avatars.v
    </template>
   </LoadState>
 
-  <div v-else class="tavern-grid tavern-card-grid">
-   <div v-for="card in cards" :key="card.id" class="tavern-card" :class="{selected:selected.includes(card.id)}">
-    <button type="button" class="tavern-select" :class="{on:selected.includes(card.id)}" :aria-pressed="selected.includes(card.id)" :aria-label="'选择 '+card.name+' 加入群聊'" @click="toggleSelect(card)"><Check :size="15"/></button>
+  <div v-else class="tavern-card-grid">
+   <div v-for="card in cards" :key="card.id" class="tavern-card" :class="{selected:multiselect&&selected.includes(card.id)}">
+    <button v-if="multiselect" type="button" class="tavern-select" :class="{on:selected.includes(card.id)}" :aria-pressed="selected.includes(card.id)" :aria-label="'选择 '+card.name+' 加入群聊'" @click="toggleSelect(card)"><Check :size="18"/></button>
     <button type="button" class="tavern-card-open" :disabled="opening===card.id" :aria-label="'和 '+card.name+' 聊天'" @click="openChat(card)">
      <span class="tavern-avatar" aria-hidden="true">
       <img v-if="avatars[card.id]" :src="avatars[card.id]" alt="">
@@ -190,90 +208,80 @@ onUnmounted(()=>{clearTimeout(debounce);for(const url of Object.values(avatars.v
        <span class="tavern-card-name">{{card.name}}</span>
        <span v-if="card.builtin" class="tavern-card-preset">预设</span>
       </span>
-      <span class="tavern-card-desc">{{card.description||'还没有简介'}}</span>
-      <span class="tavern-card-meta">
-       <span v-if="card.lastChatAt">最近聊天 {{new Date(card.lastChatAt).toLocaleDateString('zh-CN')}}</span>
-       <span v-else>还没聊过</span>
-       <span v-if="card.tags.length" class="tavern-tags">{{card.tags.slice(0,3).join(' · ')}}</span>
-      </span>
+      <span class="tavern-card-desc">{{descPreview(card)}}</span>
+      <span class="tavern-card-meta"><template v-if="card.lastChatAt">最近聊天 {{new Date(card.lastChatAt).toLocaleDateString('zh-CN')}}</template><template v-else>还没聊过</template><template v-if="card.tags.length"> · {{card.tags.slice(0,3).join(' · ')}}</template></span>
      </span>
     </button>
-    <button type="button" class="tavern-card-edit" :aria-label="'编辑角色卡 '+card.name" title="角色设置" @click="openDetail(card)">设置</button>
+    <button type="button" class="tavern-card-detail" :aria-label="'查看 '+card.name+' 详情'" @click="openDetail(card)">详情</button>
    </div>
   </div>
   <OnboardingGuide :open="guideOpen" @close="closeGuide"/>
  </section>
 </template>
-
 <style scoped>
-.tavern-home{width:100%;max-width:1120px;margin:0 auto;padding:22px clamp(14px,3vw,28px) 64px}
-.tavern-toolbar{display:flex;gap:10px;align-items:center;margin-bottom:22px}
-.tavern-hint{display:flex;align-items:center;gap:10px;margin:-8px 0 18px;padding:8px 10px 8px 14px;border:1px solid var(--edge);border-radius:10px;background:var(--wash);color:var(--quiet);font-size:13px;line-height:1.5}
-.tavern-hint-text{flex:1;min-width:0}
-.tavern-hint-help,.tavern-hint-close{flex:none;width:32px;height:32px;min-height:32px;padding:0;display:flex;align-items:center;justify-content:center;border:1px solid var(--edge);border-radius:50%;background:var(--canvas);color:var(--ink);font-size:15px;line-height:1;cursor:pointer}
-.tavern-hint-help{color:var(--accent);font-weight:600}
-.tavern-search{flex:1;display:flex;align-items:center;gap:8px;padding:0 12px;min-height:46px;border:1px solid var(--edge);border-radius:12px;background:var(--canvas);color:var(--quiet)}
-.tavern-search input{flex:1;min-width:0;border:0;background:transparent;min-height:44px;font-size:15px;color:var(--ink);outline:none}
-.tavern-searching{font-size:13px}
-.tavern-history{display:flex;align-items:center;gap:6px;min-height:46px;padding:0 14px;border:1px solid var(--edge);border-radius:12px;background:var(--canvas);color:var(--quiet);font-size:14px;cursor:pointer;white-space:nowrap}
-.tavern-history:hover{color:var(--accent);border-color:var(--accent)}
-.tavern-select-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;padding:10px 12px;border:1px solid var(--accent);border-radius:14px;background:rgba(120,90,60,.06)}
-.tavern-select-count{font-size:14px;color:var(--ink)}
-.tavern-select-names{flex:1;min-width:0;font-size:13px;color:var(--quiet);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tavern-select-clear,.tavern-select-group{min-height:40px;padding:0 14px;border-radius:10px;border:1px solid var(--edge);background:var(--canvas);color:var(--quiet);font-size:13px;cursor:pointer}
-.tavern-select-group{display:flex;align-items:center;gap:6px;border-color:var(--accent);background:var(--accent);color:#fff}
-.tavern-select-group:disabled{opacity:.45;cursor:not-allowed}
-.tavern-select{position:absolute;top:6px;left:6px;z-index:2;display:flex;align-items:center;justify-content:center;width:26px;height:26px;min-height:0;padding:0;border:1px solid var(--edge);border-radius:8px;background:rgba(255,255,255,.82);color:transparent;cursor:pointer}
-.tavern-select.on{background:var(--accent);border-color:var(--accent);color:#fff}
-.tavern-card.selected{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
-.tavern-import,.tavern-empty-import{position:relative;display:flex;align-items:center;gap:8px;min-height:46px;padding:0 16px;border:1px solid var(--accent);border-radius:12px;background:var(--accent);color:#fff;font-size:14px;cursor:pointer;white-space:nowrap}
+.tavern-home{width:100%;max-width:1180px;margin:0 auto;padding:24px clamp(16px,3vw,28px) 64px}
+.tavern-home :focus-visible{outline:2px solid var(--accent-ink);outline-offset:2px}
+.tavern-toolbar{display:flex;gap:10px;align-items:center;margin-bottom:20px}
+.tavern-search{flex:1;display:flex;align-items:center;gap:8px;padding:0 12px;min-height:46px;border:1px solid var(--edge);border-radius:var(--r-control);background:var(--canvas);color:var(--quiet)}
+.tavern-search input{flex:1;min-width:0;border:0;background:transparent;min-height:44px;font-size:14px;color:var(--ink);outline:none}
+.tavern-searching{font-size:13px;color:var(--accent-ink)}
+.tavern-history{display:flex;align-items:center;gap:6px;min-height:46px;padding:0 14px;border:1px solid var(--edge);border-radius:var(--r-control);background:var(--canvas);color:var(--quiet);font-size:14px;cursor:pointer;white-space:nowrap;transition:color 140ms ease-out,border-color 140ms ease-out}
+.tavern-history:hover{color:var(--accent-ink);border-color:var(--accent)}
+.tavern-history.on{color:var(--accent-ink);border-color:var(--accent);background:var(--wash)}
+.tavern-import,.tavern-empty-import{position:relative;display:flex;align-items:center;gap:8px;min-height:46px;padding:0 16px;border:1px solid var(--accent);border-radius:var(--r-control);background:var(--accent);color:var(--on-accent);font-size:14px;cursor:pointer;white-space:nowrap}
 .tavern-import.busy{opacity:.6;pointer-events:none}
 .tavern-import input,.tavern-empty-import input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
-.tavern-loading{color:var(--quiet);padding:48px 0;text-align:center}
-.tavern-empty{padding:64px 16px;text-align:center;color:var(--quiet)}
-.tavern-empty-title{font-size:18px;color:var(--ink);margin:0 0 6px}
-.tavern-empty p{margin:0 0 18px}
-.tavern-empty-import{display:inline-flex}
-.tavern-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
-.tavern-card{position:relative;display:block;border:1px solid var(--edge);border-radius:16px;background:var(--canvas);min-height:96px}
-.tavern-card:hover{border-color:var(--accent)}
-.tavern-card-open{display:flex;gap:14px;align-items:flex-start;text-align:left;width:100%;padding:14px;border:0;border-radius:16px;background:transparent;color:inherit;cursor:pointer;min-height:96px}
+.tavern-hint{display:flex;align-items:center;gap:4px;margin:0 0 18px;padding:4px 6px 4px 12px;min-height:40px;border:1px solid var(--edge);border-radius:var(--r-control);background:var(--wash);color:var(--quiet);font-size:12.5px;line-height:1.4}
+.tavern-hint-text{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tavern-hint-help,.tavern-hint-close{flex:none;display:flex;align-items:center;justify-content:center;width:32px;height:32px;min-height:32px;padding:0;border:0;border-radius:8px;background:transparent;color:var(--quiet);cursor:pointer}
+.tavern-hint-help{color:var(--accent-ink)}
+.tavern-hint-help:hover,.tavern-hint-close:hover{background:var(--canvas);color:var(--accent-ink)}
+.tavern-select-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;padding:10px 12px;border:1px solid var(--edge);border-radius:var(--r-card);background:var(--canvas)}
+.tavern-select-count{font-size:14px;color:var(--ink)}
+.tavern-select-names{flex:1;min-width:0;font-size:13px;color:var(--quiet);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tavern-select-clear,.tavern-select-group{min-height:40px;padding:0 14px;border-radius:var(--r-control);border:1px solid var(--edge);background:var(--canvas);color:var(--quiet);font-size:13px;cursor:pointer}
+.tavern-select-group{display:flex;align-items:center;gap:6px;border-color:var(--accent);background:var(--accent);color:var(--on-accent)}
+.tavern-select-group:disabled{opacity:.45;cursor:not-allowed}
+.tavern-card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px}
+.tavern-card{position:relative;display:block;min-width:0;border:1px solid var(--edge);border-radius:var(--r-card);background:var(--canvas)}
+.tavern-card:hover{border-color:var(--accent);box-shadow:0 6px 18px rgba(43,38,34,.06)}
+.tavern-card.selected{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.tavern-card-open{display:flex;gap:14px;align-items:flex-start;text-align:left;width:100%;padding:14px;border:0;border-radius:var(--r-card);background:transparent;color:inherit;cursor:pointer}
 .tavern-card-open:disabled{opacity:.55;cursor:progress}
-.tavern-card-edit{position:absolute;top:8px;right:8px;min-height:0;padding:4px 8px;border:1px solid var(--edge);border-radius:8px;background:var(--canvas);color:var(--quiet);font-size:12px;cursor:pointer}
-.tavern-card-edit:hover{color:var(--accent);border-color:var(--accent)}
-.tavern-avatar{flex:none;width:64px;height:64px;border-radius:14px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--wash);color:var(--accent);font-family:var(--font-serif);font-size:26px}
+.tavern-select{position:absolute;top:8px;left:8px;z-index:2;display:flex;align-items:center;justify-content:center;width:36px;height:36px;min-height:0;padding:0;border:1.5px solid var(--edge);border-radius:10px;background:rgba(255,253,249,.92);color:transparent;cursor:pointer}
+.tavern-select.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.tavern-avatar{flex:none;width:64px;height:64px;border-radius:14px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--wash);color:var(--accent-ink);font-family:var(--font-serif);font-size:26px}
 .tavern-avatar img{width:100%;height:100%;object-fit:cover;display:block}
 .tavern-card-copy{display:flex;flex-direction:column;min-width:0;gap:4px;flex:1}
-.tavern-card-name{font-family:var(--font-serif);font-size:18px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tavern-card-name-row{display:flex;align-items:center;gap:6px;min-width:0}
-.tavern-card-name-row .tavern-card-name{flex:0 1 auto;min-width:0}
-.tavern-card-preset{flex:none;font-size:11px;line-height:1.6;padding:0 6px;border:1px solid var(--accent);border-radius:6px;color:var(--accent);background:var(--wash);white-space:nowrap;letter-spacing:.02em}
-.tavern-card-desc{font-size:13px;line-height:1.5;color:var(--quiet);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.9em}
-.tavern-card-meta{display:flex;flex-wrap:wrap;gap:8px;font-size:12px;color:var(--quiet)}
-.tavern-tags{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
-.inline-link{min-height:0;padding:0 6px;border:0;background:transparent;color:var(--accent);text-decoration:underline;cursor:pointer}
-.tavern-empty-action{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;border:1px solid var(--accent);border-radius:10px;background:var(--accent);color:#fff;font-size:14px;cursor:pointer}
+.tavern-card-name{flex:0 1 auto;min-width:0;font-family:var(--font-serif);font-size:17px;font-weight:600;letter-spacing:.01em;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tavern-card-preset{flex:none;font-size:12px;line-height:1.6;padding:0 6px;border:1px solid var(--accent-ink);border-radius:6px;color:var(--accent-ink);background:var(--wash);white-space:nowrap;letter-spacing:.02em}
+.tavern-card-desc{font-size:13px;line-height:1.6;color:var(--quiet);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.tavern-card-meta{display:block;font-size:12px;color:var(--quiet);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tavern-card-detail{position:absolute;top:8px;right:8px;min-height:32px;display:inline-flex;align-items:center;padding:0 10px;border:0;border-radius:8px;background:transparent;color:var(--accent-ink);font-size:12.5px;cursor:pointer;opacity:0;transition:opacity 140ms ease-out,background 140ms ease-out}
+.tavern-card:hover .tavern-card-detail,.tavern-card-detail:focus-visible{opacity:1}
+.tavern-card-detail:hover{background:var(--wash)}
+.tavern-empty-import{display:inline-flex}
+.tavern-empty-action{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;border:1px solid var(--accent);border-radius:var(--r-control);background:var(--accent);color:var(--on-accent);font-size:14px;cursor:pointer}
+.inline-link{min-height:0;padding:0 6px;border:0;background:transparent;color:var(--accent-ink);text-decoration:underline;cursor:pointer}
+@media(max-width:900px){
+ .tavern-card-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+ .tavern-card-detail{opacity:1}
+}
 @media(max-width:767px){
  .tavern-toolbar{flex-wrap:wrap;gap:8px;margin-bottom:16px}
- .tavern-hint{margin:-4px 0 14px;padding:8px 8px 8px 12px;font-size:12.5px}
- .tavern-hint-help,.tavern-hint-close{width:40px;height:40px;min-height:40px}
  .tavern-search{flex:1 1 100%;order:-1}
  .tavern-history,.tavern-import{flex:1;justify-content:center;min-height:44px;padding:0 10px}
- .tavern-grid.tavern-card-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
- .tavern-card{display:flex;flex-direction:column}
- .tavern-card-open{flex-direction:column;gap:8px;padding:12px;min-height:0}
- .tavern-avatar{width:56px;height:56px;font-size:22px;border-radius:12px}
- .tavern-card-name{font-size:16px}
- .tavern-card-desc{font-size:12px;min-height:2.7em}
- .tavern-card-edit{position:static;align-self:stretch;min-height:40px;border:0;border-top:1px solid var(--edge);border-radius:0 0 16px 16px;background:transparent;font-size:13px}
- .tavern-select{width:40px;height:40px;min-height:40px;top:4px;left:auto;right:6px;border-radius:10px}
- .tavern-select-bar{padding:8px 10px}
+ .tavern-hint{margin-bottom:14px;min-height:40px;padding:0 4px 0 12px;gap:2px}
+ .tavern-hint-help,.tavern-hint-close{width:40px;height:40px;min-height:40px}
  .tavern-select-bar .tavern-select-group{flex:1 1 auto;justify-content:center;min-height:44px}
  .tavern-select-clear{min-height:44px}
 }
-@media(max-width:380px){
- .tavern-grid.tavern-card-grid{grid-template-columns:1fr}
- .tavern-card-open{flex-direction:row;gap:12px;padding:12px 52px 12px 12px}
- .tavern-card-edit{border-radius:0 0 16px 16px}
+@media(max-width:600px){
+ .tavern-card-grid{grid-template-columns:1fr;gap:12px}
+ .tavern-card-open{flex-direction:row;align-items:center;gap:14px;padding:12px 78px 12px 12px;min-height:96px}
+ .tavern-avatar{width:72px;height:72px;font-size:28px;border-radius:14px}
+ .tavern-card-name{font-size:16px}
+ .tavern-card-detail{top:50%;right:10px;transform:translateY(-50%);opacity:1;min-height:44px;padding:0 14px;border:1px solid var(--edge);border-radius:8px;background:var(--canvas)}
 }
 </style>

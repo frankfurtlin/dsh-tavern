@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     dsh_agent_url: str = Field("http://127.0.0.1:3080/tavern-agent/v1", validation_alias=AliasChoices("DSH_AGENT_URL", "AGENT_URL"))
     dsh_agent_secret: str = Field("", validation_alias=AliasChoices("DSH_AGENT_SECRET", "AGENT_SECRET"))
     dsh_agent_timeout_seconds: float = Field(120, validation_alias=AliasChoices("DSH_AGENT_TIMEOUT_SECONDS", "AGENT_TIMEOUT_SECONDS"))
+    # 可选：显式指定网关使用的模型，形如 ``provider/model``。DSH 的默认模型可能
+    # 被切到某个未给 /tavern-agent 这一路配好凭据的 provider（例如 tencent），
+    # 此时由应用侧覆盖，不必重启 DSH 宿主。留空则沿用 DSH 当前默认模型。
+    dsh_agent_model: str = Field("", validation_alias=AliasChoices("DSH_AGENT_MODEL", "AGENT_MODEL"))
 
 
 settings = Settings()

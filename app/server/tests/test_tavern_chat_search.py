@@ -79,7 +79,7 @@ def test_search_matches_message_content(client, reader):
 
     hits = _search(client, q="点亮")
     assert [item["id"] for item in hits] == [lit["id"]]
-    assert hits[0]["lastMessage"]["text"] == "我们在雨夜里点亮了一盏灯笼"
+    assert hits[0]["lastMessage"] == "我们在雨夜里点亮了一盏灯笼"
     assert _search(client, q="什么也没")[0]["id"] == dark["id"]
 
 

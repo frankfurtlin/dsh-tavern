@@ -88,7 +88,9 @@ def test_chats_list_survives_deleted_members(client, reader, profile):
     item = next(entry for entry in response.json()["items"] if entry["id"] == chat["id"])
     assert item["mode"] == "group"
     assert [member["name"] for member in item["members"]] == ["阿岩", "小满"]
-    assert item["lastMessage"]["speakerName"] == "阿岩"
+    # Chat list previews are plain text now (never the message JSON object).
+    assert isinstance(item["lastMessage"], str)
+    assert "{" not in item["lastMessage"]
 
 
 def test_speaker_rotation_skips_deleted_member(client, reader, profile):

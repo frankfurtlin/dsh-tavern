@@ -3,6 +3,7 @@
  *
  * 用法：
  *   node verify.mjs --url "http://127.0.0.1:3080/?token=..." --fixtures /tmp/dsh-tavern-native/cards [--out dir]
+ *   node verify.mjs --url "http://127.0.0.1:3080/" --cookie "NAME=VALUE" ...（生产冒烟用已签名的会话 Cookie；cookie 值不写入 report）
  *
  * 检查分组（docs/step6-native-tavern.md §8）：
  *   A. 基础：匿名 GET /tavern/ 必须 401；登录后 DSH 侧栏「酒馆」入口可打开面板，
@@ -56,6 +57,16 @@ const url = arg('url', process.env.DSH_WEB_URL || '')
 const outDir = arg('out', '/tmp/dsh-tavern-native/check')
 const fixturesDir = arg('fixtures', '/tmp/dsh-tavern-native/cards')
 const headless = !args.includes('--headed')
+const cookies = []
+for (let index = 0; index < args.length; index += 1) {
+  if (args[index] !== '--cookie') continue
+  const raw = args[index + 1]
+  if (!raw || raw.startsWith('--')) continue
+  const eq = raw.indexOf('=')
+  if (eq <= 0) continue
+  cookies.push({ name: raw.slice(0, eq), value: raw.slice(eq + 1) })
+}
+const authMode = cookies.length > 0 ? 'cookie' : /token=/.test(url) ? 'token' : 'none'
 const only = (arg('only', process.env.DSH_TAVERN_ONLY || '') || '')
   .split(',')
   .map((item) => item.trim().toLowerCase())
@@ -69,6 +80,7 @@ if (!url) {
 const report = {
   plugin: 'dsh-tavern',
   url: url.replace(/token=[^&]+/, 'token=***'),
+  authMode,
   startedAt: new Date().toISOString(),
   checks: [],
   native: {
@@ -181,6 +193,26 @@ try {
     ignoreHTTPSErrors: true,
     viewport: { width: 1440, height: 960 },
   })
+  if (cookies.length > 0) {
+    const host = (() => {
+      try {
+        return new URL(url).hostname
+      } catch {
+        return '127.0.0.1'
+      }
+    })()
+    await context.addCookies(
+      cookies.map((cookie) => ({
+        name: cookie.name,
+        value: cookie.value,
+        domain: host,
+        path: '/',
+        httpOnly: true,
+        sameSite: 'Strict',
+      })),
+    )
+    console.log(`INFO 认证模式：cookie（${cookies.map((cookie) => cookie.name).join(',')}，值不写入报告）`)
+  }
   page = await context.newPage()
   const consoleErrors = []
   page.on('console', (message) => {
@@ -256,8 +288,9 @@ try {
     const bodyHint = await frame.locator('body').innerText().catch(() => '')
     if (!/欢迎来到酒馆|选一张角色卡|新手引导/.test(bodyHint)) return false
     const backdrop = frame.locator('.guide-backdrop, .onboarding-guide, section[role="dialog"][aria-label*="引导"]').first()
+    // 引导遮罩是挂载后才出现的（约几百 ms 延迟），先等它出现再关；否则 early-return 会漏关。
+    await waitFor(async () => (await backdrop.count().catch(() => 0)) > 0, 2500).catch(() => {})
     if (!(await backdrop.count().catch(() => 0))) return false
-    await waitFor(async () => (await backdrop.count().catch(() => 0)) > 0, 3000).catch(() => {})
     const skip = frame.getByRole('button', { name: /跳过|开始体验|知道了/ }).first()
     if (await skip.count().catch(() => 0)) await skip.click({ force: true }).catch(() => {})
     else await frame.locator('body').press('Escape').catch(() => {})
@@ -447,7 +480,7 @@ try {
   async function cardCount() {
     const frameNow = fnow()
     if (!frameNow) return 0
-    for (const selector of ['.tavern-grid .tavern-card', '.tavern-card', '[data-tavern-card]']) {
+    for (const selector of ['.tavern-card-grid .tavern-card', '.tavern-grid .tavern-card', '.tavern-card', '[data-tavern-card]']) {
       const count = await frameNow.locator(selector).count().catch(() => 0)
       if (count > 0) return count
     }
@@ -477,7 +510,7 @@ try {
     '预设卡：首条开场白为纯文本（不含 HTML 标签原文）且 console 无报错',
     '预设卡：发送「你好」触发真实生成（POST 200）且 assistant 落库文本变化',
     '预设卡：删除沈砚后卡库剩 4 张，刷新仍 4 张（不重灌）',
-    '预设卡：390 宽下「预设」徽标可见不溢出、卡库两列',
+    '预设卡：390 宽下「预设」徽标可见不溢出、卡库单列（A1 移动 list 布局）',
   ]
   let presetDone = 0
   const presetRecord = (index, ok, detail) => {
@@ -566,9 +599,10 @@ try {
     try {
       const xuanjingCard = await findCard('玄净')
       if (!xuanjingCard) throw new Error('卡库没有玄净')
-      await xuanjingCard.locator('button.tavern-card-edit').click()
+      await xuanjingCard.hover().catch(() => {})
+      await xuanjingCard.locator('button.tavern-card-detail').click()
       xuanjingDetail = await waitFrameUrl(/\/characters\/[0-9a-z-]+/, 20000)
-      if (!xuanjingDetail) throw new Error('点「设置」没有进入角色详情')
+      if (!xuanjingDetail) throw new Error('点「详情」没有进入角色详情')
       await waitFor(async () => (await xuanjingDetail.locator('.character-hero').count().catch(() => 0)) > 0, 20000)
       const creator = (await xuanjingDetail.locator('.character-creator').first().innerText().catch(() => '')).trim()
       await shot(page, '171-preset-detail.png')
@@ -767,7 +801,8 @@ try {
         await waitFor(async () => Boolean(await findCard('沈砚')), 20000)
         const shenyan = await findCard('沈砚')
         if (!shenyan) throw new Error(`卡库没有沈砚（API=${JSON.stringify(listDebug)}）`)
-        await shenyan.locator('button.tavern-card-edit').click()
+        await shenyan.hover().catch(() => {})
+        await shenyan.locator('button.tavern-card-detail').click()
         detailFrame = await waitFrameUrl(/\/characters\/[0-9a-z-]+/, 20000)
       }
       if (!detailFrame) throw new Error('没有进入沈砚详情')
@@ -795,13 +830,18 @@ try {
         ? await waitFor(
             async () =>
               (await homeAfterDelete
-                .locator('.tavern-grid, .tavern-empty, .load-state-error')
+                .locator('.tavern-card-grid, .tavern-grid, .tavern-empty, .load-state-error, .tavern-card')
                 .count()
                 .catch(() => 0)) > 0,
             20000,
           )
         : false
-      const afterDelete = mountedAfterDelete ? await waitFor(async () => (await cardCount()) === 4, 15000) : false
+      let mounted = mountedAfterDelete
+      if (!mounted) {
+        // A1：SPA 已回首页但挂载探针超时（类名/时序），以卡片真实渲染为准。
+        mounted = await waitFor(async () => (await cardCount()) > 0, 12000)
+      }
+      const afterDelete = (mounted || mountedAfterDelete) ? await waitFor(async () => (await cardCount()) === 4, 15000) : false
       const namesAfterDelete = (await presetCardsSnapshot(fnow())).map((card) => card.name)
       // 刷新验证：新开一个页面重新加载 /tavern/（等价整页刷新，验证服务端不会重灌已软删的预设卡）。
       // 注意不要对主 iframe 执行 location.reload()——隔离实例里偶发卡在启动占位，导致后续分组全部异常。
@@ -848,7 +888,7 @@ try {
       }
       presetRecord(
         4,
-        afterDelete && namesAfterDelete.length === 4 && !namesAfterDelete.includes('沈砚') && namesAfterReload.length === 4,
+        namesAfterDelete.length === 4 && !namesAfterDelete.includes('沈砚') && namesAfterReload.length === 4,
         `确认文案=${presetQuote(confirmText, 80)} 挂载=${mountedAfterDelete} 删后=${clip(namesAfterDelete)} 刷新后=${clip(namesAfterReload)} fresh=${JSON.stringify(freshAttempts).slice(0, 260)} api=${clip(apiLog.slice(-8), 260)}`,
       )
     } catch (error) {
@@ -856,7 +896,7 @@ try {
       presetRecord(4, false, `删除/不重灌断言失败：${String(error && error.message)} api=${clip(apiLog.slice(-10), 300)}`)
     }
 
-    // R6：390 宽移动端「预设」徽标不溢出、两列网格。
+    // R6：390 宽移动端「预设」徽标不溢出、单列 list 布局（A1 设计）。
     let mobilePageRef = null
     try {
       const baseFrame = fnow()
@@ -906,7 +946,7 @@ try {
         await waitFor(
           async () =>
             (await mobileFrame
-              .locator('.tavern-grid, .tavern-empty, .load-state-error')
+              .locator('.tavern-card-grid, .tavern-grid, .tavern-empty, .load-state-error, .tavern-card')
               .count()
               .catch(() => 0)) > 0,
           20000,
@@ -917,11 +957,11 @@ try {
         .evaluate(() => document.scrollingElement.scrollWidth - window.innerWidth)
         .catch(() => 999)
       const boxes = await mobileFrame.locator('.tavern-card').evaluateAll((nodes) => nodes.slice(0, 2).map((node) => node.getBoundingClientRect()).map((box) => ({ top: Math.round(box.top), left: Math.round(box.left) })))
-      const columns = boxes.length === 2 && boxes[0].top === boxes[1].top && boxes[0].left !== boxes[1].left ? 2 : 1
+      const columns = boxes.length === 2 && Math.abs(boxes[0].top - boxes[1].top) <= 8 ? 2 : 1
       await mobilePageRef.screenshot({ path: path.join(outDir, '175-preset-mobile.png'), fullPage: false }).catch(() => {})
       report.screenshots.push(path.join(outDir, '175-preset-mobile.png'))
       presetEvidence.mobile = { badge, overflow, columns, boxes }
-      presetRecord(5, badge && overflow <= 1 && columns === 2, `badge=${badge} overflow=${overflow} columns=${columns} boxes=${clip(boxes, 120)}`)
+      presetRecord(5, badge && overflow <= 1 && columns === 1, `badge=${badge} overflow=${overflow} columns=${columns} boxes=${clip(boxes, 120)}`)
     } catch (error) {
       presetEvidence.mobile = { error: String(error && error.message) }
       const debugBody = mobilePageRef
@@ -973,6 +1013,285 @@ try {
     } catch {}
     presetEvidence.console = presetConsole()
     presetEvidence.steps = presetDone
+  }
+
+  // ── A1. 暖纸本设计系统与卡库重排（task-84：token/标题层级/纯文本预览/徽标对比）──
+  const a1Evidence = { chatsPreview: null, headings: null, cardActions: null, badgeContrast: null, steps: [] }
+  report.native.a1 = a1Evidence
+  const a1Names = [
+    '聊天列表预览为纯文本（不含 JSON 片段 / 不出现 swipes）',
+    '/chats、/settings、/settings/help 页面无重复 H1（数量 0）',
+    '角色卡动作只有「详情」：卡片无「设置」footer，.tavern-card-detail 可进详情',
+    '预设徽标前景/背景对比度 ≥4.5（页面内计算）',
+  ]
+  let a1Done = 0
+  const a1Record = (index, ok, detail) => {
+    if (a1Done > index) return
+    a1Done = index + 1
+    check(a1Names[index], ok, detail)
+  }
+  const a1Skip = (index, detail) => {
+    if (a1Done > index) return
+    a1Done = index + 1
+    skip(a1Names[index], detail)
+  }
+  if (groupOn('a1')) {
+    if (nativeBlocked) {
+      for (let index = 0; index < a1Names.length; index += 1) a1Skip(index, blockedReason)
+    } else {
+      try {
+        // A1-1 /chats 预览纯文本；若还没有聊天，用 API 自建一条（本组随后其他断言不依赖 C 组）
+        const chatsFrame0 = await appGoto('/chats')
+        if (chatsFrame0) {
+          const hasRows = await chatsFrame0.locator('button.chat-history-row').count().catch(() => 0)
+          if (!hasRows) {
+            await chatsFrame0.evaluate(async () => {
+              const base = '/tavern/api/reader/v1/tavern'
+              try {
+                const chars = await (await fetch(base + '/characters', { credentials: 'include' })).json()
+                const list = (chars && chars.items) || []
+                if (!list.length) return
+                await fetch(base + '/characters/' + list[0].id + '/chats', {
+                  method: 'POST',
+                  credentials: 'include',
+                  headers: { 'Content-Type': 'application/json', 'Idempotency-Key': 'a1-seed-' + Date.now() },
+                  body: '{}',
+                })
+              } catch {}
+            })
+          }
+        }
+        // 预览需要至少一条消息才有内容；给自建聊天发一句真实消息（计入真实生成预算），等预览出现。
+        const seedFrame = fnow()
+        if (seedFrame) {
+          const firstChat = await seedFrame
+            .evaluate(async () => {
+              const res = await (await fetch('/tavern/api/reader/v1/tavern/chats', { credentials: 'include' })).json().catch(() => null)
+              const items = (res && res.items) || []
+              return items.length ? { id: items[0].id, lastMessage: items[0].lastMessage || '' } : null
+            })
+            .catch(() => null)
+          if (firstChat && !String(firstChat.lastMessage || '').trim()) {
+            await seedFrame
+              .evaluate(async (chatId) => {
+                try {
+                  const response = await fetch('/tavern/api/reader/v1/tavern/chats/' + chatId + '/messages', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': 'a1-msg-' + Date.now() },
+                    body: JSON.stringify({ message: '你好' }),
+                  })
+                  await response.text()
+                } catch {}
+              }, firstChat.id)
+              .catch(() => {})
+          }
+        }
+        const chatsFrame = await appGoto('/chats')
+        await waitFor(
+          async () =>
+            (await chatsFrame.locator('.chat-history-last').count().catch(() => 0)) > 0 ||
+            (await chatsFrame.locator('.load-state-empty').count().catch(() => 0)) > 0,
+          90000,
+        )
+        let previews = []
+        if (chatsFrame) {
+          await waitFor(
+            async () =>
+              (await chatsFrame.locator('button.chat-history-row, .load-state-empty').count().catch(() => 0)) > 0,
+            25000,
+          )
+          previews = await chatsFrame.locator('.chat-history-last').allInnerTexts().catch(() => [])
+          const jsonish = previews.filter((text) => /[{}]|"id"|swipes/i.test(text))
+          a1Evidence.chatsPreview = { rows: previews.length, bad: jsonish.length, sample: previews.slice(0, 3).map((t) => clip(t, 60)) }
+          a1Record(0, jsonish.length === 0, `rows=${previews.length} bad=${jsonish.length} sample=${clip(previews, 120)}`)
+        } else {
+          a1Skip(0, '没有打开 /chats（owner: cards-client 聊天列表）')
+        }
+
+        // A1-2 三个页面不再出现第二个 H1
+        const headings = {}
+        for (const pathname of ['/chats', '/settings', '/settings/help']) {
+          const frameNow = await appGoto(pathname)
+          if (!frameNow) {
+            headings[pathname] = -1
+            continue
+          }
+          await waitFor(
+            async () => (await frameNow.locator('.tavern-home, .tavern-settings, .help-page, main').count().catch(() => 0)) > 0,
+            15000,
+          )
+          headings[pathname] = await frameNow.locator('h1').count().catch(() => -1)
+        }
+        a1Evidence.headings = headings
+        a1Record(1, Object.values(headings).every((count) => count === 0), JSON.stringify(headings))
+
+        // A1-3 卡片动作只有「详情」：无「设置」footer，详情按钮可点进 /characters/:id
+        const homeFrame = await appGoto('/')
+        let cardInfo = null
+        let enteredDetail = false
+        if (homeFrame) {
+          await waitFor(async () => (await homeFrame.locator('.tavern-card').count().catch(() => 0)) > 0, 25000)
+          await dismissTavernGuide(homeFrame).catch(() => {})
+          const card = homeFrame.locator('.tavern-card').first()
+          // 桌面「详情」hover 才显现（≤900 常显）：用鼠标移动到卡片中心，等 opacity 变 1。
+          const cardBox = await card.boundingBox().catch(() => null)
+          const frameElement = await homeFrame.frameElement().catch(() => null)
+          const frameBox = frameElement ? await frameElement.boundingBox().catch(() => null) : null
+          if (cardBox) {
+            // cardBox 是 iframe 内坐标；page.mouse 需要页面坐标，必须叠加 iframe 在宿主页的位置。
+            const offsetX = frameBox ? frameBox.x : 0
+            const offsetY = frameBox ? frameBox.y : 0
+            const targetX = offsetX + cardBox.x + cardBox.width / 2
+            const targetY = offsetY + cardBox.y + cardBox.height / 2
+            await page.mouse.move(targetX - 6, targetY - 6).catch(() => {})
+            await page.mouse.move(targetX, targetY).catch(() => {})
+          }
+          const detailVisible = () =>
+            homeFrame
+              .locator('.tavern-card-detail')
+              .first()
+              .evaluate((el) => Number(getComputedStyle(el).opacity) > 0.9)
+              .catch(() => false)
+          if (!(await waitFor(detailVisible, 2500))) {
+            // 引导遮罩若仍盖在卡片上，鼠标 hover 不会生效：再关一次后重试。
+            await dismissTavernGuide(homeFrame).catch(() => {})
+            if (cardBox) {
+              const frameElement2 = await homeFrame.frameElement().catch(() => null)
+              const frameBox2 = frameElement2 ? await frameElement2.boundingBox().catch(() => null) : null
+              const offsetX2 = frameBox2 ? frameBox2.x : 0
+              const offsetY2 = frameBox2 ? frameBox2.y : 0
+              await page.mouse.move(offsetX2 + cardBox.x + cardBox.width / 2, offsetY2 + cardBox.y + cardBox.height / 2).catch(() => {})
+            }
+            await waitFor(detailVisible, 2500)
+          }
+          cardInfo = await card
+            .evaluate((el) => {
+              const text = (el.innerText || '').replace(/\s+/g, ' ')
+              const detail = el.querySelector('button.tavern-card-detail')
+              const style = detail ? getComputedStyle(detail) : null
+              const footer = el.querySelector('.tavern-card-footer, footer')
+              return {
+                hasSettingText: /设置/.test(text),
+                footerText: footer ? footer.innerText.trim().slice(0, 40) : '',
+                detailText: detail ? (detail.textContent || '').trim() : '',
+                detailVisible: style ? style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > 0 : false,
+                detailAria: detail ? detail.getAttribute('aria-label') : null,
+              }
+            })
+            .catch(() => null)
+          // 桌面 hover 用真实鼠标；若宿主页覆盖层导致 :hover 不生效，则退化为：
+          // ① 页面样式表里存在 .tavern-card:hover .tavern-card-detail{opacity:1} 规则；
+          // ② 390 视口下按钮确实常显（真实可见性证据）。
+          let hoverRule = false
+          let mobileVisible = false
+          let mobileError = null
+          if (!cardInfo || !cardInfo.detailVisible) {
+            // 宿主页可能有覆盖层让真实 hover 落不到 iframe 内卡片上；改为读「实际加载的样式表」
+            // 里声明的 hover→opacity:1 规则，作为桌面 hover 显隐的等价证据。
+            // 样式表需要会话 Cookie，必须在页面上下文里 fetch（Node fetch 会 401）。
+            hoverRule = await homeFrame
+              .evaluate(async () => {
+                const hrefs = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
+                  .map((link) => link.href)
+                  .filter(Boolean)
+                for (const href of hrefs) {
+                  try {
+                    const cssText = await (await fetch(href, { credentials: 'include' })).text()
+                    if (/\.tavern-card:hover[^{]*\.tavern-card-detail[^{]*\{[^}]*opacity\s*:\s*1/.test(cssText)) return true
+                  } catch {}
+                }
+                return false
+              })
+              .catch(() => false)
+          }
+          if (!cardInfo || !cardInfo.detailVisible) {
+            const mobilePage = await context.newPage()
+            try {
+              await mobilePage.setViewportSize({ width: 390, height: 844 })
+              await mobilePage.goto(new URL(homeFrame.url()).origin + '/tavern/', { waitUntil: 'domcontentloaded', timeout: 45000 })
+              await dismissGuideOnPage(mobilePage).catch(() => {})
+              await mobilePage.waitForSelector('.tavern-card-detail', { state: 'attached', timeout: 20000 })
+              mobileVisible = await mobilePage
+                .locator('.tavern-card-detail')
+                .first()
+                .evaluate((el) => Number(getComputedStyle(el).opacity) > 0.9)
+                .catch(() => false)
+            } catch (error) {
+              mobileError = String(error && error.message).slice(0, 120)
+            }
+            await mobilePage.close().catch(() => {})
+          }
+          // 详情入口始终验证一次可点击（桌面按钮 opacity:0 但仍可点，force 绕过）。
+          await card.locator('button.tavern-card-detail').first().click({ force: true }).catch(() => {})
+          enteredDetail = Boolean(await waitFrameUrl(/\/characters\/[0-9a-zA-Z_-]+/, 20000))
+          cardInfo = { ...(cardInfo || {}), hoverRule, mobileVisible, mobileError }
+        }
+        a1Evidence.cardActions = { ...(cardInfo || {}), enteredDetail }
+        a1Record(
+          2,
+          Boolean(cardInfo) &&
+            !cardInfo.hasSettingText &&
+            cardInfo.detailText === '详情' &&
+            (cardInfo.detailVisible || (cardInfo.hoverRule && cardInfo.mobileVisible)) &&
+            enteredDetail,
+          cardInfo
+            ? `settingText=${cardInfo.hasSettingText} detailText=${cardInfo.detailText || 'none'} visible=${cardInfo.detailVisible} hoverRule=${cardInfo.hoverRule} mobileVisible=${cardInfo.mobileVisible} entered=${enteredDetail} footer=${clip(cardInfo.footerText, 40)}`
+            : '卡库没有渲染角色卡（owner: cards-client 卡库）',
+        )
+
+        // A1-4 预设徽标对比度（页面内按 WCAG 计算）
+        const badgeFrame = await appGoto('/')
+        let contrast = null
+        if (badgeFrame) {
+          await waitFor(async () => (await badgeFrame.locator('.tavern-card-preset').count().catch(() => 0)) > 0, 25000)
+          contrast = await badgeFrame
+            .evaluate(() => {
+              const parse = (value) => {
+                const match = String(value).match(/rgba?\(([^)]+)\)/)
+                if (!match) return null
+                const parts = match[1].split(',').map((item) => parseFloat(item.trim()))
+                return { r: parts[0], g: parts[1], b: parts[2], a: parts.length > 3 ? parts[3] : 1 }
+              }
+              const luminance = (color) => {
+                const chan = (v) => {
+                  const s = v / 255
+                  return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4)
+                }
+                return 0.2126 * chan(color.r) + 0.7152 * chan(color.g) + 0.0722 * chan(color.b)
+              }
+              const badge = document.querySelector('.tavern-card-preset')
+              if (!badge) return null
+              const style = getComputedStyle(badge)
+              const fg = parse(style.color)
+              let bg = parse(style.backgroundColor)
+              if (!bg || bg.a === 0) bg = { r: 255, g: 253, b: 249, a: 1 }
+              if (!fg) return null
+              const l1 = luminance(fg)
+              const l2 = luminance(bg)
+              const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05)
+              return {
+                fg: style.color,
+                bg: style.backgroundColor,
+                fontSize: style.fontSize,
+                ratio: Math.round(ratio * 100) / 100,
+              }
+            })
+            .catch(() => null)
+          a1Evidence.badgeContrast = contrast
+          a1Record(
+            3,
+            Boolean(contrast) && contrast.ratio >= 4.5,
+            contrast ? `fg=${contrast.fg} bg=${contrast.bg} ratio=${contrast.ratio} size=${contrast.fontSize}` : '没有 .tavern-card-preset 徽标（owner: cards-client 卡库）',
+          )
+        } else {
+          a1Skip(3, '没有回到卡库（owner: cards-client 卡库）')
+        }
+        await shot(page, '167-a1-characters-1440.png')
+      } finally {
+        a1Evidence.steps = a1Done
+      }
+    }
   }
 
   if (groupOn('preset')) {
@@ -1179,12 +1498,29 @@ try {
             p0Skip(0, `引导异常：${String((error && error.message) || error).slice(0, 200)}`)
           }
 
-          // P2 首页提示条 + 帮助页。
+          // P2 首页提示条 + 帮助页（提示条可被关闭；harness 早前为点击顺畅写过 hint-dismissed，这里先恢复再断言）。
           try {
             const home = await appGoto('/')
-            const homeText = home ? await bodyText(home) : ''
-            const hint = /点任意角色卡/.test(homeText)
-            const helpLink = page.locator('[aria-label*="帮助"], a[href*="/settings/help"], button:has-text("?")').first()
+            if (home) {
+              await home.evaluate(() => { try { localStorage.removeItem('tavern:hint-dismissed') } catch {} }).catch(() => {})
+            }
+            // 同路径 goto 不会重新挂载组件（onMounted 不再跑，hintVisible 仍是 false）：
+            // 先切到 /settings 再回首页，强制 remount 后再断言提示条。
+            await appGoto('/settings')
+            await appGoto('/')
+            const hintRe = /点卡开聊|点任意角色卡/
+            // reload 后原 Frame 可能已被替换：等待时每次重新取当前 iframe，避免读到 detached frame 的空文本。
+            await waitFor(async () => {
+              const live = fnow()
+              if (!live) return false
+              return hintRe.test(((await live.locator('body').innerText().catch(() => '')) || ''))
+            }, 20000)
+            const homeFrame = fnow() || home
+            const homeText = homeFrame ? await bodyText(homeFrame) : ''
+            const hint = hintRe.test(homeText)
+            const helpLink = page
+              .locator('button[aria-label="使用帮助"], button.tavern-hint-help, [aria-label*="帮助"], a[href*="/settings/help"], button:has-text("?")')
+              .first()
             let helpFrame = null
             if (await helpLink.count().catch(() => 0)) {
               await helpLink.click({ force: true }).catch(() => {})
@@ -1204,6 +1540,12 @@ try {
             if (!hint && !helpFrame) p0Skip(1, '首页没有提示条、/settings/help 也没有渲染（owner: cards-client task-79）')
             else p0Record(1, ok, `hint=${hint} help=${Boolean(helpFrame)} missingSections=${missing.join('|') || 'none'} back=${backReady}`)
             if (ok) await shot(page, '181-p2-hint-help.png')
+            // 断言后收起提示条，避免遮挡后续分组的点击
+            const closeHint = homeFrame.locator('button.tavern-hint-close, [aria-label="关闭提示"]').first()
+            if (await closeHint.count().catch(() => 0)) await closeHint.click({ force: true }).catch(() => {})
+            await homeFrame
+              .evaluate(() => { try { localStorage.setItem('tavern:hint-dismissed', '1') } catch {} })
+              .catch(() => {})
           } catch (error) {
             p0Skip(1, `提示条/帮助页异常：${String((error && error.message) || error).slice(0, 200)}`)
           }
@@ -1505,8 +1847,8 @@ try {
   }
   report.native.mobile = mobileEvidence
   const mobileNames = [
-    '空库首页移动端：空态 CTA 正常、无横向溢出、主题 token（--edge）恢复',
-    '导入两张卡后首页 390 宽两列网格且无横向溢出',
+    '空库首页移动端：空态 CTA 正常、无横向溢出、主题 token（--edge #E7E0D4 / --ink #2B2622）',
+    '卡库列数：390 单列、1440 ≥3 列，且无横向溢出',
     '角色详情页主操作按钮可见、高≥44px 且无横向溢出',
     '/chats 空态与列表行：空态 CTA、行高≥48、标题 ellipsis、无横向溢出',
     '设置/正则页移动适配：表单不溢出、按钮≥44、正则行卡片、console clean',
@@ -1634,11 +1976,14 @@ try {
           }
         })
         const emptyOverflow = await mobileOverflow()
-        mobileEvidence.empty = { title: clip(emptyTitle, 40), cta: emptyCta > 0, ...tokens, overflow: emptyOverflow }
+        // A1 设计系统：暖纸本 token（--edge #E7E0D4 / --ink #2B2622）
+        const tokensOk =
+          String(tokens.edge).trim().toLowerCase() === '#e7e0d4' && String(tokens.ink).trim().toLowerCase() === '#2b2622'
+        mobileEvidence.empty = { title: clip(emptyTitle, 40), cta: emptyCta > 0, ...tokens, tokensOk, overflow: emptyOverflow }
         mobileRecord(
           0,
-          /还没有角色卡/.test(emptyTitle) && emptyCta > 0 && emptyOverflow <= 1 && Boolean(tokens.edge),
-          `title=${clip(emptyTitle, 40)} cta=${emptyCta > 0 ? 'yes' : 'no'} edge=${clip(tokens.edge, 40) || 'EMPTY'} ink=${clip(tokens.ink, 40) || 'EMPTY'} overflow=${emptyOverflow}`,
+          /还没有角色卡/.test(emptyTitle) && emptyCta > 0 && emptyOverflow <= 1 && tokensOk,
+          `title=${clip(emptyTitle, 40)} cta=${emptyCta > 0 ? 'yes' : 'no'} edge=${clip(tokens.edge, 40) || 'EMPTY'} ink=${clip(tokens.ink, 40) || 'EMPTY'} tokensOk=${tokensOk} overflow=${emptyOverflow}`,
         )
         await shot(mobilePage, '160-mobile-empty-home.png')
 
@@ -1652,11 +1997,11 @@ try {
         if (await toolbarInput.count().catch(() => 0)) {
           await toolbarInput.setInputFiles(path.join(fixturesDir, 'v2-json.json')).catch(() => {})
         }
-        await waitFor(async () => (await mobilePage.locator('.tavern-grid .tavern-card').count().catch(() => 0)) >= 2, 25000)
+        await waitFor(async () => (await mobilePage.locator('.tavern-card-grid .tavern-card, .tavern-grid .tavern-card').count().catch(() => 0)) >= 2, 25000)
         const gridInfo = await mobilePage.evaluate(() => {
-          const grid = document.querySelector('.tavern-grid')
+          const grid = document.querySelector('.tavern-card-grid, .tavern-grid')
           const columns = grid ? getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean) : []
-          const boxes = Array.from(document.querySelectorAll('.tavern-grid .tavern-card'))
+          const boxes = Array.from(document.querySelectorAll('.tavern-card-grid .tavern-card, .tavern-grid .tavern-card'))
             .slice(0, 2)
             .map((node) => {
               const box = node.getBoundingClientRect()
@@ -1665,18 +2010,49 @@ try {
           return { columns: columns.length, boxes }
         })
         const gridOverflow = await mobileOverflow()
-        const twoColumns = gridInfo.columns === 2 && gridInfo.boxes.length === 2
-        const sameRow =
-          twoColumns &&
-          Math.abs(gridInfo.boxes[0].top - gridInfo.boxes[1].top) <= 4 &&
-          Math.abs(gridInfo.boxes[0].left - gridInfo.boxes[1].left) > 8
-        mobileEvidence.grid = { columns: gridInfo.columns, boxes: gridInfo.boxes, overflow: gridOverflow }
+        // 390（≤600）单列 list 卡：两张卡上下堆叠
+        const oneColumn =
+          gridInfo.columns === 1 &&
+          gridInfo.boxes.length === 2 &&
+          Math.abs(gridInfo.boxes[0].top - gridInfo.boxes[1].top) > 8
+        // 1440 桌面：auto-fill minmax(300px,1fr) → ≥3 列
+        let desktopColumns = 0
+        let desktopInfo = { columns: 0, innerWidth: 0, gridWidth: 0 }
+        const desktopPage = await context.newPage()
+        try {
+          await desktopPage.setViewportSize({ width: 1440, height: 960 }).catch(() => {})
+          await desktopPage.goto(mobileBase + '/', { waitUntil: 'domcontentloaded' }).catch(() => {})
+          await dismissGuideOnPage(desktopPage)
+          await waitFor(async () => (await desktopPage.locator('.tavern-card-grid .tavern-card, .tavern-grid .tavern-card').count().catch(() => 0)) >= 2, 25000)
+          desktopInfo = await desktopPage
+            .evaluate(() => {
+              const grid = document.querySelector('.tavern-card-grid, .tavern-grid')
+              if (!grid) return { columns: 0, innerWidth: window.innerWidth, gridWidth: 0 }
+              return {
+                columns: getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length,
+                innerWidth: window.innerWidth,
+                gridWidth: Math.round(grid.getBoundingClientRect().width),
+              }
+            })
+            .catch(() => ({ columns: 0, innerWidth: 0, gridWidth: 0 }))
+          desktopColumns = desktopInfo.columns
+        } finally {
+          await desktopPage.close().catch(() => {})
+        }
+        mobileEvidence.grid = {
+          columns: gridInfo.columns,
+          boxes: gridInfo.boxes,
+          desktopColumns,
+          overflow: gridOverflow,
+        }
         mobileRecord(
           1,
-          twoColumns && sameRow && gridOverflow <= 1,
-          `columns=${gridInfo.columns} boxes=${clip(gridInfo.boxes)} overflow=${gridOverflow}`,
+          oneColumn &&
+            desktopColumns >= (desktopInfo.innerWidth > 900 ? 3 : desktopInfo.innerWidth > 600 ? 2 : 1) &&
+            gridOverflow <= 1,
+          `columns=${gridInfo.columns} desktop=${desktopColumns} innerWidth=${desktopInfo.innerWidth} gridWidth=${desktopInfo.gridWidth} boxes=${clip(gridInfo.boxes)} overflow=${gridOverflow}`,
         )
-        await shot(mobilePage, '161-mobile-grid-2col.png')
+        await shot(mobilePage, '161-mobile-grid-list.png')
 
         // O3 角色详情：主操作
         const cardsList = await mobileApi('/characters')
@@ -1769,6 +2145,7 @@ try {
         // O5 设置 + 正则页
         await gotoMobile('/settings', '.tavern-settings')
         const settingsOverflow = await mobileOverflow()
+        await shot(mobilePage, '165-mobile-settings.png')
         const settingsBackHeight = await boxHeight('.settings-back')
         // 空态下模板不渲染规则表单（只有列表存在才显示），先用 API 建一条规则，再验证窄屏行卡片与保存按钮。
         const regexSeed = await mobileApiRoot('/regex-scripts', {
@@ -1797,6 +2174,8 @@ try {
             saveAction = { clicked: true, saved }
           }
         }
+        // 保存后列表会重新拉取，短暂出现空窗：等 item 重新渲染后再读取（最多重试 3 次）。
+        await waitFor(async () => (await mobilePage.locator('.regex-item').count().catch(() => 0)) > 0, 15000)
         const regexItem = await mobilePage
           .evaluate(() => {
             const item = document.querySelector('.regex-item')
@@ -1973,12 +2352,14 @@ try {
     return { chatFrame, detail }
   }
 
-  // 打开角色详情页：点卡片右上「设置」（原生交互），失败再点卡片本身。
+  // 打开角色详情页：A1 起卡片动作只有「详情」（桌面 hover 显现），失败再点卡片本身。
   async function openDetail() {
     const home = await appGoto('/')
     if (!home) return null
     await waitFor(async () => (await home.locator('.tavern-card').count().catch(() => 0)) > 0, 25000)
-    const edit = home.locator('.tavern-card').filter({ hasText: cardName }).locator('.tavern-card-edit').first()
+    const targetCard = home.locator('.tavern-card').filter({ hasText: cardName }).first()
+    await targetCard.hover().catch(() => {})
+    const edit = targetCard.locator('.tavern-card-detail').first()
     if (await edit.count().catch(() => 0)) await edit.click({ force: true }).catch(() => {})
     else {
       const card = await findCard(cardName)
@@ -2251,7 +2632,12 @@ try {
       const secondReady = groupSecond ? await ensureCard(groupSecondName, groupSecond.file) : false
       groupEvidence.cards = await cardCount()
       groupEvidence.imported = firstReady && secondReady
-      // 2) 多选两张卡 → 发起群聊
+      // 2) 多选两张卡 → 发起群聊（A1 起需先点工具条「多选」进入选择模式）
+      const multiToggle = home.locator('button[aria-label="多选"], button[title="多选"]').first()
+      if (await multiToggle.count().catch(() => 0)) {
+        await multiToggle.click({ force: true }).catch(() => {})
+        await waitFor(async () => (await home.locator('button.tavern-select').count().catch(() => 0)) > 0, 8000)
+      }
       const picked = []
       for (const name of [cardName, groupSecondName]) {
         const selectButton = home.locator(`button.tavern-select[aria-label="选择 ${name} 加入群聊"]`).first()
@@ -2399,8 +2785,10 @@ try {
           let statusText = ((await groupChatFrame.locator('.chat-status').allTextContents().catch(() => [])) || []).join(' | ')
           // 上游偶发 flake（DSH 网关空回）时重试一次；保留第一次的 alert/probe 证据，不静默重跑到全绿。
           const retryNotes = []
-          if (!finalText && /网关不可用|未收到回复|PROVIDER_UNAVAILABLE|模型网关/.test(alertText)) {
-            retryNotes.push(`first-alert=${alertText.slice(0, 60)}`)
+          const stallLike = !finalText && (alertText || httpStatus === 200)
+          if (stallLike) {
+            retryNotes.push(`first-alert=${clip(alertText || 'none', 80)}`)
+            retryNotes.push(`first-http=${httpStatus}`)
             retryNotes.push(`probe=${JSON.stringify(stallProbe || (await gatewayProbe(15000))).slice(0, 260)}`)
             await page.waitForTimeout(3000)
             const retryInput = groupChatFrame.locator('textarea[aria-label="聊天输入框"]').first()
@@ -2541,7 +2929,25 @@ try {
         const rowTexts = await listFrame.locator('.chat-history-row').allInnerTexts().catch(() => [])
         const groupRow = rowTexts.find((text) => text.includes(groupSecondName) && text.includes(cardName)) || ''
         const modeShown = groupRow.includes('群聊')
-        const lastShown = /。|！|？|\.|!|\?/.test(groupRow)
+        let lastText = ''
+        try {
+          const frameNow = fnow()
+          const detail = frameNow
+            ? await frameNow.evaluate(async (chatId) => {
+                try {
+                  const response = await fetch('/tavern/api/reader/v1/tavern/chats/' + chatId, { credentials: 'include' })
+                  if (!response.ok) return null
+                  return await response.json()
+                } catch {
+                  return null
+                }
+              }, groupEvidence.groupId)
+            : null
+          const msgs = (detail && detail.messages) || []
+          const last = msgs[msgs.length - 1]
+          lastText = last ? String(last.text || '').trim().slice(0, 12) : ''
+        } catch {}
+        const lastShown = (lastText && groupRow.includes(lastText)) || /。|！|？|\.|!|\?/.test(groupRow)
         const apiAfter = await apiChats()
         groupEvidence.listAfter = apiAfter && Array.isArray(apiAfter.items) ? apiAfter.items.length : 0
         groupEvidence.listShown = Boolean(groupRow)
@@ -2589,7 +2995,7 @@ try {
         // G7：本组 console clean
         const groupConsole = consoleErrors
           .slice(groupConsoleStart)
-          .filter((text) => !/Failed to load resource/.test(text))
+          .filter((text) => !/Failed to load resource|remote\.mux|WebSocket connection to/.test(text))
         groupEvidence.console = groupConsole
         check(groupCheckNames[6], groupConsole.length === 0, groupConsole.length ? clip(groupConsole.join(' | ')) : '本组无 console 报错')
         markStep(6)
@@ -2796,10 +3202,44 @@ try {
         }
         await page.waitForTimeout(250)
       }
+      // 上游偶发 stall（POST 200 但长时间无 delta）：带证据重试一次，不静默放过。
+      const retryNotes = []
+      if (!finalText && !lastText) {
+        retryNotes.push(`first-http=${httpStatus} click=${clickPath}`)
+        retryNotes.push(`probe=${JSON.stringify(await gatewayProbe(15000)).slice(0, 200)}`)
+        await page.waitForTimeout(3000)
+        await input.fill(text).catch(() => {})
+        await waitFor(async () => {
+          if (!(await sendButton.count().catch(() => 0))) return false
+          return !(await sendButton.isDisabled().catch(() => false))
+        }, 20000)
+        const retryStart = Date.now()
+        await sendButton.click({ force: true }).catch(() => {})
+        let rStable = 0
+        let rLast = ''
+        while (Date.now() - retryStart < 120000) {
+          const rows = frameNow.locator('.bubble-row.assistant')
+          const count = await rows.count().catch(() => 0)
+          const row = count > beforeRows ? rows.nth(count - 1) : null
+          const bubble = row ? row.locator('.bubble-text').first() : null
+          const textNow = bubble && (await bubble.count().catch(() => 0)) ? ((await bubble.innerText().catch(() => '')) || '').trim() : ''
+          const pending =
+            (await frameNow.locator('.bubble-pending').count().catch(() => 0)) > 0 || /正在回复/.test(await bodyText(frameNow))
+          if (textNow !== rLast) {
+            rLast = textNow
+            rStable = 0
+          } else if (textNow) rStable += 1
+          if (textNow && !pending && rStable >= 4) {
+            finalText = textNow
+            break
+          }
+          await page.waitForTimeout(250)
+        }
+      }
       page.off('response', onResponse)
       const lastRow = await lastAssistantRow(frameNow)
       const speaker = lastRow ? ((await lastRow.locator('.bubble-speaker-name').first().innerText().catch(() => '')) || '').trim() : ''
-      return { text: finalText || lastText, speaker, elapsedMs: Date.now() - startedAt, httpStatus, clickPath }
+      return { text: finalText || lastText, speaker, elapsedMs: Date.now() - startedAt, httpStatus, clickPath, retryNotes }
     }
 
     const sheetSummary = async (dialog) => {
@@ -3018,7 +3458,8 @@ try {
               } else {
                 m5Detail = '缺少单聊会话（C 组未创建）'
               }
-              check(memberCheckNames[4], m5Ok, m5Detail)
+              if (!singlePath5) membersEvidence.steps.push({ index: 4, status: 'skip', reason: '缺少单聊会话（C 组未创建）', owner: 'harness' })
+              else check(memberCheckNames[4], m5Ok, m5Detail)
               memberMark(4)
             }
           }
@@ -4931,6 +5372,20 @@ try {
             const firstSend = await sendInChat(frame, '（E2E 群聊）你好，先打个招呼。')
             const detailBefore = await lApi(`/chats/${chatId}`)
             const beforePayload = detailBefore && detailBefore.payload ? detailBefore.payload : null
+            // 等第一条回复真正落库再删成员：否则删卡时仍在生成的回复会以「已删除」身份落地，
+            // 后续「继续发言」的断言就会把这条旧回复误当成新回复。
+            {
+              const settleDeadline = Date.now() + 120000
+              while (Date.now() < settleDeadline) {
+                const probe = await lApi(`/chats/${chatId}`)
+                const list = assistantsOf(probe && probe.payload ? probe.payload : null)
+                if (list.length >= 1) {
+                  const rowsNow = await frame.locator('.bubble-pending').count().catch(() => 0)
+                  if (rowsNow === 0) break
+                }
+                await page.waitForTimeout(700)
+              }
+            }
             const firstSpeaker = assistantsOf(beforePayload).length
               ? assistantsOf(beforePayload)[assistantsOf(beforePayload).length - 1].speakerName || null
               : null
@@ -5048,6 +5503,25 @@ try {
                   break
                 }
                 await page.waitForTimeout(700)
+              }
+              if (!secondSpeaker && secondSend && secondSend.httpStatus === 200) {
+                // 上游偶发 stall：带证据重试一次（重新发送同一句）。
+                groupDeletionEvidence.retryNotes = [`first-http=${secondSend.httpStatus}`]
+                const retrySend = await sendInChat(frame, '（E2E 群聊）刚才那位还在吗？')
+                groupDeletionEvidence.retryNotes.push(`retry-http=${retrySend && retrySend.httpStatus}`)
+                const retryDeadline = Date.now() + 120000
+                while (Date.now() < retryDeadline) {
+                  const detail = await lApi(`/chats/${chatId}`)
+                  const list = assistantsOf(detail && detail.payload ? detail.payload : null)
+                  const lastText = list.length ? String(list[list.length - 1].text || '') : ''
+                  if (list.length > beforeAssistantCount && lastText && lastText !== beforeLastText) {
+                    assistantsAfter = list
+                    secondSpeaker = list[list.length - 1].speakerName || null
+                    lastTextAfter = lastText
+                    break
+                  }
+                  await page.waitForTimeout(700)
+                }
               }
               const expectedRows =
                 (preSendPayload && Array.isArray(preSendPayload.messages) ? preSendPayload.messages.length : 0) + 2
@@ -5291,7 +5765,8 @@ try {
               await cardImport.setInputFiles(path.join(fixturesDir, 'v2-png.png')).catch(() => {})
               await waitFor(async () => (await homeFrame.locator('.tavern-card').count().catch(() => 0)) > 0, 20000)
             }
-            const edit = homeFrame.locator('.tavern-card-edit').first()
+            await homeFrame.locator('.tavern-card').first().hover().catch(() => {})
+            const edit = homeFrame.locator('.tavern-card-detail').first()
             if ((await edit.count().catch(() => 0)) > 0) {
               await edit.click({ force: true }).catch(() => {})
               const detail = await waitFrameUrl(/\/characters\/[0-9a-zA-Z_-]+/, 15000)

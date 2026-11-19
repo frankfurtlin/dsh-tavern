@@ -84,6 +84,7 @@ def gateway(monkeypatch):
     monkeypatch.setattr(settings, "dsh_agent_url", f"http://127.0.0.1:{server.server_port}/tavern-agent/v1")
     monkeypatch.setattr(settings, "dsh_agent_secret", "test-secret")
     monkeypatch.setattr(settings, "dsh_agent_timeout_seconds", 5)
+    monkeypatch.setattr(settings, "dsh_agent_model", "")
     try:
         yield state
     finally:
@@ -110,6 +111,19 @@ def test_complete_posts_contract_and_normalizes(gateway):
 def test_complete_structured_request_sends_temperature(gateway):
     DshAgentAdapter().generate(None, "system", {"_structured": True, "message": "hi"}, 32)
     assert gateway["requests"][-1]["body"]["temperature"] == 0.2
+
+
+def test_complete_sends_configured_model_override(gateway, monkeypatch):
+    monkeypatch.setattr(settings, "dsh_agent_model", "opencode-go/deepseek-v4.1-flash")
+    DshAgentAdapter().generate(None, "system", {"message": "hi"}, 16)
+    assert gateway["requests"][-1]["body"]["model"] == {"provider": "opencode-go", "model": "deepseek-v4.1-flash"}
+
+
+def test_complete_ignores_malformed_model_override(gateway, monkeypatch):
+    for bad in ("", "   ", "opencode-go", "/model", "provider/"):
+        monkeypatch.setattr(settings, "dsh_agent_model", bad)
+        DshAgentAdapter().generate(None, "system", {"message": "hi"}, 16)
+        assert "model" not in gateway["requests"][-1]["body"]
 
 
 def test_complete_empty_text_is_success(gateway):
