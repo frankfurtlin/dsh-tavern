@@ -14,7 +14,7 @@
 **保留并复用**
 - 角色卡解析与导入导出：`app/server/app/cards/parse.py`（PNG v1/v2/v3、character_book）
 - 角色卡表与 CRUD、头像：`app/server/app/cards/{models,service,api}.py`（改造）
-- 人设：`app/server/app/cards/personas.py`、客户端 PersonaControl
+- 人设：`app/server/app/cards/personas.py`、客户端 PersonaSettings（选择存 `tavern:persona`，发消息时带 `personaId`）
 - 正则：`regex_scripts` 与客户端 RegexPage
 - 导出：卡 PNG / 聊天 JSONL（改为 ST 格式）
 - 可信登录、DSH 桥（`app/client/src/dsh-bridge.ts`）、api 客户端、DSH 模型网关
