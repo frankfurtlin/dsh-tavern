@@ -328,6 +328,14 @@ JSONL
 JSONL
   run "生成 ST JSONL 搜索样例（chat-search.jsonl，6 条消息/3 条含「茶」）" test -s "$FIXTURES/chat-search.jsonl"
 
+  # A2 组：含 *动作* / **强调** 的聊天样例（跨两天，验证日期分隔与纯文本渲染）。
+  cat > "$FIXTURES/chat-a2.jsonl" <<'JSONL'
+{"user_name":"旅人","character_name":"林小满","create_date":"2026-11-18T12:10:00.000Z","mes":"*老板娘擦了擦杯子* 来一盏茶？","is_user":false,"is_name":false}
+{"user_name":"旅人","character_name":"林小满","create_date":"2026-11-18T12:11:00.000Z","mes":"好，谢谢。","is_user":true,"is_name":true}
+{"user_name":"旅人","character_name":"林小满","create_date":"2026-11-19T01:05:00.000Z","mes":"**小心烫。** 雨停之前慢慢喝。","is_user":false,"is_name":false}
+JSONL
+  run "生成 A2 聊天样例（chat-a2.jsonl，含动作/强调/跨两天）" test -s "$FIXTURES/chat-a2.jsonl"
+
   say "真实浏览器 E2E（verify.mjs）"
   local verify_args=(--url "$url" --out "$OUT" --fixtures "$FIXTURES")
   [[ -n "${DSH_TAVERN_DEBUG:-}" ]] && echo "verify args: ${verify_args[*]}"

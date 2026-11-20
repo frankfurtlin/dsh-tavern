@@ -6,8 +6,8 @@ import {saveBlob} from '../platform/download'
 import {streamChat} from './sse'
 import {compileRender,descendants,flush,node,provideSfc,renderer,text,type Host} from '../test/host-renderer'
 
-const harness=vi.hoisted(()=>({route:{params:{id:'chat-1'}},push:vi.fn()}))
-vi.mock('vue-router',()=>({useRoute:()=>harness.route,useRouter:()=>({push:harness.push})}))
+const harness=vi.hoisted(()=>({route:{params:{id:'chat-1'}},push:vi.fn(),replace:vi.fn()}))
+vi.mock('vue-router',()=>({useRoute:()=>harness.route,useRouter:()=>({push:harness.push,replace:harness.replace})}))
 vi.mock('../stores/app',()=>({useApp:()=>({online:true,message:vi.fn()})}))
 vi.mock('../platform/request-scope',()=>({useRequestScope:()=>{let disposed=false;onUnmounted(()=>{disposed=true});return()=>({valid:()=>!disposed})}}))
 vi.mock('../api',()=>({authorizationHeaders:()=>({})}))
@@ -34,10 +34,10 @@ vi.mock('./api',()=>({
 vi.mock('../platform/download',()=>({saveBlob:vi.fn(),safeFileName:(name:string,fallback:string)=>name||fallback}))
 vi.mock('./sse',()=>({streamChat:vi.fn()}))
 vi.mock('../components/Sheet.vue',()=>({default:defineComponent({props:{title:{type:String,default:''}},emits:['close'],setup:(props,{slots})=>()=>h('section',{class:'sheet-stub'},[h('h2',{},props.title),slots.default?.()])})}))
-vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{ArrowLeft:stub,ChevronDown:stub,ChevronLeft:stub,ChevronRight:stub,ChevronUp:stub,Download:stub,HelpCircle:stub,Pencil:stub,Quote:stub,RefreshCw:stub,Search:stub,Send:stub,Square:stub,Trash2:stub,X:stub}})
+vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{ArrowDown:stub,ArrowLeft:stub,Check:stub,ChevronDown:stub,ChevronLeft:stub,ChevronRight:stub,ChevronUp:stub,Copy:stub,Download:stub,HelpCircle:stub,Pencil:stub,Quote:stub,RefreshCw:stub,Search:stub,Send:stub,Square:stub,Trash2:stub,X:stub}})
 compileRender(TavernChatPage,new URL('./TavernChatPage.vue',import.meta.url))
 
-type Msg={id:string;role:'user'|'assistant';sequence:number;swipes:{content:string}[];activeSwipe:number;quotedText?:string|null}
+type Msg={id:string;role:'user'|'assistant';sequence:number;swipes:{content:string}[];activeSwipe:number;quotedText?:string|null;createdAt?:string;speakerCardId?:string|null;speakerName?:string|null}
 const userMessage:Msg={id:'u1',role:'user',sequence:1,swipes:[{content:'你好'}],activeSwipe:0}
 const assistantMessage:Msg={id:'a1',role:'assistant',sequence:2,swipes:[{content:'风起了'}],activeSwipe:0}
 const detail=(messages:Msg[]=[userMessage,assistantMessage])=>({chat:{id:'chat-1',cardId:'c1',title:'林渡 · 聊天',characterName:'林渡'},messages})
@@ -128,7 +128,7 @@ describe('TavernChatPage',()=>{
   it('regenerates the last assistant message',async()=>{
     vi.mocked(streamChat).mockResolvedValue(undefined)
     mount();await flush()
-    button('重新生成').props.onClick?.()
+    aria('重新生成').props.onClick?.()
     await flush()
     expect(streamChat).toHaveBeenCalledWith('/chats/chat-1/regenerate',{},expect.any(Object),expect.objectContaining({signal:expect.anything()}))
   })
@@ -234,7 +234,7 @@ describe('TavernChatPage',()=>{
     expect(text(host)).toContain('群聊成员已全部删除，无法继续发言')
     expect(aria('聊天输入框').props.disabled).toBe(true)
     expect(aria('发送消息').props.disabled).toBe(true)
-    expect(button('重新生成')).toBeUndefined()
+    expect(aria('重新生成')).toBeUndefined()
   })
 
   it('rotates the next speaker over living members only',async()=>{
@@ -453,5 +453,59 @@ describe('TavernChatPage',()=>{
       await flush()
       expect((state() as {searchHitId:string}).searchHitId).toBe('a1')
     })
+  })
+
+
+describe('A2a chat reading',()=>{
+  const stamp=(offsetDays=0)=>{
+    const date=new Date()
+    date.setDate(date.getDate()-offsetDays)
+    return date.toISOString()
+  }
+
+  it('renders *actions* and **emphasis** as plain text segments',async()=>{
+    vi.mocked(getChat).mockResolvedValue(detail([{id:'a1',role:'assistant',sequence:2,swipes:[{content:'*推门而入*，风声**很轻**。'}],activeSwipe:0,createdAt:stamp()}]) as never)
+    mount();await flush()
+    const acts=descendants(host,item=>String(item.props.class??'')==='act')
+    const strongs=descendants(host,item=>String(item.props.class??'')==='strong')
+    expect(acts.length).toBe(1)
+    expect(text(acts[0])).toBe('推门而入')
+    expect(strongs.length).toBe(1)
+    expect(text(strongs[0])).toBe('很轻')
+    expect(text(host)).not.toContain('*')
+  })
+
+  it('separates days and hides per-message time labels',async()=>{
+    const today=stamp(0),yesterday=stamp(1)
+    vi.mocked(getChat).mockResolvedValue(detail([
+      {...userMessage,createdAt:today},
+      {...assistantMessage,createdAt:today},
+      {id:'u3',role:'user',sequence:3,swipes:[{content:'第二天'}],activeSwipe:0,createdAt:yesterday},
+    ]) as never)
+    mount();await flush()
+    const days=descendants(host,item=>String(item.props.class??'')==='chat-day')
+    expect(days.length).toBe(2)
+    expect(text(days[0])).toBe('今天')
+    expect(text(days[1])).toBe('昨天')
+    expect(descendants(host,item=>String(item.props.class??'')==='bubble-time').length).toBe(0)
+    const titled=descendants(host,item=>/^\d{2}:\d{2}$/.test(String(item.props.title??'')))
+    expect(titled.length).toBeGreaterThan(0)
+  })
+
+  it('tags user and assistant bubbles with their role',async()=>{
+    mount();await flush()
+    const rows=descendants(host,item=>String(item.props.class??'').includes('bubble-row'))
+    expect(rows.some(row=>String(row.props.class).includes('user'))).toBe(true)
+    expect(rows.some(row=>String(row.props.class).includes('assistant'))).toBe(true)
+  })
+})
+})
+
+describe('不存在的聊天',()=>{
+  it('加载 404 时回到角色卡而不是停在错误页',async()=>{
+    vi.mocked(getChat).mockRejectedValueOnce(Object.assign(new Error('这段对话不存在或已被删除'),{status:404}))
+    mount();await flush()
+    expect(harness.replace).toHaveBeenCalledWith('/')
+    expect(harness.push).not.toHaveBeenCalled()
   })
 })

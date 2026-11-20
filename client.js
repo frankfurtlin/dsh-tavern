@@ -40,6 +40,8 @@ window.__ModuleLoader__.load({
       context: "dsh-tavern:context",
       // 主题同步是契约之外的附加消息：应用侧愿意听就跟着切主题，不听也无害。
       theme: "dsh-tavern:theme",
+      // 应用侧发现记住的聊天已不存在时发来：清掉位置记忆，别下次再撞错误页。
+      routeReset: "dsh-tavern:route-reset",
     };
 
     /** 向 iframe 要上下文的超时：应用侧要读 store、拼摘要，给足 8 秒。 */
@@ -393,6 +395,12 @@ window.__ModuleLoader__.load({
           var frame = iframeRef.current;
           if (frame && frame.contentWindow && event.source && event.source !== frame.contentWindow) return;
 
+          if (data.type === MSG.routeReset) {
+            // 应用侧发现记住的聊天已被删除并已回到卡库：位置记忆作废。
+            forgetRememberedPath();
+            setHasContext(false);
+            return;
+          }
           if (data.type === MSG.pong) {
             markConnected(data.appPath);
             // pong 不带 hasContext：只有 /chats/:id 才当作可恢复位置。
