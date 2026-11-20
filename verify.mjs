@@ -5775,7 +5775,7 @@ try {
     'V3 群聊发言人头像 28px（.bubble-speaker-avatar）',
     'V4 详情页 .character-hero 存在，只读正文 font-size≥16 且 line-height≥1.8，编辑/取消可往返',
     'V5 设置页四组标题 + 「温度」中文标签 + details 折叠',
-    'V6 移动端 390：气泡宽度 ≤86%、操作按钮常显、详情 hero 无横向溢出',
+    'V6 移动端 390：气泡宽度 ≤86%、操作收进「⋯」菜单（≥3 项 ≥44px）、详情 hero 无横向溢出',
     'V7 聊天阅读/详情/设置 console 无报错',
   ]
   const a2Evidence = {
@@ -5893,23 +5893,40 @@ try {
                 const bubbles = Array.from(document.querySelectorAll('.bubble-text')).map((node) => (node.textContent || '').trim())
                 const bare = bubbles.filter((text) => /\*[^*\s][^*]{0,60}\*/.test(text))
                 const actStyle = acts.length ? getComputedStyle(document.querySelector('.bubble-text .act')) : null
+                const quiet = getComputedStyle(document.documentElement).getPropertyValue('--quiet').trim()
                 return {
                   acts,
                   bareCount: bare.length,
                   bareSample: bare.slice(0, 2),
                   fontStyle: actStyle ? actStyle.fontStyle : null,
                   color: actStyle ? actStyle.color : null,
+                  quiet,
                 }
               })
               .catch(() => null)
           : null
         a2Evidence.chat = { ...a2Evidence.chat, rows, dayCount, act: actInfo }
         await shot(page, '176-a2-chat-day-act.png')
-        const actOk = Boolean(actInfo && actInfo.acts.length >= 1 && actInfo.bareCount === 0)
+        // 动作文字：不整段斜体（font-style: normal），用 --quiet 色降一档，长回复才读得动。
+        const quietRgb = /^#([0-9a-f]{6})$/i.test(String(actInfo && actInfo.quiet))
+          ? [1, 3, 5].map((index) => parseInt(String(actInfo.quiet).slice(index, index + 2), 16))
+          : null
+        const actColorRgb = (() => {
+          const matched = String((actInfo && actInfo.color) || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
+          return matched ? [Number(matched[1]), Number(matched[2]), Number(matched[3])] : null
+        })()
+        const actStyleOk = Boolean(
+          actInfo &&
+            actInfo.fontStyle === 'normal' &&
+            quietRgb &&
+            actColorRgb &&
+            actColorRgb.every((part, index) => Math.abs(part - quietRgb[index]) <= 1),
+        )
+        const actOk = Boolean(actInfo && actInfo.acts.length >= 1 && actInfo.bareCount === 0 && actStyleOk)
         vCheck(
           0,
           Boolean(dayCount >= 1 && actOk && rows >= 2),
-          `rows=${rows} chatDay=${dayCount} acts=${actInfo ? JSON.stringify(actInfo.acts) : 'null'} bare=${actInfo ? actInfo.bareCount : 'null'} style=${actInfo ? actInfo.fontStyle : 'null'}${dayCount >= 1 && actOk ? '' : '；owner: cards-client chat-format'}`,
+          `rows=${rows} chatDay=${dayCount} acts=${actInfo ? JSON.stringify(actInfo.acts) : 'null'} bare=${actInfo ? actInfo.bareCount : 'null'} style=${actInfo ? actInfo.fontStyle : 'null'} color=${actInfo ? actInfo.color : 'null'} quiet=${actInfo ? actInfo.quiet : 'null'}${dayCount >= 1 && actOk ? '' : '；owner: cards-client chat-format'}`,
         )
         // V2 气泡颜色
         const colors = frame
@@ -5918,7 +5935,13 @@ try {
                 const user = document.querySelector('.bubble-row.user .bubble')
                 const assistant = document.querySelector('.bubble-row.assistant .bubble')
                 const pick = (node) => (node ? getComputedStyle(node).backgroundColor : null)
-                return { user: pick(user), assistant: pick(assistant) }
+                const assistantStyle = assistant ? getComputedStyle(assistant) : null
+                return {
+                  user: pick(user),
+                  assistant: pick(assistant),
+                  assistantBorder: assistantStyle ? assistantStyle.borderTopWidth : null,
+                  assistantShadow: assistantStyle ? assistantStyle.boxShadow : null,
+                }
               })
               .catch(() => null)
           : null
@@ -5931,8 +5954,21 @@ try {
           const actual = rgb(value)
           return Boolean(actual && actual.every((part, index) => Math.abs(part - expected[index]) <= 1))
         }
-        const colorOk = Boolean(colors && same(colors.user, [140, 74, 47]) && same(colors.assistant, [255, 253, 249]))
-        vCheck(1, colorOk, `user=${colors ? colors.user : 'null'} assistant=${colors ? colors.assistant : 'null'}；owner: cards-client 气泡配色`)
+        // 助手气泡与纸底只差一档：必须还有 1px --edge 描边 + 极轻阴影，内容面才浮起来。
+        const bubbleEdgeOk = Boolean(
+          colors &&
+            colors.assistantBorder === '1px' &&
+            colors.assistantShadow &&
+            colors.assistantShadow !== 'none',
+        )
+        const colorOk = Boolean(
+          colors && same(colors.user, [140, 74, 47]) && same(colors.assistant, [255, 253, 249]) && bubbleEdgeOk,
+        )
+        vCheck(
+          1,
+          colorOk,
+          `user=${colors ? colors.user : 'null'} assistant=${colors ? colors.assistant : 'null'} border=${colors ? colors.assistantBorder : 'null'} shadow=${colors ? String(colors.assistantShadow).slice(0, 48) : 'null'}；owner: cards-client 气泡配色`,
+        )
         // V3 群聊发言人头像 28
         const groupChatId = membersEvidence && membersEvidence.enabled ? membersEvidence.chatId : null
         let speakerBox = null
@@ -5967,11 +6003,16 @@ try {
                 const body = document.querySelector('.read-body')
                 if (!body) return null
                 const style = getComputedStyle(body)
+                const world = document.querySelector('.section-action')
+                const worldStyle = world ? getComputedStyle(world) : null
                 return {
                   fontSize: parseFloat(style.fontSize),
                   lineHeight: parseFloat(style.lineHeight),
                   hero: document.querySelectorAll('.character-hero').length,
                   text: (body.textContent || '').trim().slice(0, 40),
+                  worldBackground: worldStyle ? worldStyle.backgroundColor : null,
+                  worldBorder: worldStyle ? worldStyle.borderTopWidth : null,
+                  worldText: world ? (world.textContent || '').trim() : null,
                 }
               })
               .catch(() => null)
@@ -5998,16 +6039,37 @@ try {
             .catch(() => false)
         }
         const ratio = readStyle && readStyle.fontSize ? readStyle.lineHeight / readStyle.fontSize : 0
-        a2Evidence.detail = { heroCount, readStyle, editFormShown, cancelRestored }
+        // 「管理世界书」是这一节的次要入口：底色透明、无描边，不跟主按钮抢权重。
+        const clearWorldButton = Boolean(
+          readStyle &&
+            (!readStyle.worldBackground || /rgba\(0, 0, 0, 0\)|transparent/.test(String(readStyle.worldBackground))) &&
+            readStyle.worldBorder === '0px',
+        )
+        a2Evidence.detail = { heroCount, readStyle, editFormShown, cancelRestored, clearWorldButton }
         vCheck(
           3,
-          Boolean(heroCount >= 1 && readStyle && readStyle.fontSize >= 16 && ratio >= 1.8 && editFormShown && cancelRestored),
-          `hero=${heroCount} fontSize=${readStyle ? readStyle.fontSize : 'null'} ratio=${ratio.toFixed(2)} edit=${editFormShown} cancel=${cancelRestored}；owner: cards-client 详情`,
+          Boolean(
+            heroCount >= 1 &&
+              readStyle &&
+              readStyle.fontSize >= 16 &&
+              ratio >= 1.8 &&
+              editFormShown &&
+              cancelRestored &&
+              clearWorldButton,
+          ),
+          `hero=${heroCount} fontSize=${readStyle ? readStyle.fontSize : 'null'} ratio=${ratio.toFixed(2)} edit=${editFormShown} cancel=${cancelRestored} world=${readStyle ? `${readStyle.worldText}/${readStyle.worldBackground}/border:${readStyle.worldBorder}` : 'null'}；owner: cards-client 详情`,
         )
         await shot(page, '177-a2-detail.png')
         // V5 设置页：四组标题 + 温度 + details
         const settingsFrame = await appGoto('/settings')
         if (settingsFrame) await settingsFrame.locator('.settings-group').first().waitFor({ state: 'visible', timeout: 20000 }).catch(() => {})
+        if (settingsFrame) {
+          await settingsFrame
+            .locator('[aria-label="我是谁的人设"]')
+            .first()
+            .waitFor({ state: 'visible', timeout: 20000 })
+            .catch(() => {})
+        }
         const settingsInfo = settingsFrame
           ? await settingsFrame
               .evaluate(() => {
@@ -6017,28 +6079,38 @@ try {
                 const labels = Array.from(document.querySelectorAll('.settings-group label')).map((node) =>
                   (node.textContent || '').trim(),
                 )
+                const bodyText = document.body.innerText || ''
+                const personaGroup = Array.from(document.querySelectorAll('.settings-group')).find(
+                  (group) => (group.getAttribute('aria-label') || '') === '我是谁',
+                )
                 return {
                   titles,
                   hasTemperature: labels.some((text) => /温度/.test(text)),
                   details: document.querySelectorAll('.sampling-advanced, .settings-group details').length,
                   overflow: document.documentElement.scrollWidth - window.innerWidth,
+                  personaSelects: personaGroup ? personaGroup.querySelectorAll('select').length : 0,
+                  personaCards: personaGroup ? personaGroup.querySelectorAll('.settings-card').length : 0,
+                  legacyPersonaWording: /当前人设|默认人设/.test(bodyText),
                 }
               })
               .catch(() => null)
           : null
-        const expectedGroups = ['默认对话', '采样参数', '预设', '本地数据']
+        const expectedGroups = ['我是谁', '采样参数', '预设', '本地数据']
         const settingsOk = Boolean(
           settingsInfo &&
             expectedGroups.every((name) => settingsInfo.titles.includes(name)) &&
             settingsInfo.hasTemperature &&
-            settingsInfo.details >= 1,
+            settingsInfo.details >= 1 &&
+            settingsInfo.personaSelects === 1 &&
+            settingsInfo.personaCards === 1 &&
+            !settingsInfo.legacyPersonaWording,
         )
         a2Evidence.settings = settingsInfo
         vCheck(
           4,
           settingsOk,
           settingsInfo
-            ? `titles=${JSON.stringify(settingsInfo.titles)} 温度=${settingsInfo.hasTemperature} details=${settingsInfo.details}`
+            ? `titles=${JSON.stringify(settingsInfo.titles)} 温度=${settingsInfo.hasTemperature} details=${settingsInfo.details} personaSelects=${settingsInfo.personaSelects} personaCards=${settingsInfo.personaCards} legacy=${settingsInfo.legacyPersonaWording}`
             : '设置页未渲染（owner: cards-client 设置）',
         )
         await shot(page, '178-a2-settings-1440.png')
@@ -6060,16 +6132,49 @@ try {
               const widths = rows.map((row) => row.getBoundingClientRect().width)
               const logWidth = log ? log.getBoundingClientRect().width : window.innerWidth
               const actions = document.querySelector('.bubble-actions')
+              const more = document.querySelector('.bubble-more')
               return {
                 logWidth,
                 maxBubble: widths.length ? Math.max(...widths) : 0,
                 ratio: logWidth ? (widths.length ? Math.max(...widths) / logWidth : 0) : 0,
+                rowCount: rows.length,
+                actionsDisplay: actions ? getComputedStyle(actions).display : null,
                 actionsOpacity: actions ? getComputedStyle(actions).opacity : null,
-                actionsVisible: actions ? getComputedStyle(actions).opacity === '1' : false,
+                moreVisible: more ? more.getBoundingClientRect().width > 0 : false,
+                morePerRow: rows.map((row) => row.querySelectorAll('.bubble-more').length),
                 overflow: document.documentElement.scrollWidth - window.innerWidth,
               }
             })
             .catch(() => null)
+          // 移动端操作行收进「⋯」：点开后应是一个 ≥3 项、每项 ≥44px 的菜单。
+          let actionMenu = null
+          try {
+            const moreButton = mobilePage.locator('.bubble-row.user .bubble-more, .bubble-row .bubble-more').first()
+            await moreButton.click({ timeout: 8000 })
+            await mobilePage.locator('.bubble-actions.open').first().waitFor({ state: 'visible', timeout: 8000 })
+            actionMenu = await mobilePage
+              .evaluate(() => {
+                const panel = document.querySelector('.bubble-actions.open')
+                if (!panel) return null
+                const buttons = Array.from(panel.querySelectorAll('button'))
+                  .map((button) => ({
+                    label: (button.textContent || '').trim() || button.getAttribute('aria-label') || '',
+                    height: button.getBoundingClientRect().height,
+                  }))
+                  .filter((item) => item.label)
+                return {
+                  buttons,
+                  title: (panel.querySelector('.bubble-sheet-title')?.textContent || '').trim(),
+                  bottom: panel.getBoundingClientRect().bottom,
+                  innerHeight: window.innerHeight,
+                }
+              })
+              .catch(() => null)
+            await mobilePage.screenshot({ path: path.join(outDir, '179-a2-mobile-menu.png') }).catch(() => {})
+            await mobilePage.locator('.bubble-menu-scrim').click({ position: { x: 4, y: 4 } }).catch(() => {})
+          } catch {
+            actionMenu = null
+          }
           const mobileDetail = await mobilePage.goto(`${new URL(url).origin}/tavern/characters/${cardId}`, { waitUntil: 'domcontentloaded' })
           await mobilePage
             .locator('.character-hero')
@@ -6087,13 +6192,22 @@ try {
               }
             })
             .catch(() => null)
-          a2Evidence.mobile = { bubbleInfo, detailInfo, detailLoaded: Boolean(mobileDetail) }
+          a2Evidence.mobile = { bubbleInfo, actionMenu, detailInfo, detailLoaded: Boolean(mobileDetail) }
+          const menuOk = Boolean(
+            actionMenu &&
+              actionMenu.buttons.length >= 3 &&
+              actionMenu.buttons.every((item) => item.height >= 44) &&
+              actionMenu.bottom <= actionMenu.innerHeight + 1,
+          )
           const mobileOk = Boolean(
             bubbleInfo &&
               bubbleInfo.ratio > 0 &&
               bubbleInfo.ratio <= 0.86 + 0.02 &&
-              bubbleInfo.actionsVisible &&
+              bubbleInfo.actionsDisplay === 'none' &&
+              bubbleInfo.moreVisible &&
+              bubbleInfo.morePerRow.every((count) => count === 1) &&
               bubbleInfo.overflow <= 1 &&
+              menuOk &&
               detailInfo &&
               detailInfo.overflow <= 1 &&
               (detailInfo.heroRight === null || detailInfo.heroRight <= detailInfo.innerWidth + 1),
@@ -6102,7 +6216,7 @@ try {
             5,
             mobileOk,
             bubbleInfo
-              ? `logWidth=${Math.round(bubbleInfo.logWidth)} maxBubble=${Math.round(bubbleInfo.maxBubble)} ratio=${bubbleInfo.ratio.toFixed(2)} actionsOpacity=${bubbleInfo.actionsOpacity} heroOverflow=${detailInfo ? detailInfo.overflow : 'null'}`
+              ? `logWidth=${Math.round(bubbleInfo.logWidth)} maxBubble=${Math.round(bubbleInfo.maxBubble)} ratio=${bubbleInfo.ratio.toFixed(2)} actions=${bubbleInfo.actionsDisplay} more=${bubbleInfo.moreVisible} perRow=${JSON.stringify(bubbleInfo.morePerRow)} menu=${actionMenu ? actionMenu.buttons.map((item) => `${item.label}:${Math.round(item.height)}`).join('|') : 'null'} menuBottom=${actionMenu ? Math.round(actionMenu.bottom) : 'null'}/${actionMenu ? actionMenu.innerHeight : 'null'} heroOverflow=${detailInfo ? detailInfo.overflow : 'null'}`
               : '移动端聊天页未渲染（owner: cards-client 移动适配）',
           )
           await mobilePage.screenshot({ path: path.join(outDir, '179-a2-mobile-chat.png') }).catch(() => {})

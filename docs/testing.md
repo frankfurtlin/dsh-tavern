@@ -938,3 +938,24 @@ harness 侧修复（未放宽断言，只修时序/环境）：
     （`source=tokens`），并支持 `#rgb`/`#rrggbb` 十六进制解析；有徽标时仍按实际渲染取色（`source=badge`）。
   - 历史重进的 `expectedTail` 在比对前去掉 Markdown 标记 `*`/`_`/反引号，与 A2a 的 `span.act` 渲染一致。
 - `verify.mjs` 的 `--cookie NAME=VALUE` 继续用于生产方式；Cookie 值不写入报告与日志。
+
+## 实测记录（A3 设计债五则，2026-11-20）
+
+改动见 [design-a3-spec.md](./design-a3-spec.md)：设置页「我是谁」合并为单一选择器并真正随消息发送、
+移动端操作行收进「⋯」、助手气泡加 1px `--edge` + 极轻阴影、`.act` 去斜体只留 `--quiet`、
+「管理世界书」降为文字按钮。
+
+- 静态 + 单测：`npm run typecheck` 0 错误；`npm run test:unit` **325 passed / 29 files**
+  （新增 `characters/PersonaSettings.test.ts`，更新设置页与聊天页用例）。
+- 实机（生产 3080，桌面 1440×900 + 移动 390×844，复用已登录浏览器）：
+  `node scripts/design-shots.mjs --out docs/screenshots/design-a3` → **14 PASS / 0 FAIL**。
+  覆盖：世界书按钮透明底/0 边、助手气泡 1px 边 + 阴影、`.act` `font-style:normal` + `--quiet`、
+  桌面操作行仍 hover 显现且无「⋯」、移动端操作行 `display:none` + 每条消息 1 个「⋯」、
+  「⋯」菜单 4 项各 44px 且不越出视口、点遮罩关闭、设置页只有 1 个 select 且无「当前/默认人设」、
+  「我是谁」只占 1 层 settings-card、选中人设写入 `tavern:persona` 且消息请求体带同一 `personaId`、桌面与移动页面 console 无报错。
+  脚本会导入 `chat-a2.jsonl` 造临时聊天并在结束时删除（本轮清理均 204），验收人设亦已删除。
+- 未跑全量 `verify.mjs`（会真实调用模型并写生产聊天/卡库）。已同步更新 V1/V2/V4/V5/V6 断言：
+  `.act` 需 `font-style:normal` + `--quiet`、助手气泡需边框与阴影、`.section-action` 无底色无描边、
+  设置页需单人设 select 且无旧文案、移动端需「⋯」菜单（≥3 项、每项 ≥44px）。下次全量验收直接覆盖。
+- 回归风险：persona 从「只写 localStorage 的无效默认」变成随每条消息发送的 `personaId`；
+  未选人设时请求体不带该字段，行为与之前完全一致。

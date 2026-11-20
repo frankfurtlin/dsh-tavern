@@ -224,7 +224,7 @@ host 半只做反向代理，以下链路都在应用侧。设计文档见
 | `/characters/:id` | `tavern/TavernCharacterPage.vue` | 卡详情：设定编辑/保存/删除、导出卡、世界书 CRUD、聊天历史、开新聊天 |
 | `/chats` | `tavern/TavernChatsPage.vue` | 聊天历史页：全部聊天按 `lastMessageAt` 倒序（群聊显示成员名），点进对应聊天 |
 | `/chats/:id` | `tavern/TavernChatPage.vue` | 全屏聊天（`immersive`）：消息列表、流式气泡、swipe 版本、编辑/删除、重新生成、标题改名、导出聊天、「采样参数」Sheet（temperature/top_p/max_tokens/stop，落库并回显）；群聊顶部显示成员头像、assistant 气泡带发言人名字与头像 |
-| `/settings` | `tavern/TavernSettingsPage.vue` | 设置：人设（`PersonaControl` + 默认人设）、预设管理（`TavernPresetsPanel`）、输出替换规则入口、导入导出说明 |
+| `/settings` | `tavern/TavernSettingsPage.vue` | 设置：「我是谁」人设（`PersonaSettings`：一个下拉 + 就地增删改，选择写 `tavern:persona` 并随每条消息带 `personaId`）、预设管理（`TavernPresetsPanel`）、输出替换规则入口、导入导出说明 |
 | `/settings/regex` | `tavern/TavernRegexPage.vue` | 输出替换规则：账号级正则列表 CRUD、启停、两步删除、客户端校验（名称 ≤80 / 正则 ≤500 / 替换 ≤2000 / 顺序）；规则按账号级存储（`world.regex_scripts`，owner 级），**回复落库前会调用 `apply_regex`**（流式 delta 为原文，刷新后见替换结果） |
 
 `/characters/groups`、`/characters/groups/:id`、`/characters/regex` 以及所有未知

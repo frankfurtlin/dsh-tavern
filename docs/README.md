@@ -14,4 +14,6 @@
 
 历史文档（故事模式、旧卡片空间、旧群聊、长期记忆、P0–P2 体验）在 [history/](history/)，其 UI 与服务端大多已在 P3（`06d637f`）删除，仅作参考。
 
-截图在 [screenshots/](screenshots/)：`native-p3/`、`native-polish1..4/`、`native-presets/`、`native-p0/`。
+截图在 [screenshots/](screenshots/)：`native-p3/`、`native-polish1..4/`、`native-presets/`、`native-p0/`、`design-a1/`、`design-a2/`、`design-a3/`。
+
+设计分轮：[design-a1-spec.md](design-a1-spec.md)（暖纸本 token）、[design-a2-spec.md](design-a2-spec.md)（聊天/详情/设置）、[design-a3-spec.md](design-a3-spec.md)（设计债五则）。

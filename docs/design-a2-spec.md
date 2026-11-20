@@ -21,7 +21,7 @@
 - 新增 `app/client/src/tavern/chat-format.ts`：`splitSegments(text): Array<{kind:'text'|'act'|'strong', text:string}>`。
   - `*...*`（单星号、≤200 字、不跨行）→ `act`；`**...**` → `strong`；其余 `text`。
   - 未闭合星号按文本处理。
-- 模板用 `v-for` 渲染 `<span :class="seg.kind">`；`.act{font-style:italic;color:var(--quiet)}`、`.strong{font-weight:600;color:var(--ink)}`。
+- 模板用 `v-for` 渲染 `<span :class="seg.kind">`；`.act{font-style:italic;color:var(--quiet)}`、`.strong{font-weight:600;color:var(--ink)}`。（A3 起 `.act` 去掉斜体，只留 `--quiet` 色，见 [design-a3-spec.md](./design-a3-spec.md)）
 - 只处理首尾对称的标记；不做 Markdown 全量解析。
 
 ### 2.3 日期分隔
@@ -35,7 +35,7 @@
 - 已删除成员延续「（已删除）」灰条 + 只读态。
 
 ### 2.5 操作
-- 统一 Lucide 图标按钮（Quote / RefreshCw / Pencil / Copy / Trash2），aria-label 保留；桌面 hover/focus 显现，≤900 常显。
+- 统一 Lucide 图标按钮（Quote / RefreshCw / Pencil / Copy / Trash2），aria-label 保留；桌面 hover/focus 显现，≤900 常显。（A3 起 ≤900 改为「⋯」菜单，桌面仍 hover 显现）
 - 触达 ≥48px（透明区域可扩）；危险操作（删除）hover 时才变 `--danger`。
 - 引用：图标替代文字「引用」。
 
@@ -53,7 +53,7 @@
 
 ## 4. 设置与帮助
 
-- 设置分四组卡片：「默认对话」「采样参数」「预设」「本地数据」；组标题 13px 600 `--accent-ink`。
+- 设置分四组卡片：「默认对话」「采样参数」「预设」「本地数据」；组标题 13px 600 `--accent-ink`。（A3 起第一组改名「我是谁」，只剩一个选择器）
 - 采样参数用中文标签（温度 / 核采样 / 最大长度 / 重复惩罚），默认值灰字提示；原始 JSON 折叠在「高级」details 内。
 - 保存按钮 44 主色；「保存成功」用 toast，不跳页。
 - 帮助页：顶部目录（7 节锚点）+ 分节正文 16/1.9；底部「重新查看引导」；返回设置。
