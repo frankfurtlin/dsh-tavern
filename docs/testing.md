@@ -921,3 +921,20 @@ harness 侧修复（未放宽断言，只修时序/环境）：
   在 60–80ms 内返回 `AGENT_UPSTREAM_FAILED`（health 仍 `ok=true`），生产冒烟出现 R4/G2/G3/G4/M3/S2/L3 连锁「POST 200
   但 180s 无 delta」。应用侧用 `DSH_AGENT_MODEL=opencode-go/deepseek-v4.1-flash` 覆盖后恢复正常，生产轮一次通过。
 - 遗留风险：`--cookie` 有效期 30 天，过期后需重新签名；生产冒烟不要在日志/报告里打印 Cookie 值。
+
+## 实测记录（A2 验收回归，2026-11-20）
+
+- 隔离全量（先清库，3099 + 单入口 dist 10:28）：**97 PASS / 0 FAIL / 6 SKIP**，`ok=true`，
+  报告 `/tmp/dsh-tavern-native/check/report.json`；R 组 6 条因「隔离库只种 fixture 卡、未启用预设卡种子」而 SKIP，
+  属测试数据环境差异，不是产品缺陷。
+- 生产冒烟（先清库，3080 + 自签 Cookie）：**97 PASS / 0 FAIL / 6 SKIP**，`ok=true`，
+  报告 `/tmp/dsh-tavern-native/a2-fix-prod/report.json`。R 组跳过是因为生产库的预设卡在前几轮 R 验收中被
+  UI 删除（产品语义：预设卡删除后不自动恢复），已清空 `world.character_cards` 后重新惰性种回 5 张；下一次全量
+  会重新覆盖 R 组。
+- 修复进入已删聊天报错的回归由这次双轮覆盖：`从历史重新进入聊天，消息完整`、`列表预览纯文本`、
+  已删卡单聊不再出现在历史（服务端 pytest 用例 + E2E）。
+- 本轮 harness 修正（不放宽产品断言）：
+  - A1-4 徽标对比度：隔离环境没有预设卡时，改为读取 `:root` 的 `--accent-ink`/`--wash` token 计算
+    （`source=tokens`），并支持 `#rgb`/`#rrggbb` 十六进制解析；有徽标时仍按实际渲染取色（`source=badge`）。
+  - 历史重进的 `expectedTail` 在比对前去掉 Markdown 标记 `*`/`_`/反引号，与 A2a 的 `span.act` 渲染一致。
+- `verify.mjs` 的 `--cookie NAME=VALUE` 继续用于生产方式；Cookie 值不写入报告与日志。

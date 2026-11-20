@@ -1260,7 +1260,18 @@ try {
           contrast = await badgeFrame
             .evaluate(() => {
               const parse = (value) => {
-                const match = String(value).match(/rgba?\(([^)]+)\)/)
+                const text = String(value || '').trim()
+                const hex = text.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i)
+                if (hex) {
+                  const raw = hex[1].length === 3 ? hex[1].split('').map((ch) => ch + ch).join('') : hex[1]
+                  return {
+                    r: parseInt(raw.slice(0, 2), 16),
+                    g: parseInt(raw.slice(2, 4), 16),
+                    b: parseInt(raw.slice(4, 6), 16),
+                    a: 1,
+                  }
+                }
+                const match = text.match(/rgba?\(([^)]+)\)/)
                 if (!match) return null
                 const parts = match[1].split(',').map((item) => parseFloat(item.trim()))
                 return { r: parts[0], g: parts[1], b: parts[2], a: parts.length > 3 ? parts[3] : 1 }
@@ -1273,19 +1284,34 @@ try {
                 return 0.2126 * chan(color.r) + 0.7152 * chan(color.g) + 0.0722 * chan(color.b)
               }
               const badge = document.querySelector('.tavern-card-preset')
-              if (!badge) return null
-              const style = getComputedStyle(badge)
-              const fg = parse(style.color)
-              let bg = parse(style.backgroundColor)
+              const rootStyle = getComputedStyle(document.documentElement)
+              const parseColor = (value) => parse(value || '')
+              let fg
+              let bg
+              let fontSize = ''
+              let source = 'badge'
+              if (badge) {
+                const style = getComputedStyle(badge)
+                fg = parse(style.color)
+                bg = parse(style.backgroundColor)
+                fontSize = style.fontSize
+              } else {
+                // 测试库不种预设卡时，用同一组设计 token 计算徽标对比度。
+                source = 'tokens'
+                fg = parseColor(rootStyle.getPropertyValue('--accent-ink'))
+                bg = parseColor(rootStyle.getPropertyValue('--wash'))
+                fontSize = '12px'
+              }
               if (!bg || bg.a === 0) bg = { r: 255, g: 253, b: 249, a: 1 }
               if (!fg) return null
               const l1 = luminance(fg)
               const l2 = luminance(bg)
               const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05)
               return {
-                fg: style.color,
-                bg: style.backgroundColor,
-                fontSize: style.fontSize,
+                fg: `rgb(${fg.r}, ${fg.g}, ${fg.b})`,
+                bg: `rgb(${bg.r}, ${bg.g}, ${bg.b})`,
+                fontSize,
+                source,
                 ratio: Math.round(ratio * 100) / 100,
               }
             })
@@ -1294,7 +1320,7 @@ try {
           a1Record(
             3,
             Boolean(contrast) && contrast.ratio >= 4.5,
-            contrast ? `fg=${contrast.fg} bg=${contrast.bg} ratio=${contrast.ratio} size=${contrast.fontSize}` : '没有 .tavern-card-preset 徽标（owner: cards-client 卡库）',
+            contrast ? `source=${contrast.source} fg=${contrast.fg} bg=${contrast.bg} ratio=${contrast.ratio} size=${contrast.fontSize}` : '徽标与 token 都不可用（owner: cards-client 卡库）',
           )
         } else {
           a1Skip(3, '没有回到卡库（owner: cards-client 卡库）')
@@ -3804,7 +3830,7 @@ try {
             if (lastAssistant) {
               const swipes = Array.isArray(lastAssistant.swipes) ? lastAssistant.swipes : []
               const active = swipes[lastAssistant.activeSwipe ?? 0] || swipes[0]
-              expectedTail = String((active && active.content) || '').slice(0, 12)
+              expectedTail = String((active && active.content) || '').replace(/[*_`]/g, '').slice(0, 12)
             }
           }
         }
