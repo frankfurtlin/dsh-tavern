@@ -342,7 +342,7 @@ onUnmounted(()=>{if(avatarUrl.value)URL.revokeObjectURL(avatarUrl.value)})
     <section class="character-section read-section" aria-label="世界书">
      <div class="section-head">
       <h2 class="section-title">世界书</h2>
-      <button type="button" class="outline" @click="openSheet">{{worldInfo.length?'查看全部世界书':'管理世界书'}}</button>
+      <button type="button" class="section-action" @click="openSheet">{{worldInfo.length?'查看全部世界书':'管理世界书'}}</button>
      </div>
      <p v-if="!worldInfo.length" class="muted">还没有世界书条目；导入卡里的 character_book 会自动出现在这里。</p>
      <p v-else class="read-world-summary">共 {{worldInfo.length}} 条 · 首条：{{firstSummary(firstWorldInfo)}}</p>
@@ -521,6 +521,9 @@ onUnmounted(()=>{if(avatarUrl.value)URL.revokeObjectURL(avatarUrl.value)})
 .section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
 .section-title{font-size:17px;margin:0 0 10px;font-family:var(--font-serif)}
 .section-head .section-title{margin:0}
+/* 世界书是这一节的次要入口：不抢「开新聊天」的主按钮权重。 */
+.section-action{min-height:40px;padding:0 6px;border:0;background:transparent;color:var(--quiet);font-size:13px;display:inline-flex;align-items:center;text-decoration:underline;text-underline-offset:3px;text-decoration-color:color-mix(in srgb,var(--quiet) 45%,transparent)}
+.section-action:hover{color:var(--accent-ink);background:transparent;text-decoration-color:currentColor}
 .read-body{color:var(--ink);white-space:pre-wrap;overflow-wrap:anywhere}
 .read-dialogue{padding:14px 16px;background:var(--wash);border-radius:var(--r-card)}
 .read-sub{margin-top:14px}
