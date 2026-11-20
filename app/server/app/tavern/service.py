@@ -455,6 +455,11 @@ def _like_pattern(term):
 def list_chats(db, owner, limit=20, offset=0, q=""):
     """Chats for ``owner``; ``q`` filters by title or the active message text."""
     statement = select(TavernChat).where(TavernChat.owner_id == owner)
+    # 单聊的角色卡被删除后聊天无法打开，不要再把它列进历史（群聊 card_id 为空）。
+    alive_card = exists(select(1).where(
+        CharacterCard.id == TavernChat.card_id,
+        CharacterCard.deleted_at.is_(None)))
+    statement = statement.where(or_(TavernChat.card_id.is_(None), alive_card))
     term = (q or "").strip()
     if term:
         pattern = _like_pattern(term)

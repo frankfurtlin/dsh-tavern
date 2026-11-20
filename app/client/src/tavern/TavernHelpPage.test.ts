@@ -30,6 +30,15 @@ describe('TavernHelpPage',()=>{
     expect(body).toContain('最近 12 条消息')
   })
 
+  it('lists every section in the table of contents',async()=>{
+    mount();await flush()
+    const links=descendants(host,item=>item.tag==='a'&&String(item.props.href||'').startsWith('#help-'))
+    expect(links.map(link=>link.props.href)).toEqual(['#help-start','#help-dsh','#help-import','#help-presets','#help-backup','#help-regex','#help-lore'])
+    const ids=descendants(host,item=>item.tag==='section'&&String(item.props.id||'').startsWith('help-')).length
+    expect(ids).toBe(7)
+    expect(descendants(host,item=>String(item.props.class||'')==='help-body').length).toBe(7)
+  })
+
   it('offers a back button to settings',async()=>{
     mount();await flush()
     button('返回设置')!.props.onClick?.()

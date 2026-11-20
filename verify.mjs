@@ -807,6 +807,18 @@ try {
       }
       if (!detailFrame) throw new Error('没有进入沈砚详情')
       await waitFor(async () => (await detailFrame.locator('.character-hero').count().catch(() => 0)) > 0, 20000)
+      // A2：删除按钮只在编辑态出现，先点「编辑」进入表单。
+      if ((await detailFrame.getByRole('button', { name: /删除角色卡/ }).count().catch(() => 0)) === 0) {
+        await detailFrame
+          .getByRole('button', { name: '编辑', exact: true })
+          .first()
+          .click({ timeout: 10000 })
+          .catch(() => {})
+        await waitFor(
+          async () => (await detailFrame.locator('button.danger').filter({ hasText: '删除角色卡' }).count().catch(() => 0)) > 0,
+          15000,
+        )
+      }
       const dialogPromise = page
         .waitForEvent('dialog', { timeout: 10000 })
         .then(async (dialog) => {
@@ -2760,9 +2772,14 @@ try {
             const bubble = row ? row.locator('.bubble-text').first() : null
             const textNow =
               bubble && (await bubble.count().catch(() => 0)) ? ((await bubble.innerText().catch(() => '')) || '').trim() : ''
+            const statusText = await groupChatFrame
+              .locator('.chat-status')
+              .first()
+              .innerText()
+              .catch(() => '')
             const pending =
               (await groupChatFrame.locator('.bubble-pending').count().catch(() => 0)) > 0 ||
-              /正在回复/.test(await bodyText(groupChatFrame))
+              /正在回复|正在生成|正在写/.test(statusText || '')
             if (textNow !== lastText) {
               lastText = textNow
               stable = 0
@@ -3126,7 +3143,7 @@ try {
       const after = await box.isChecked().catch(() => false)
       return { ok: after === selected, current, after }
     }
-    const openMembersSheet = async () => {
+    const openMembersSheetOnce = async () => {
       await closeMembersDialog()
       await waitChatRendered(memberPlane(), 25000)
       const frameNow = memberPlane()
@@ -3148,6 +3165,19 @@ try {
         return rows > 0 && !/正在加载角色卡/.test(text)
       }, 20000)
       return dialog
+    }
+    // M2/M3 保存后客户端会 load(true) 刷新 detail；若详情尚未回来就重开弹层，预选会是 0。
+    // 这里按期望勾选数重开，避免读到 stale 的 memberSelection。
+    const openMembersSheet = async (expected = null) => {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const dialog = await openMembersSheetOnce()
+        if (!dialog) return null
+        const checked = await dialog.locator('input[type="checkbox"]:checked').count().catch(() => 0)
+        if (expected === null || checked === expected) return dialog
+        await closeMembersDialog()
+        await page.waitForTimeout(800)
+      }
+      return await openMembersSheetOnce()
     }
     const memberSendMessage = async (text) => {
       const frameNow = memberPlane()
@@ -3188,8 +3218,14 @@ try {
         const row = count > beforeRows ? rows.nth(count - 1) : null
         const bubble = row ? row.locator('.bubble-text').first() : null
         const textNow = bubble && (await bubble.count().catch(() => 0)) ? ((await bubble.innerText().catch(() => '')) || '').trim() : ''
+        const statusText = await frameNow
+          .locator('.chat-status')
+          .first()
+          .innerText()
+          .catch(() => '')
         const pending =
-          (await frameNow.locator('.bubble-pending').count().catch(() => 0)) > 0 || /正在回复/.test(await bodyText(frameNow))
+          (await frameNow.locator('.bubble-pending').count().catch(() => 0)) > 0 ||
+          /正在回复|正在生成|正在写/.test(statusText || '')
         if (textNow !== lastText) {
           lastText = textNow
           stable = 0
@@ -3324,7 +3360,7 @@ try {
             chatFrame = opened
 
             // M1：管理成员弹层 2 人预选、计数 2/5
-            const dialog1 = await openMembersSheet()
+            const dialog1 = await openMembersSheet(2)
             if (!dialog1) {
               memberSkipRest('群聊页没有「管理成员」入口/弹层（owner: cards-client 管理成员）')
             } else {
@@ -3368,7 +3404,7 @@ try {
               // M3：取消 1 人保存 → members=2，继续发言 POST 200 + 落库 + speakerName ∈ 剩余成员
               let m3Ok = false
               let m3Detail = ''
-              const dialog3 = await openMembersSheet()
+              const dialog3 = await openMembersSheet(3)
               if (!dialog3) {
                 m3Detail = '保存后再次打开「管理成员」失败（owner: cards-client 管理成员）'
               } else {
@@ -3401,7 +3437,7 @@ try {
               // M4：只选 1 → 保存禁用 + 文案；直连 PATCH 1 个/6 个/单聊 → 422
               let m4Ok = false
               let m4Detail = ''
-              const dialog4 = await openMembersSheet()
+              const dialog4 = await openMembersSheet(2)
               if (!dialog4) {
                 m4Detail = '打开「管理成员」失败（owner: cards-client 管理成员）'
               } else {
@@ -3414,8 +3450,17 @@ try {
                 const summary4 = await sheetSummary(dialog4)
                 const invalidOne = await mApi(`/chats/${chatId}`, { method: 'PATCH', body: { cardIds: [ids[0]] } })
                 const invalidSix = await mApi(`/chats/${chatId}`, { method: 'PATCH', body: { cardIds: ['x1', 'x2', 'x3', 'x4', 'x5', 'x6'] } })
-                const singlePath = chatEvidence.chatUrl ? new URL(chatEvidence.chatUrl).pathname.replace(/^\/tavern/, '') : null
-                const singleId = singlePath ? singlePath.split('/').pop() : null
+                let singleId = null
+                if (chatEvidence.chatUrl) {
+                  const singlePath = new URL(chatEvidence.chatUrl).pathname.replace(/^\/tavern/, '')
+                  singleId = singlePath.split('/').pop() || null
+                }
+                if (!singleId) {
+                  // M 组可独立运行（--only m）：没有 C 组单聊时自己建一张，保证单聊 422 断言可执行。
+                  const createdSingle = await mApi(`/characters/${ids[0]}/chats`, { method: 'POST', body: {} })
+                  const createdPayload = createdSingle && createdSingle.body ? createdSingle.body : null
+                  singleId = createdPayload && createdPayload.chat ? createdPayload.chat.id : null
+                }
                 const invalidSingle = singleId ? await mApi(`/chats/${singleId}`, { method: 'PATCH', body: { cardIds: [ids[0], ids[1]] } }) : { status: 0, body: null }
                 m4Ok =
                   summary4.checked === 1 &&
@@ -3872,6 +3917,21 @@ try {
     }
   }
 
+  // A2 起世界书改为「只读摘要 + Sheet 全部条目」：旧版是详情页内联列表/表单。
+  async function openWorldInfoPanel(detailFrame) {
+    if (!detailFrame) return null
+    const section = detailFrame.locator('section[aria-label="世界书"]').first()
+    if (!(await section.count().catch(() => 0))) return null
+    const opener = section.getByRole('button', { name: /查看全部世界书|管理世界书|世界书/ }).first()
+    if (await opener.count().catch(() => 0)) await opener.click({ force: true }).catch(() => {})
+    const sheet = detailFrame.locator('.world-sheet[role="dialog"]').first()
+    const shown = await sheet
+      .waitFor({ state: 'visible', timeout: 15000 })
+      .then(() => true)
+      .catch(() => false)
+    return shown ? sheet : section
+  }
+
   // ── S. 世界书 ────────────────────────────────────────────────────────────
   const worldInfoEvidence = { sectionShown: false, added: false, preview: null, deleted: false }
   report.native.worldInfo = worldInfoEvidence
@@ -3889,7 +3949,8 @@ try {
       worldInfoEvidence.sectionShown = sectionShown
       check('卡详情世界书区块可编辑', sectionShown, sectionShown ? '出现「世界书」区块' : '卡详情没有「世界书」区块（owner: cards-client 卡详情）')
       if (sectionShown && detail) {
-        const addButton = detail.getByRole('button', { name: /新增条目|新增世界书|添加条目/ }).first()
+        const panel = (await openWorldInfoPanel(detail)) || detail
+        const addButton = panel.getByRole('button', { name: /新增条目|新增世界书|添加条目/ }).first()
         if (await addButton.count().catch(() => 0)) {
           await addButton.click({ force: true }).catch(() => {})
           const keyInput = detail.locator('input[aria-label="世界书关键词"], input[placeholder*="关键词"]').first()
@@ -3907,15 +3968,15 @@ try {
             await shot(page, '98-world-info.png')
 
             // P1：注入预览（打开预览 → 输入示例消息 → 出现命中条目/injection 文本）。
-            const previewButton = detail.getByRole('button', { name: '注入预览', exact: true }).first()
+            const previewButton = panel.getByRole('button', { name: '注入预览', exact: true }).first()
             if (await previewButton.count().catch(() => 0)) {
-              const previewInput = detail
+              const previewInput = panel
                 .locator('input[aria-label="注入预览示例消息"], textarea[aria-label*="预览"], input[aria-label*="预览"]')
                 .first()
               if (await previewInput.count().catch(() => 0)) await previewInput.fill('来一盏茶').catch(() => {})
               await previewButton.click({ force: true }).catch(() => {})
               const previewOk = await waitFor(async () => {
-                const result = await detail.locator('.preview-result').first().innerText().catch(() => '')
+                const result = await panel.locator('.preview-result').first().innerText().catch(() => '')
                 return /命中\s*[1-9]/.test(result) && /【E2E-WORLD-INFO】|茶博士/.test(result)
               }, 20000)
               const previewText = await bodyText(detail)
@@ -3932,11 +3993,11 @@ try {
               skip('世界书条目注入预览可见', '卡详情没有「注入预览」按钮（owner: cards-client；P1 客户端未交付该 UI）')
             }
 
-            const item = detail.locator('.world-info-item').filter({ hasText: '【E2E-WORLD-INFO】' }).first()
+            const item = panel.locator('.world-info-item').filter({ hasText: '【E2E-WORLD-INFO】' }).first()
             const delButton = item.getByRole('button', { name: /删除/ }).first()
             if (await delButton.count().catch(() => 0)) {
               await delButton.click({ force: true }).catch(() => {})
-              const gone = await waitFor(async () => (await detail.locator('.world-info-item').filter({ hasText: '【E2E-WORLD-INFO】' }).count().catch(() => 0)) === 0, 15000)
+              const gone = await waitFor(async () => (await panel.locator('.world-info-item').filter({ hasText: '【E2E-WORLD-INFO】' }).count().catch(() => 0)) === 0, 15000)
               worldInfoEvidence.deleted = gone
               check('删除世界书条目后列表回落', gone, gone ? '条目已从列表移除' : '删除后条目仍在列表（owner: cards-client 世界书编辑 / app-auth world-info API）')
             } else {
@@ -4224,8 +4285,9 @@ try {
           if (!sectionReady) {
             wSkipRemaining(0, '角色详情没有「世界书」区块（owner: cards-client 详情页）')
           } else {
+            const panel = (await openWorldInfoPanel(detail)) || worldSection
             const marker = '【E2E-WORLD-INFO-P2】茶博士只在雨天讲古；雨停后第三盏茶留给赶路的人。'
-            const addButton = worldSection.getByRole('button', { name: /新增条目|新增世界书|添加条目/ }).first()
+            const addButton = panel.getByRole('button', { name: /新增条目|新增世界书|添加条目/ }).first()
             let added = false
             if ((await addButton.count().catch(() => 0)) > 0) {
               await addButton.click({ force: true }).catch(() => {})
@@ -4247,10 +4309,10 @@ try {
                 await orderInput.fill('5').catch(() => {})
                 await constantBox.check().catch(() => {})
                 await editor.getByRole('button', { name: /保存条目|保存世界书|保存/ }).first().click({ force: true }).catch(() => {})
-                added = await waitFor(async () => (await worldSection.locator('.world-info-item').filter({ hasText: marker }).count().catch(() => 0)) > 0, 15000)
+                added = await waitFor(async () => (await panel.locator('.world-info-item').filter({ hasText: marker }).count().catch(() => 0)) > 0, 15000)
               }
             }
-            const item = worldSection.locator('.world-info-item').filter({ hasText: marker }).first()
+            const item = panel.locator('.world-info-item').filter({ hasText: marker }).first()
             const metaText = added ? ((await item.locator('.world-info-meta').innerText().catch(() => '')) || '') : ''
             const keysText = added ? ((await item.locator('.world-info-keys').innerText().catch(() => '')) || '') : ''
             const w1Ok = added && /after_char/.test(metaText) && /depth\s*2/.test(metaText) && /order\s*5/.test(metaText) && /常驻/.test(keysText)
@@ -5679,6 +5741,363 @@ try {
     }
   }
 
+
+  // ── V. A2 聊天阅读 / 详情 / 设置（task-87；暖纸本第二轮）──────────────────
+  const vCheckNames = [
+    'V1 聊天页有日期分隔（.chat-day ≥1），动作标记渲染 span.act 且气泡无 * 外露',
+    'V2 气泡底色：user = --accent(rgb(140,74,47))，assistant = --canvas(rgb(255,253,249))',
+    'V3 群聊发言人头像 28px（.bubble-speaker-avatar）',
+    'V4 详情页 .character-hero 存在，只读正文 font-size≥16 且 line-height≥1.8，编辑/取消可往返',
+    'V5 设置页四组标题 + 「温度」中文标签 + details 折叠',
+    'V6 移动端 390：气泡宽度 ≤86%、操作按钮常显、详情 hero 无横向溢出',
+    'V7 聊天阅读/详情/设置 console 无报错',
+  ]
+  const a2Evidence = {
+    enabled: false,
+    chat: null,
+    colors: null,
+    speaker: null,
+    detail: null,
+    settings: null,
+    mobile: null,
+    console: null,
+    steps: [],
+    apiLog: [],
+  }
+  report.native.a2 = a2Evidence
+  if (groupOn('a2')) {
+    if (nativeBlocked) {
+      for (const name of vCheckNames) skip(name, blockedReason)
+    } else {
+      a2Evidence.enabled = true
+      const vConsoleStart = consoleErrors.length
+      const vDone = new Set()
+      const vCheck = (index, ok, detail) => {
+        if (vDone.has(index)) return
+        vDone.add(index)
+        a2Evidence.steps.push(index)
+        check(vCheckNames[index], ok, detail)
+      }
+      const vSkipRest = (from, detail) => {
+        for (let index = from; index < vCheckNames.length; index += 1) {
+          if (!vDone.has(index)) {
+            vDone.add(index)
+            a2Evidence.steps.push(index)
+            skip(vCheckNames[index], detail)
+          }
+        }
+      }
+      const vFrame = () => {
+        const frameNow = fnow()
+        return frameNow && /\/tavern\//.test(frameNow.url()) ? frameNow : null
+      }
+      const vApi = async (pathname, options = {}) => {
+        const frameNow = vFrame()
+        if (!frameNow) return null
+        return frameNow
+          .evaluate(
+            async ([pathAndQuery, opts]) => {
+              try {
+                const response = await fetch('/tavern/api/reader/v1/tavern' + pathAndQuery, {
+                  credentials: 'include',
+                  method: opts.method || 'GET',
+                  headers: opts.body ? { 'Content-Type': 'application/json' } : undefined,
+                  body: opts.body ? JSON.stringify(opts.body) : undefined,
+                })
+                const text = await response.text()
+                let payload = null
+                try {
+                  payload = text ? JSON.parse(text) : null
+                } catch {
+                  payload = { raw: String(text).slice(0, 160) }
+                }
+                return { status: response.status, payload }
+              } catch (error) {
+                return { status: 0, error: String(error) }
+              }
+            },
+            [pathname, options],
+          )
+          .catch(() => null)
+      }
+      try {
+        // 骰：确保卡与一张含动作标记的聊天（用 fixture 导入，零真实生成）。
+        await appGoto('/')
+        if (fixtureCard && !(await findCard(cardName))) {
+          const home = fnow()
+          const input = home ? home.locator('input[type="file"]').first() : null
+          if (input && (await input.count().catch(() => 0))) {
+            await input.setInputFiles(path.join(fixturesDir, fixtureCard.file)).catch(() => {})
+            await waitFor(async () => Boolean(await findCard(cardName)), 30000)
+          }
+        }
+        const chars = await vApi('/characters')
+        const items = chars && chars.payload && Array.isArray(chars.payload.items) ? chars.payload.items : []
+        const targetCard = items.find((item) => item.name === cardName) || items[0] || null
+        const cardId = targetCard ? targetCard.id : null
+        a2Evidence.apiLog = [`characters:${chars ? chars.status : 'null'} items=${items.length}`]
+        if (!cardId) throw new Error('SKIP: 没有可用的角色卡（owner: verifier 导入）')
+        const importFixture = path.join(fixturesDir, 'chat-a2.jsonl')
+        // 走真实 UI 导入（卡详情「导入酒馆聊天 JSONL」），成功后客户端会跳到新聊天。
+        let chatId = null
+        const detailForImport = await appGoto(`/characters/${cardId}`)
+        const importInput = () => (fnow() ? fnow().locator('input[aria-label="导入酒馆聊天 JSONL"]').first() : null)
+        let fileInput = importInput()
+        if (fileInput && (await fileInput.count().catch(() => 0))) {
+          await fileInput.setInputFiles(importFixture).catch(() => {})
+          const landed = await waitFrameUrl(/\/chats\/[^/?#]+/, 30000).catch(() => null)
+          const matched = String(landed && landed.url ? landed.url() : fnow() ? fnow().url() : '').match(/\/chats\/([^/?#]+)/)
+          if (matched) chatId = matched[1]
+        }
+        a2Evidence.apiLog.push(`import:${chatId ? String(chatId).slice(0, 8) : 'null'}`)
+        if (!chatId && chatEvidence.chatUrl) {
+          const matched = String(chatEvidence.chatUrl).match(/\/chats\/([^/?#]+)/)
+          if (matched) chatId = matched[1]
+        }
+        if (!chatId) throw new Error('SKIP: 没有可用聊天（导入 fixture 失败且无 C 组会话）')
+        a2Evidence.chat = { chatId, cardId }
+        let frame = await appGoto(`/chats/${chatId}`)
+        if (frame) await waitChatRendered(frame, 25000)
+        const rows = frame ? await frame.locator('.bubble-row').count().catch(() => 0) : 0
+        const dayCount = frame ? await frame.locator('.chat-day').count().catch(() => 0) : 0
+        const actInfo = frame
+          ? await frame
+              .evaluate(() => {
+                const acts = Array.from(document.querySelectorAll('.bubble-text .act')).map((node) => (node.textContent || '').trim())
+                const bubbles = Array.from(document.querySelectorAll('.bubble-text')).map((node) => (node.textContent || '').trim())
+                const bare = bubbles.filter((text) => /\*[^*\s][^*]{0,60}\*/.test(text))
+                const actStyle = acts.length ? getComputedStyle(document.querySelector('.bubble-text .act')) : null
+                return {
+                  acts,
+                  bareCount: bare.length,
+                  bareSample: bare.slice(0, 2),
+                  fontStyle: actStyle ? actStyle.fontStyle : null,
+                  color: actStyle ? actStyle.color : null,
+                }
+              })
+              .catch(() => null)
+          : null
+        a2Evidence.chat = { ...a2Evidence.chat, rows, dayCount, act: actInfo }
+        await shot(page, '176-a2-chat-day-act.png')
+        const actOk = Boolean(actInfo && actInfo.acts.length >= 1 && actInfo.bareCount === 0)
+        vCheck(
+          0,
+          Boolean(dayCount >= 1 && actOk && rows >= 2),
+          `rows=${rows} chatDay=${dayCount} acts=${actInfo ? JSON.stringify(actInfo.acts) : 'null'} bare=${actInfo ? actInfo.bareCount : 'null'} style=${actInfo ? actInfo.fontStyle : 'null'}${dayCount >= 1 && actOk ? '' : '；owner: cards-client chat-format'}`,
+        )
+        // V2 气泡颜色
+        const colors = frame
+          ? await frame
+              .evaluate(() => {
+                const user = document.querySelector('.bubble-row.user .bubble')
+                const assistant = document.querySelector('.bubble-row.assistant .bubble')
+                const pick = (node) => (node ? getComputedStyle(node).backgroundColor : null)
+                return { user: pick(user), assistant: pick(assistant) }
+              })
+              .catch(() => null)
+          : null
+        a2Evidence.colors = colors
+        const rgb = (value) => {
+          const matched = String(value || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
+          return matched ? [Number(matched[1]), Number(matched[2]), Number(matched[3])] : null
+        }
+        const same = (value, expected) => {
+          const actual = rgb(value)
+          return Boolean(actual && actual.every((part, index) => Math.abs(part - expected[index]) <= 1))
+        }
+        const colorOk = Boolean(colors && same(colors.user, [140, 74, 47]) && same(colors.assistant, [255, 253, 249]))
+        vCheck(1, colorOk, `user=${colors ? colors.user : 'null'} assistant=${colors ? colors.assistant : 'null'}；owner: cards-client 气泡配色`)
+        // V3 群聊发言人头像 28
+        const groupChatId = membersEvidence && membersEvidence.enabled ? membersEvidence.chatId : null
+        let speakerBox = null
+        if (groupChatId) {
+          const gFrame = await appGoto(`/chats/${groupChatId}`)
+          if (gFrame) {
+            await waitChatRendered(gFrame, 25000)
+            await gFrame
+              .locator('.bubble-speaker-avatar')
+              .first()
+              .waitFor({ state: 'visible', timeout: 20000 })
+              .catch(() => {})
+            speakerBox = await gFrame
+              .locator('.bubble-speaker-avatar')
+              .first()
+              .boundingBox()
+              .catch(() => null)
+          }
+        }
+        a2Evidence.speaker = speakerBox
+        vCheck(
+          2,
+          Boolean(speakerBox && Math.abs(speakerBox.width - 28) <= 1.5 && Math.abs(speakerBox.height - 28) <= 1.5),
+          speakerBox ? `w=${speakerBox.width} h=${speakerBox.height}` : '群聊发言人头像未渲染（需 M 组群聊；owner: cards-client 发言人）',
+        )
+        // V4 详情页：hero、只读字号/行高、编辑↔取消
+        const detailFrame = cardId ? await appGoto(`/characters/${cardId}`) : null
+        if (detailFrame) await detailFrame.locator('.character-hero').first().waitFor({ state: 'visible', timeout: 20000 }).catch(() => {})
+        const readStyle = detailFrame
+          ? await detailFrame
+              .evaluate(() => {
+                const body = document.querySelector('.read-body')
+                if (!body) return null
+                const style = getComputedStyle(body)
+                return {
+                  fontSize: parseFloat(style.fontSize),
+                  lineHeight: parseFloat(style.lineHeight),
+                  hero: document.querySelectorAll('.character-hero').length,
+                  text: (body.textContent || '').trim().slice(0, 40),
+                }
+              })
+              .catch(() => null)
+          : null
+        const heroCount = detailFrame ? await detailFrame.locator('.character-hero').count().catch(() => 0) : 0
+        const editButton = detailFrame ? detailFrame.getByRole('button', { name: '编辑', exact: true }).first() : null
+        let editFormShown = false
+        let cancelRestored = false
+        if (editButton && (await editButton.count().catch(() => 0))) {
+          await editButton.click().catch(() => {})
+          editFormShown = await detailFrame
+            .locator('form[aria-label="编辑角色设定"]')
+            .waitFor({ state: 'visible', timeout: 10000 })
+            .then(() => true)
+            .catch(() => false)
+          const cancel = detailFrame.getByRole('button', { name: '取消', exact: true }).first()
+          if (await cancel.count().catch(() => 0)) {
+            await cancel.click().catch(() => {})
+          }
+          const readBack = detailFrame.locator('.read-body').first()
+          cancelRestored = await readBack
+            .waitFor({ state: 'visible', timeout: 10000 })
+            .then(() => true)
+            .catch(() => false)
+        }
+        const ratio = readStyle && readStyle.fontSize ? readStyle.lineHeight / readStyle.fontSize : 0
+        a2Evidence.detail = { heroCount, readStyle, editFormShown, cancelRestored }
+        vCheck(
+          3,
+          Boolean(heroCount >= 1 && readStyle && readStyle.fontSize >= 16 && ratio >= 1.8 && editFormShown && cancelRestored),
+          `hero=${heroCount} fontSize=${readStyle ? readStyle.fontSize : 'null'} ratio=${ratio.toFixed(2)} edit=${editFormShown} cancel=${cancelRestored}；owner: cards-client 详情`,
+        )
+        await shot(page, '177-a2-detail.png')
+        // V5 设置页：四组标题 + 温度 + details
+        const settingsFrame = await appGoto('/settings')
+        if (settingsFrame) await settingsFrame.locator('.settings-group').first().waitFor({ state: 'visible', timeout: 20000 }).catch(() => {})
+        const settingsInfo = settingsFrame
+          ? await settingsFrame
+              .evaluate(() => {
+                const titles = Array.from(document.querySelectorAll('.settings-group .group-title')).map((node) =>
+                  (node.textContent || '').trim(),
+                )
+                const labels = Array.from(document.querySelectorAll('.settings-group label')).map((node) =>
+                  (node.textContent || '').trim(),
+                )
+                return {
+                  titles,
+                  hasTemperature: labels.some((text) => /温度/.test(text)),
+                  details: document.querySelectorAll('.sampling-advanced, .settings-group details').length,
+                  overflow: document.documentElement.scrollWidth - window.innerWidth,
+                }
+              })
+              .catch(() => null)
+          : null
+        const expectedGroups = ['默认对话', '采样参数', '预设', '本地数据']
+        const settingsOk = Boolean(
+          settingsInfo &&
+            expectedGroups.every((name) => settingsInfo.titles.includes(name)) &&
+            settingsInfo.hasTemperature &&
+            settingsInfo.details >= 1,
+        )
+        a2Evidence.settings = settingsInfo
+        vCheck(
+          4,
+          settingsOk,
+          settingsInfo
+            ? `titles=${JSON.stringify(settingsInfo.titles)} 温度=${settingsInfo.hasTemperature} details=${settingsInfo.details}`
+            : '设置页未渲染（owner: cards-client 设置）',
+        )
+        await shot(page, '178-a2-settings-1440.png')
+        // V6 移动端 390
+        let mobilePage = null
+        try {
+          mobilePage = await context.newPage()
+          await mobilePage.setViewportSize({ width: 390, height: 844 })
+          await mobilePage.goto(`${new URL(url).origin}/tavern/chats/${chatId}`, { waitUntil: 'domcontentloaded' })
+          await mobilePage
+            .locator('.bubble-row')
+            .first()
+            .waitFor({ state: 'visible', timeout: 30000 })
+            .catch(() => {})
+          const bubbleInfo = await mobilePage
+            .evaluate(() => {
+              const log = document.querySelector('.chat-log')
+              const rows = Array.from(document.querySelectorAll('.bubble-row'))
+              const widths = rows.map((row) => row.getBoundingClientRect().width)
+              const logWidth = log ? log.getBoundingClientRect().width : window.innerWidth
+              const actions = document.querySelector('.bubble-actions')
+              return {
+                logWidth,
+                maxBubble: widths.length ? Math.max(...widths) : 0,
+                ratio: logWidth ? (widths.length ? Math.max(...widths) / logWidth : 0) : 0,
+                actionsOpacity: actions ? getComputedStyle(actions).opacity : null,
+                actionsVisible: actions ? getComputedStyle(actions).opacity === '1' : false,
+                overflow: document.documentElement.scrollWidth - window.innerWidth,
+              }
+            })
+            .catch(() => null)
+          const mobileDetail = await mobilePage.goto(`${new URL(url).origin}/tavern/characters/${cardId}`, { waitUntil: 'domcontentloaded' })
+          await mobilePage
+            .locator('.character-hero')
+            .first()
+            .waitFor({ state: 'visible', timeout: 30000 })
+            .catch(() => {})
+          const detailInfo = await mobilePage
+            .evaluate(() => {
+              const hero = document.querySelector('.character-hero')
+              const rect = hero ? hero.getBoundingClientRect() : null
+              return {
+                overflow: document.documentElement.scrollWidth - window.innerWidth,
+                heroRight: rect ? Math.round(rect.right) : null,
+                innerWidth: window.innerWidth,
+              }
+            })
+            .catch(() => null)
+          a2Evidence.mobile = { bubbleInfo, detailInfo, detailLoaded: Boolean(mobileDetail) }
+          const mobileOk = Boolean(
+            bubbleInfo &&
+              bubbleInfo.ratio > 0 &&
+              bubbleInfo.ratio <= 0.86 + 0.02 &&
+              bubbleInfo.actionsVisible &&
+              bubbleInfo.overflow <= 1 &&
+              detailInfo &&
+              detailInfo.overflow <= 1 &&
+              (detailInfo.heroRight === null || detailInfo.heroRight <= detailInfo.innerWidth + 1),
+          )
+          vCheck(
+            5,
+            mobileOk,
+            bubbleInfo
+              ? `logWidth=${Math.round(bubbleInfo.logWidth)} maxBubble=${Math.round(bubbleInfo.maxBubble)} ratio=${bubbleInfo.ratio.toFixed(2)} actionsOpacity=${bubbleInfo.actionsOpacity} heroOverflow=${detailInfo ? detailInfo.overflow : 'null'}`
+              : '移动端聊天页未渲染（owner: cards-client 移动适配）',
+          )
+          await mobilePage.screenshot({ path: path.join(outDir, '179-a2-mobile-chat.png') }).catch(() => {})
+        } finally {
+          if (mobilePage) await mobilePage.close().catch(() => {})
+        }
+      } catch (error) {
+        const message = String(error && error.message ? error.message : error)
+        vSkipRest(vDone.size ? Math.max(...vDone) + 1 : 0, /^SKIP:/.test(message) ? message.replace(/^SKIP:\s*/, '') : `A2 组异常：${message}`)
+      }
+      const vConsole = consoleErrors.slice(vConsoleStart).filter((text) => !/Failed to load resource/.test(text))
+      a2Evidence.console = vConsole
+      vCheck(6, vConsole.length === 0, vConsole.length ? clip(vConsole) : 'clean')
+      vSkipRest(0, 'A2 组未执行（跳过）')
+      // A2 组会离开聊天页：把 chatFrame 指回 C 组单聊，避免影响 N/M 组的前置状态。
+      if (chatEvidence.chatUrl) {
+        const restored = await appGoto(new URL(chatEvidence.chatUrl).pathname.replace(/^\/tavern/, ''))
+        if (restored) await waitChatRendered(restored, 20000)
+      }
+    }
+  }
 
   // ── N. 搜索 + 移动端打磨（task-67；搜索仅已加载消息、390×844 适配）──────────
   const polishCheckNames = [

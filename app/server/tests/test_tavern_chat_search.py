@@ -163,3 +163,17 @@ def test_overlong_q_is_rejected(client, reader):
     ok = client.get(f"{TAVERN}/chats", params={"q": "长" * 100})
     assert ok.status_code == 200, ok.text
     assert ok.json()["items"] == []
+
+
+def test_deleted_card_chat_is_hidden_from_list(client, reader):
+    card = _import_card(client, "会被删的角色")
+    chat = _create_chat(client, card["id"], "删除角色后的聊天")
+    _seed_message(reader["user"]["id"], chat["id"], "早上好")
+    assert [item["id"] for item in _search(client)] == [chat["id"]]
+
+    deleted = client.delete(f"{TAVERN}/characters/{card['id']}")
+    assert deleted.status_code == 204, deleted.text
+    # 单聊的角色卡删掉后聊天已无法打开，历史列表里不再出现（避免点进去报错）。
+    assert _search(client) == []
+    detail = client.get(f"{TAVERN}/chats/{chat['id']}")
+    assert detail.status_code == 404, detail.text

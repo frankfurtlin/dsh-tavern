@@ -1,4 +1,5 @@
 import {beforeEach,afterEach,describe,it,expect,vi} from 'vitest'
+import {onBeforeRouteLeave} from 'vue-router'
 import {defineComponent,h,onUnmounted} from 'vue'
 import TavernCharacterPage from './TavernCharacterPage.vue'
 import {getPrompt,importChats,previewWorldInfo,updatePrompt} from './api'
@@ -6,7 +7,7 @@ import LoadState from './LoadState.vue'
 import {compileRender,descendants,flush,node,provideSfc,renderer,text,type Host} from '../test/host-renderer'
 
 const harness=vi.hoisted(()=>({route:{params:{id:'c1'}},push:vi.fn()}))
-vi.mock('vue-router',()=>({useRoute:()=>harness.route,useRouter:()=>({push:harness.push})}))
+vi.mock('vue-router',()=>({useRoute:()=>harness.route,useRouter:()=>({push:harness.push}),onBeforeRouteLeave:vi.fn()}))
 vi.mock('../stores/app',()=>({useApp:()=>({message:vi.fn()})}))
 vi.mock('../platform/request-scope',()=>({useRequestScope:()=>{let disposed=false;onUnmounted(()=>{disposed=true});return()=>({valid:()=>!disposed})}}))
 vi.mock('../platform/download',()=>({saveBlob:vi.fn(),safeFileName:(name:string,fallback:string)=>name||fallback}))
@@ -64,7 +65,12 @@ describe('TavernCharacterPage',()=>{
     expect(body).toContain('林渡')
     expect(body).toContain('雨夜')
     expect(body).toContain('林渡的对话')
-    expect(body).toContain('注入预览')
+    expect(body).toContain('世界书')
+    const open=button('查看全部世界书')
+    open.props.onClick?.()
+    await flush()
+    expect(text(host)).toContain('雨夜')
+    expect(text(host)).toContain('注入预览')
   })
 
   it('previews world-info injection for a sample message',async()=>{
@@ -75,6 +81,8 @@ describe('TavernCharacterPage',()=>{
       injection:'[世界书 · 角色设定之前]\n雨夜，街上没人。',
     })
     mount();await flush()
+    button('查看全部世界书').props.onClick?.()
+    await flush()
     state().previewMessage='外面下雨了'
     const input=aria('注入预览示例消息')
     const form=descendants(host,item=>item.children.some(child=>child===input))[0]
@@ -121,7 +129,9 @@ describe('TavernCharacterPage',()=>{
     vi.mocked(apiModule.getCharacter).mockResolvedValue(card as never)
     vi.mocked(apiModule.updateWorldInfo).mockReset().mockResolvedValue({} as never)
     mount();await flush()
-    const edit=descendants(host,item=>item.tag==='button'&&text(item).trim()==='编辑')[0]
+    button('查看全部世界书').props.onClick?.()
+    await flush()
+    const edit=descendants(host,item=>item.tag==='button'&&String(item.props['aria-label']||'').startsWith('编辑世界书 '))[0]
     edit.props.onClick?.()
     await flush()
     expect((state().infoEditor as {probability:number}).probability).toBe(1)
@@ -144,6 +154,8 @@ describe('TavernCharacterPage',()=>{
       injection:'[世界书]',
     })
     mount();await flush()
+    button('查看全部世界书').props.onClick?.()
+    await flush()
     state().previewMessage='下雨了'
     const form=descendants(host,item=>item.children.some(child=>child.props['aria-label']==='注入预览示例消息'))[0]
     form.props.onSubmit?.({preventDefault(){}})
@@ -173,7 +185,9 @@ describe('TavernCharacterPage preset card',()=>{
     const apiModule=await import('./api')
     vi.mocked(apiModule.getCharacter).mockResolvedValue({...card,builtin:true} as never)
     mount();await flush()
-    const del=descendants(host,item=>item.tag==='button'&&text(item).trim()==='删除角色卡')[0]
+    button('编辑').props.onClick?.()
+    await flush()
+    const del=descendants(host,item=>item.tag==='button'&&text(item).trim().includes('删除角色卡'))[0]
     del!.props.onClick?.()
     await flush()
     expect(window.confirm).toHaveBeenCalledTimes(1)
@@ -185,10 +199,96 @@ describe('TavernCharacterPage preset card',()=>{
     const apiModule=await import('./api')
     vi.mocked(apiModule.getCharacter).mockResolvedValue(card as never)
     mount();await flush()
-    const del=descendants(host,item=>item.tag==='button'&&text(item).trim()==='删除角色卡')[0]
+    button('编辑').props.onClick?.()
+    await flush()
+    const del=descendants(host,item=>item.tag==='button'&&text(item).trim().includes('删除角色卡'))[0]
     del!.props.onClick?.()
     await flush()
     expect(String(vi.mocked(window.confirm).mock.calls[0][0])).not.toContain('预设角色删除后不会自动恢复。')
   })
 })
+})
+
+function hasClass(item:Host,name:string){
+  const value=item.props.class
+  if(typeof value==='string')return value.split(/\s+/).includes(name)
+  if(Array.isArray(value))return value.includes(name)
+  return !!value&&typeof value==='object'&&!!(value as Record<string,boolean>)[name]
+}
+
+describe('TavernCharacterPage A2b reading layout',()=>{
+  it('renders the hero with an avatar, serif name and 44px actions',async()=>{
+    mount();await flush()
+    expect(descendants(host,item=>hasClass(item,'character-hero'))).toHaveLength(1)
+    expect(descendants(host,item=>hasClass(item,'character-avatar'))).toHaveLength(1)
+    const name=descendants(host,item=>item.tag==='h1'&&text(item).includes('林渡'))[0]
+    expect(name).toBeTruthy()
+    for(const label of ['开新聊天','编辑'])expect(button(label)).toBeTruthy()
+  })
+
+  it('uses the shared reading size for read-only sections',async()=>{
+    mount();await flush()
+    const bodies=descendants(host,item=>hasClass(item,'read-body'))
+    expect(bodies.length).toBeGreaterThanOrEqual(1)
+    for(const body of bodies){
+      expect(body.props.style?.fontSize).toBe('var(--reading-size)')
+      expect(body.props.style?.lineHeight).toBe('var(--reading-leading)')
+    }
+  })
+
+  it('switches to the edit form and cancels back to reading mode',async()=>{
+    mount();await flush()
+    expect(aria('编辑角色设定')).toBeUndefined()
+    button('编辑').props.onClick?.()
+    await flush()
+    expect(aria('编辑角色设定')).toBeTruthy()
+    expect(descendants(host,item=>hasClass(item,'edit-area')).length).toBeGreaterThan(0)
+    vi.mocked(window.confirm).mockReturnValueOnce(true)
+    button('取消').props.onClick?.()
+    await flush()
+    expect(aria('编辑角色设定')).toBeUndefined()
+    expect(descendants(host,item=>hasClass(item,'character-hero'))).toHaveLength(1)
+  })
+
+  it('keeps unsaved edits when the leave confirmation is dismissed',async()=>{
+    mount();await flush()
+    button('编辑').props.onClick?.()
+    await flush()
+    ;(state().form as {description:string}).description='改过的设定'
+    button('取消').props.onClick?.()
+    await flush()
+    expect(window.confirm).toHaveBeenCalled()
+    expect(aria('编辑角色设定')).toBeTruthy()
+    vi.mocked(window.confirm).mockReturnValueOnce(true)
+    button('取消').props.onClick?.()
+    await flush()
+    expect(aria('编辑角色设定')).toBeUndefined()
+  })
+
+  it('asks before leaving the page with unsaved edits',async()=>{
+    mount();await flush()
+    const guard=vi.mocked(onBeforeRouteLeave).mock.calls[0][0] as ()=>boolean
+    expect(guard()).toBe(true)
+    button('编辑').props.onClick?.()
+    await flush()
+    ;(state().form as {description:string}).description='改过的设定'
+    await flush()
+    vi.mocked(window.confirm).mockReturnValueOnce(false)
+    expect(guard()).toBe(false)
+    vi.mocked(window.confirm).mockReturnValueOnce(true)
+    expect(guard()).toBe(true)
+  })
+
+  it('collapses world info into a sheet with count and first summary',async()=>{
+    mount();await flush()
+    expect(text(host)).toContain('共 1 条')
+    expect(text(host)).toContain('首条')
+    expect(text(host)).not.toContain('注入预览')
+    button('查看全部世界书').props.onClick?.()
+    await flush()
+    const sheet=descendants(host,item=>item.props.role==='dialog')[0]
+    expect(sheet).toBeTruthy()
+    expect(text(sheet)).toContain('雨夜')
+    expect(text(sheet)).toContain('注入预览')
+  })
 })
