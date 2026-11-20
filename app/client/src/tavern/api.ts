@@ -207,13 +207,16 @@ export async function listChats(params:ListChatsParams={}):Promise<TavernChat[]>
   return itemsOf(result)
 }
 
-export interface ChatSendRequest{path:string;body:{message:string;quote?:{text:string}}}
+export interface ChatSendRequest{path:string;body:{message:string;quote?:{text:string};personaId?:string}}
 
 // The message endpoint streams over SSE; ChatPage feeds this request into streamChat.
-export function sendMessage(chatId:string,content:string,quote?:{text:string}|string|null):ChatSendRequest{
-  const body:{message:string;quote?:{text:string}}={message:content}
+// personaId is the settings-page 「我是谁」 choice: the server injects it as the
+// reader's identity for this turn only, so it has to ride along with every message.
+export function sendMessage(chatId:string,content:string,quote?:{text:string}|string|null,personaId?:string|null):ChatSendRequest{
+  const body:{message:string;quote?:{text:string};personaId?:string}={message:content}
   const quoted=(typeof quote==='string'?quote:quote?.text??'').trim()
   if(quoted)body.quote={text:quoted.slice(0,2000)}
+  if(personaId)body.personaId=personaId
   return {path:'/chats/'+encodeURIComponent(chatId)+'/messages',body}
 }
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed,nextTick,onMounted,onUnmounted,ref,watch} from 'vue'
 import {useRoute,useRouter} from 'vue-router'
-import {ArrowDown,ArrowLeft,Check,ChevronDown,ChevronLeft,ChevronRight,ChevronUp,Copy,Download,HelpCircle,Pencil,Quote,RefreshCw,Search,Send,Square,Trash2,X} from 'lucide-vue-next'
+import {ArrowDown,ArrowLeft,Check,ChevronDown,ChevronLeft,ChevronRight,ChevronUp,Copy,Download,HelpCircle,MoreHorizontal,Pencil,Quote,RefreshCw,Search,Send,Square,Trash2,X} from 'lucide-vue-next'
 import {authorizationHeaders} from '../api'
 import {useApp} from '../stores/app'
 import {useRequestScope} from '../platform/request-scope'
@@ -12,6 +12,7 @@ import Sheet from '../components/Sheet.vue'
 import {clearChatContextSnapshot,patchChatContextSnapshot,setChatContextSnapshot} from './context-snapshot'
 import {keyboardBottomOffset} from './mobile'
 import {buildChatRows,splitSegments} from './chat-format'
+import {readPersonaId} from '../characters/persona-store'
 
 const route=useRoute(),router=useRouter(),store=useApp(),scope=useRequestScope()
 const chatId=computed(()=>String(route.params.id||''))
@@ -48,6 +49,8 @@ const searchIndex=ref(0)
 const searchHitId=ref('')
 const searchInput=ref<HTMLInputElement|null>(null)
 const quote=ref<{text:string;messageId:string}|null>(null)
+/** 移动端每条消息的「⋯」菜单：同一时间只开一条。 */
+const actionsMenuId=ref('')
 const quotePreview=computed(()=>quote.value?quote.value.text.slice(0,120):'')
 const keyboardOffset=ref(0)
 let quoteLongPressTimer:ReturnType<typeof setTimeout>|undefined
@@ -398,7 +401,7 @@ async function finishStream(){
 function send(){
   const text=input.value.trim()
   if(!text||streaming.value||allMembersDeleted.value)return
-  const request=sendMessage(chatId.value,text,quote.value)
+  const request=sendMessage(chatId.value,text,quote.value,readPersonaId())
   input.value=''
   quote.value=null
   streamSpeaker.value=nextSpeaker.value
@@ -413,6 +416,16 @@ function quoteMessage(message:TavernMessage){
 }
 
 function clearQuote(){quote.value=null}
+
+function toggleActionsMenu(messageId:string){
+  if(streaming.value)return
+  deletingId.value=''
+  actionsMenuId.value=actionsMenuId.value===messageId?'':messageId
+}
+
+function closeActionsMenu(){actionsMenuId.value=''}
+/** 菜单里点一项：先关菜单，再执行，避免面板停在旧消息上。 */
+function runMenuAction(action:()=>void){closeActionsMenu();action()}
 
 function startQuoteLongPress(message:TavernMessage){
   cancelQuoteLongPress()
@@ -449,7 +462,8 @@ function regenerate(){
   if(!canRegenerate.value)return
   const lastAssistant=[...messages.value].reverse().find(item=>item.role==='assistant')
   streamSpeaker.value=lastAssistant?{cardId:lastAssistant.speakerCardId||'',name:lastAssistant.speakerName||''}:null
-  void runStream('/chats/'+encodeURIComponent(chatId.value)+'/regenerate',{})
+  const personaId=readPersonaId()
+  void runStream('/chats/'+encodeURIComponent(chatId.value)+'/regenerate',personaId?{personaId}:{})
 }
 
 function startEdit(message:TavernMessage){
@@ -545,7 +559,9 @@ function goBack(){
 watch(chatId,()=>void load())
 watch([messages,character],()=>{publishSnapshot();ensureGroupAvatars()})
 function onGlobalKeydown(event:KeyboardEvent){
-  if(event.key==='Escape'&&quote.value)quote.value=null
+  if(event.key!=='Escape')return
+  if(actionsMenuId.value){closeActionsMenu();return}
+  if(quote.value)quote.value=null
 }
 
 onMounted(()=>{
@@ -567,6 +583,7 @@ onUnmounted(()=>{
     window.visualViewport.removeEventListener('scroll',syncKeyboardOffset)
   }
   if(searchPulseTimer!==undefined){clearTimeout(searchPulseTimer);searchPulseTimer=undefined}
+  actionsMenuId.value=''
   clearChatContextSnapshot(chatId.value)
   abort?.abort()
   abort=null
@@ -634,33 +651,37 @@ onUnmounted(()=>{
       </span>
       <span class="bubble-speaker-name">{{speakerNameFor(row.message)}}</span>
      </div>
-     <div class="bubble" :class="row.message.role" :title="row.time||undefined"
-      @touchstart.passive="startQuoteLongPress(row.message)" @touchend="cancelQuoteLongPress" @touchmove="cancelQuoteLongPress">
-      <button v-if="row.message.quotedText&&editingId!==row.message.id" type="button" class="bubble-quote" aria-label="查看被引用的消息" @click="jumpToQuote(row.message.quotedText||'')">
-       <Quote :size="13"/><span class="bubble-quote-text">{{row.message.quotedText}}</span>
-      </button>
-      <template v-if="editingId===row.message.id">
-       <textarea v-model="editText" rows="3" aria-label="编辑消息"></textarea>
-       <div class="bubble-actions editing-actions">
-        <button type="button" class="primary" :disabled="savingEdit" @click="saveEdit(row.message)">{{savingEdit?'保存中…':'保存'}}</button>
-        <button type="button" @click="editingId=''">取消</button>
-       </div>
-      </template>
-      <template v-else>
-       <p class="bubble-text"><template v-for="(seg,si) in segmentsFor(messageText(row.message))" :key="si"><span v-if="seg.kind==='act'" class="act">{{seg.text}}</span><strong v-else-if="seg.kind==='strong'" class="strong">{{seg.text}}</strong><template v-else>{{seg.text}}</template></template></p>
-      </template>
+     <div class="bubble-line">
+      <div class="bubble" :class="row.message.role" :title="row.time||undefined"
+        @touchstart.passive="startQuoteLongPress(row.message)" @touchend="cancelQuoteLongPress" @touchmove="cancelQuoteLongPress">
+       <button v-if="row.message.quotedText&&editingId!==row.message.id" type="button" class="bubble-quote" aria-label="查看被引用的消息" @click="jumpToQuote(row.message.quotedText||'')">
+        <Quote :size="13"/><span class="bubble-quote-text">{{row.message.quotedText}}</span>
+       </button>
+       <template v-if="editingId===row.message.id">
+        <textarea v-model="editText" rows="3" aria-label="编辑消息"></textarea>
+        <div class="bubble-actions editing-actions">
+         <button type="button" class="primary" :disabled="savingEdit" @click="saveEdit(row.message)">{{savingEdit?'保存中…':'保存'}}</button>
+         <button type="button" @click="editingId=''">取消</button>
+        </div>
+       </template>
+       <template v-else>
+        <p class="bubble-text"><template v-for="(seg,si) in segmentsFor(messageText(row.message))" :key="si"><span v-if="seg.kind==='act'" class="act">{{seg.text}}</span><strong v-else-if="seg.kind==='strong'" class="strong">{{seg.text}}</strong><template v-else>{{seg.text}}</template></template></p>
+       </template>
+      </div>
+      <button v-if="editingId!==row.message.id&&!streaming" type="button" class="bubble-more" aria-label="更多操作" :aria-expanded="actionsMenuId===row.message.id" @click="toggleActionsMenu(row.message.id)"><MoreHorizontal :size="18"/></button>
      </div>
-     <div v-if="editingId!==row.message.id&&!streaming" class="bubble-actions">
+     <div v-if="editingId!==row.message.id&&!streaming" class="bubble-actions" :class="{open:actionsMenuId===row.message.id}">
+      <p class="bubble-sheet-title">消息操作</p>
       <template v-if="deletingId===row.message.id">
        <span class="bubble-confirm">删除这条消息？</span>
-       <button type="button" class="danger-text" aria-label="确认删除消息" title="确认删除" @click="confirmDelete(row.message)"><Check :size="16"/></button>
-       <button type="button" aria-label="取消删除" title="取消" @click="deletingId=''"><X :size="16"/></button>
+       <button type="button" class="danger-text" aria-label="确认删除消息" title="确认删除" @click="runMenuAction(()=>confirmDelete(row.message))"><Check :size="16"/><span class="bubble-action-text">确认删除</span></button>
+       <button type="button" aria-label="取消删除" title="取消" @click="runMenuAction(()=>{deletingId=''})"><X :size="16"/><span class="bubble-action-text">取消</span></button>
       </template>
       <template v-else>
-       <button type="button" aria-label="引用这条消息" title="引用" @click="quoteMessage(row.message)"><Quote :size="16"/></button>
-       <button type="button" aria-label="复制这条消息" title="复制" @click="copyMessage(row.message)"><Copy :size="16"/></button>
+       <button type="button" aria-label="引用这条消息" title="引用" @click="runMenuAction(()=>quoteMessage(row.message))"><Quote :size="16"/><span class="bubble-action-text">引用</span></button>
+       <button type="button" aria-label="复制这条消息" title="复制" @click="runMenuAction(()=>copyMessage(row.message))"><Copy :size="16"/><span class="bubble-action-text">复制</span></button>
        <template v-if="row.message.role==='user'">
-        <button type="button" aria-label="编辑这条消息" title="编辑" @click="startEdit(row.message)"><Pencil :size="16"/></button>
+        <button type="button" aria-label="编辑这条消息" title="编辑" @click="runMenuAction(()=>startEdit(row.message))"><Pencil :size="16"/><span class="bubble-action-text">编辑</span></button>
        </template>
        <template v-else-if="row.message.id===messages[messages.length-1]?.id">
         <span v-if="(row.message.swipes?.length||0)>1" class="swipe-controls">
@@ -668,9 +689,9 @@ onUnmounted(()=>{
          <span class="swipe-count">{{(row.message.activeSwipe??0)+1}}/{{row.message.swipes.length}}</span>
          <button type="button" aria-label="下一个版本" :disabled="swipeBusy||(row.message.activeSwipe??0)>=row.message.swipes.length-1" @click="moveSwipe(row.message,1)"><ChevronRight :size="15"/></button>
         </span>
-        <button v-if="canRegenerate" type="button" aria-label="重新生成" title="重新生成" @click="regenerate"><RefreshCw :size="16"/></button>
+        <button v-if="canRegenerate" type="button" aria-label="重新生成" title="重新生成" @click="runMenuAction(regenerate)"><RefreshCw :size="16"/><span class="bubble-action-text">重新生成</span></button>
        </template>
-       <button v-if="row.message.role==='user'||row.message.id===messages[messages.length-1]?.id" type="button" class="danger-text" aria-label="删除这条消息" title="删除" @click="askDelete(row.message)"><Trash2 :size="16"/></button>
+       <button v-if="row.message.role==='user'||row.message.id===messages[messages.length-1]?.id" type="button" class="danger-text" aria-label="删除这条消息" title="删除" @click="askDelete(row.message)"><Trash2 :size="16"/><span class="bubble-action-text">删除</span></button>
       </template>
      </div>
     </article>
@@ -690,6 +711,8 @@ onUnmounted(()=>{
   </div>
 
   <button v-if="showJumpToLatest" type="button" class="chat-new" aria-label="有新消息，跳到最新" @click="jumpToLatest"><ArrowDown :size="16"/>新消息</button>
+
+  <div v-if="actionsMenuId" class="bubble-menu-scrim" aria-hidden="true" @click="closeActionsMenu"></div>
 
   <p v-if="streamError" class="error chat-stream-error" role="alert">{{streamError}}<button class="inline-link" type="button" @click="streamError=''"><X :size="14"/></button></p>
 
@@ -819,9 +842,16 @@ onUnmounted(()=>{
 .bubble-row.user{align-self:flex-end;align-items:flex-end}
 .bubble-row.assistant{align-self:flex-start;align-items:flex-start}
 .bubble-row.compact{margin-top:-4px}
+.bubble-line{display:flex;align-items:flex-end;gap:6px;min-width:0}
+.bubble-row.user .bubble-line{flex-direction:row-reverse}
+.bubble-line>.bubble{min-width:0}
+/* 移动端才出现的「⋯」：桌面继续用悬停操作行。 */
+.bubble-more{display:none}
+.bubble-sheet-title,.bubble-action-text{display:none}
 .bubble{border-radius:16px 16px 16px 4px;padding:10px 14px;font-size:15.5px;line-height:1.85;word-break:break-word;white-space:pre-wrap}
 .bubble.user{background:var(--accent);color:var(--on-accent);border:1px solid var(--accent);border-radius:16px 16px 4px 16px}
-.bubble.assistant{background:var(--canvas);color:var(--ink);border:1px solid var(--edge);border-radius:16px 16px 16px 4px}
+/* 纸底与内容面只差一档色：给 1px --edge + 极轻投影，让助手气泡浮起来。 */
+.bubble.assistant{background:var(--canvas);color:var(--ink);border:1px solid var(--edge);border-radius:16px 16px 16px 4px;box-shadow:0 1px 2px color-mix(in srgb,var(--ink) 8%,transparent)}
 .bubble-text{margin:0}
 .bubble-pending{color:var(--quiet)}
 .bubble-meta{margin:0 0 2px;font-size:11px;opacity:.8}
@@ -830,7 +860,7 @@ onUnmounted(()=>{
 .bubble-actions button{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0;border:0;background:transparent;color:var(--quiet);border-radius:10px;cursor:pointer}
 .bubble-actions button:hover{background:var(--wash);color:var(--ink)}
 .bubble-actions .danger-text:hover{color:var(--danger);background:var(--wash)}
-.act{font-style:italic;color:var(--quiet)}
+.act{color:var(--quiet)}
 .strong{font-weight:600;color:var(--ink)}
 .chat-day{display:flex;align-items:center;gap:12px;margin:18px 0 8px;color:var(--quiet);font-size:12px;align-self:stretch}
 .chat-day::before,.chat-day::after{content:'';flex:1;height:1px;background:var(--edge)}
@@ -855,7 +885,19 @@ onUnmounted(()=>{
 .chat-new{position:absolute;right:16px;bottom:calc(88px + env(safe-area-inset-bottom) + var(--chat-keyboard-offset,0px));z-index:15;display:inline-flex;align-items:center;gap:4px;min-height:44px;padding:0 14px;border:1px solid var(--edge);border-radius:999px;background:var(--canvas);color:var(--accent-ink);font-size:13px;cursor:pointer;box-shadow:0 8px 20px rgba(0,0,0,.08)}
 .chat-new:hover{border-color:var(--accent)}
 @media(min-width:900px){.chat-compose{position:sticky}.tavern-chat{max-width:900px;margin:0 auto;width:100%}}
-@media(max-width:900px){.bubble-actions{opacity:1}}
+@media(max-width:900px){
+ .bubble-more{display:inline-flex;align-items:center;justify-content:center;flex:none;width:40px;height:40px;margin-bottom:2px;border:0;border-radius:10px;background:transparent;color:var(--quiet);cursor:pointer}
+ .bubble-more:hover{background:var(--wash);color:var(--ink)}
+ .bubble-actions{display:none}
+ .bubble-actions.open{display:grid;position:fixed;left:12px;right:12px;bottom:calc(78px + env(safe-area-inset-bottom) + var(--chat-keyboard-offset,0px));z-index:45;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:12px;border:1px solid var(--edge);border-radius:16px;background:var(--canvas);box-shadow:0 14px 36px rgba(0,0,0,.18);opacity:1}
+ .bubble-actions.open .bubble-sheet-title{display:block;grid-column:1/-1;margin:0 0 2px;font-size:12px;color:var(--quiet)}
+ .bubble-actions.open .bubble-action-text{display:inline}
+ .bubble-actions.open .bubble-confirm{grid-column:1/-1;margin:0;font-size:13px;color:var(--quiet)}
+ .bubble-actions.open button{min-height:44px;justify-content:flex-start;gap:8px;padding:0 12px;border:1px solid var(--edge);border-radius:10px;background:var(--paper);color:var(--ink)}
+ .bubble-actions.open button:hover{background:var(--wash)}
+ .bubble-actions.open .swipe-controls{grid-column:1/-1;justify-content:center}
+}
+.bubble-menu-scrim{position:fixed;inset:0;z-index:44;background:transparent}
 @media(max-width:767px){
  .chat-top{grid-template-columns:auto minmax(0,1fr) auto auto;gap:4px;padding-left:var(--safe-left,10px);padding-right:var(--safe-right,10px)}
  .chat-title{min-width:0}
