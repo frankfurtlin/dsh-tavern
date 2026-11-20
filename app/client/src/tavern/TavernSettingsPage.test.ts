@@ -1,7 +1,6 @@
 import {beforeEach,afterEach,describe,it,expect,vi} from 'vitest'
 import {defineComponent,h} from 'vue'
 import TavernSettingsPage from './TavernSettingsPage.vue'
-import {listPersonas} from '../characters/api'
 import {listPresets,updatePreset} from './api'
 import LoadState from './LoadState.vue'
 import {compileRender,descendants,flush,node,provideSfc,renderer,text,type Host} from '../test/host-renderer'
@@ -10,9 +9,8 @@ const harness=vi.hoisted(()=>({message:vi.fn()}))
 vi.mock('vue-router',()=>({RouterLink:defineComponent({props:{to:{type:[String,Object]}},setup:(props,{slots})=>()=>h('a',{href:String(props.to)},slots.default?.())})}))
 vi.mock('../stores/app',()=>({useApp:()=>({message:harness.message})}))
 vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{BookMarked:stub,Brush:stub,Download:stub,HelpCircle:stub,UserRound:stub}})
-vi.mock('../characters/PersonaControl.vue',()=>({default:defineComponent({props:{modelValue:{type:String,default:null}},setup:()=>()=>h('section',{'aria-label':'人设'},'人设控件')})}))
+vi.mock('../characters/PersonaSettings.vue',()=>({default:defineComponent({setup:()=>()=>h('div',{'aria-label':'人设设置'},'人设设置')})}))
 vi.mock('./TavernPresetsPanel.vue',()=>({default:defineComponent({setup:()=>()=>h('section',{'aria-label':'预设管理'},'预设面板')})}))
-vi.mock('../characters/api',()=>({listPersonas:vi.fn()}))
 vi.mock('./api',()=>({listPresets:vi.fn(),updatePreset:vi.fn()}))
 compileRender(TavernSettingsPage,new URL('./TavernSettingsPage.vue',import.meta.url))
 compileRender(LoadState,new URL('./LoadState.vue',import.meta.url))
@@ -30,7 +28,6 @@ function state(){return (app as unknown as {_instance:{setupState:Record<string,
 beforeEach(()=>{
   vi.stubGlobal('window',{localStorage:{getItem:vi.fn(()=>null),setItem:vi.fn(),removeItem:vi.fn()}})
   vi.stubGlobal('document',{activeElement:null})
-  vi.mocked(listPersonas).mockReset().mockResolvedValue([{id:'p1',name:'旅人',description:'走过很多路'},{id:'p2',name:'读者',description:''}])
   vi.mocked(listPresets).mockReset().mockResolvedValue([{id:'pre-1',name:'默认',isDefault:true,temperature:0.7,topP:0.9,maxTokens:768}])
   vi.mocked(updatePreset).mockReset().mockImplementation(async(_id,patch)=>({id:'pre-1',name:'默认',isDefault:true,...patch}))
 })
@@ -40,28 +37,18 @@ describe('TavernSettingsPage',()=>{
   it('replaces the placeholder with persona, presets and regex sections',async()=>{
     mount();await flush()
     const body=text(host)
-    expect(body).toContain('人设控件')
+    expect(body).toContain('人设设置')
     expect(body).toContain('预设面板')
     expect(body).toContain('输出替换规则')
     expect(body).toContain('角色卡库')
-    for(const title of ['默认对话','采样参数','预设','本地数据'])expect(body).toContain(title)
+    for(const title of ['我是谁','采样参数','预设','本地数据'])expect(body).toContain(title)
     expect(body).toContain('温度')
     expect(body).toContain('核采样')
     expect(body).toContain('最大长度')
     expect(body).toContain('重复惩罚')
     expect(body).toContain('高级')
-    expect(body).toContain('旅人')
-    expect(body).toContain('读者')
-    expect(listPersonas).toHaveBeenCalledTimes(1)
-  })
-
-  it('persists the default persona locally',async()=>{
-    mount();await flush()
-    const select=descendants(host,item=>item.props['aria-label']==='默认人设')[0]
-    select.props.onChange?.({target:{value:'p2'}})
-    await flush()
-    expect(window.localStorage.setItem).toHaveBeenCalledWith('tavern:default-persona','p2')
-    expect(text(host)).toContain('默认人设：读者')
+    expect(body).not.toContain('默认人设')
+    expect(body).not.toContain('当前人设')
   })
 
   it('saves the default preset sampling without leaving the page',async()=>{
@@ -75,10 +62,12 @@ describe('TavernSettingsPage',()=>{
     expect(text(host)).toContain('采样参数已保存。')
   })
 
-  it('shows a persona load error without crashing',async()=>{
-    vi.mocked(listPersonas).mockRejectedValueOnce(new Error('502 人设服务暂不可用'))
+  it('keeps the persona block inside a single settings card',async()=>{
     mount();await flush()
-    expect(text(host)).toContain('502 人设服务暂不可用')
+    const blocks=descendants(host,item=>String(item.props.class??'').includes('settings-card'))
+    expect(blocks.length).toBeGreaterThanOrEqual(1)
+    const personaCard=descendants(host,item=>String(item.props.class??'')==='settings-card')[0]!
+    expect(descendants(personaCard,item=>item.props['aria-label']==='人设设置')).toHaveLength(1)
     expect(text(host)).toContain('返回角色卡')
   })
 })
