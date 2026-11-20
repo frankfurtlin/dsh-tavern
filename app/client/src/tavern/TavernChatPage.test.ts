@@ -23,10 +23,11 @@ vi.mock('./api',()=>({
   listCharacters:vi.fn(),
   updateChatSampling:vi.fn(),
   exportChatBlob:vi.fn(),
-  sendMessage:(chatId:string,content:string,quote?:{text:string}|null)=>{
-    const body:{message:string;quote?:{text:string}}={message:content}
+  sendMessage:(chatId:string,content:string,quote?:{text:string}|null,personaId?:string|null)=>{
+    const body:{message:string;quote?:{text:string};personaId?:string}={message:content}
     const text=(typeof quote==='string'?quote:quote?.text??'').trim()
     if(text)body.quote={text}
+    if(personaId)body.personaId=personaId
     return {path:'/chats/'+chatId+'/messages',body}
   },
   messageText:(message:{swipes?:{content:string}[];activeSwipe?:number})=>message.swipes?.[message.activeSwipe??0]?.content??'',
@@ -34,7 +35,7 @@ vi.mock('./api',()=>({
 vi.mock('../platform/download',()=>({saveBlob:vi.fn(),safeFileName:(name:string,fallback:string)=>name||fallback}))
 vi.mock('./sse',()=>({streamChat:vi.fn()}))
 vi.mock('../components/Sheet.vue',()=>({default:defineComponent({props:{title:{type:String,default:''}},emits:['close'],setup:(props,{slots})=>()=>h('section',{class:'sheet-stub'},[h('h2',{},props.title),slots.default?.()])})}))
-vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{ArrowDown:stub,ArrowLeft:stub,Check:stub,ChevronDown:stub,ChevronLeft:stub,ChevronRight:stub,ChevronUp:stub,Copy:stub,Download:stub,HelpCircle:stub,Pencil:stub,Quote:stub,RefreshCw:stub,Search:stub,Send:stub,Square:stub,Trash2:stub,X:stub}})
+vi.mock('lucide-vue-next',()=>{const stub=defineComponent({setup:()=>()=>null});return{ArrowDown:stub,ArrowLeft:stub,Check:stub,ChevronDown:stub,ChevronLeft:stub,ChevronRight:stub,ChevronUp:stub,Copy:stub,Download:stub,HelpCircle:stub,MoreHorizontal:stub,Pencil:stub,Quote:stub,RefreshCw:stub,Search:stub,Send:stub,Square:stub,Trash2:stub,X:stub}})
 compileRender(TavernChatPage,new URL('./TavernChatPage.vue',import.meta.url))
 
 type Msg={id:string;role:'user'|'assistant';sequence:number;swipes:{content:string}[];activeSwipe:number;quotedText?:string|null;createdAt?:string;speakerCardId?:string|null;speakerName?:string|null}
@@ -172,6 +173,45 @@ describe('TavernChatPage',()=>{
     expect(body).toContain('很久以前')
     expect(body).toContain('你好')
     expect(body).not.toContain('加载更早消息')
+  })
+
+  it('tucks the per-message actions into a “⋯” menu',async()=>{
+    mount();await flush()
+    const trigger=aria('更多操作')
+    expect(trigger).toBeTruthy()
+    expect(trigger.props['aria-expanded']).toBe(false)
+    trigger.props.onClick?.()
+    await flush()
+    expect(trigger.props['aria-expanded']).toBe(true)
+    const openMenus=()=>descendants(host,item=>String(item.props.class??'').includes('bubble-actions')&&String(item.props.class??'').includes('open'))
+    expect(openMenus()).toHaveLength(1)
+    aria('引用这条消息').props.onClick?.()
+    await flush()
+    expect((state().quote as {text:string}|null)?.text).toBe('你好')
+    expect(openMenus()).toHaveLength(0)
+  })
+
+  it('closes the action menu on Escape',async()=>{
+    const listeners:Record<string,(event:KeyboardEvent)=>void>={}
+    vi.stubGlobal('window',{addEventListener:(type:string,fn:(event:KeyboardEvent)=>void)=>{listeners[type]=fn},removeEventListener:vi.fn()})
+    mount();await flush()
+    aria('更多操作').props.onClick?.()
+    await flush()
+    const openMenus=()=>descendants(host,item=>String(item.props.class??'').includes('bubble-actions')&&String(item.props.class??'').includes('open'))
+    expect(openMenus()).toHaveLength(1)
+    listeners.keydown?.({key:'Escape'} as KeyboardEvent)
+    await flush()
+    expect(openMenus()).toHaveLength(0)
+  })
+
+  it('sends the saved persona with every message',async()=>{
+    vi.stubGlobal('window',{addEventListener:vi.fn(),removeEventListener:vi.fn(),localStorage:{getItem:(key:string)=>key==='tavern:persona'?'p1':null,setItem:vi.fn(),removeItem:vi.fn()}})
+    vi.mocked(streamChat).mockResolvedValue(undefined)
+    mount();await flush()
+    state().input='再讲一段'
+    submit()
+    await flush()
+    expect(streamChat).toHaveBeenCalledWith('/chats/chat-1/messages',{message:'再讲一段',personaId:'p1'},expect.any(Object),expect.objectContaining({signal:expect.anything()}))
   })
 
   it('deletes a message only after the inline confirmation',async()=>{
