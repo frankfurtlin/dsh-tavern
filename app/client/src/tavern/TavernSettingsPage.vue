@@ -1,20 +1,11 @@
 <script setup lang="ts">
 import {computed,onMounted,reactive,ref} from 'vue'
-import {BookMarked,Brush,Download,HelpCircle,UserRound} from 'lucide-vue-next'
-import PersonaControl from '../characters/PersonaControl.vue'
-import {listPersonas,type Persona} from '../characters/api'
+import {Brush,HelpCircle} from 'lucide-vue-next'
+import PersonaSettings from '../characters/PersonaSettings.vue'
 import TavernPresetsPanel from './TavernPresetsPanel.vue'
 import LoadState from './LoadState.vue'
 import {listPresets,updatePreset,type TavernPreset} from './api'
 import {useApp} from '../stores/app'
-
-const DEFAULT_PERSONA_KEY='tavern:default-persona'
-const personaId=ref<string|null>(null)
-const personas=ref<Persona[]>([])
-const personaError=ref('')
-const personasLoading=ref(true)
-const defaultPersonaId=ref<string>('')
-const defaultPersonaName=computed(()=>personas.value.find(item=>item.id===defaultPersonaId.value)?.name||'')
 
 const store=useApp()
 const presets=ref<TavernPreset[]>([])
@@ -36,19 +27,6 @@ function applySampling(preset:TavernPreset|null){
   sampling.maxTokens=preset?.maxTokens??1024
 }
 
-async function loadPersonas(){
-  personasLoading.value=true;personaError.value=''
-  try{
-    personas.value=await listPersonas()
-    if(defaultPersonaId.value&&!personas.value.some(item=>item.id===defaultPersonaId.value)){
-      defaultPersonaId.value=''
-      window.localStorage.removeItem(DEFAULT_PERSONA_KEY)
-    }
-  }catch(e){
-    personaError.value=(e as Error).message||'人设暂时无法读取。'
-  }finally{personasLoading.value=false}
-}
-
 async function loadPresets(){
   presetsLoading.value=true;presetsError.value=''
   try{
@@ -57,13 +35,6 @@ async function loadPresets(){
   }catch(e){
     presetsError.value=(e as Error).message||'预设暂时无法读取。'
   }finally{presetsLoading.value=false}
-}
-
-function chooseDefault(event:Event){
-  const value=(event.target as HTMLSelectElement).value
-  defaultPersonaId.value=value
-  if(value)window.localStorage.setItem(DEFAULT_PERSONA_KEY,value)
-  else window.localStorage.removeItem(DEFAULT_PERSONA_KEY)
 }
 
 async function saveSampling(){
@@ -86,8 +57,6 @@ async function saveSampling(){
 }
 
 onMounted(()=>{
-  try{defaultPersonaId.value=window.localStorage.getItem(DEFAULT_PERSONA_KEY)||''}catch{defaultPersonaId.value=''}
-  void loadPersonas()
   void loadPresets()
 })
 </script>
@@ -96,21 +65,10 @@ onMounted(()=>{
  <section class="tavern-settings" aria-label="设置">
   <p class="muted">酒馆 2.0 的全局设置。所有数据都保存在你自己的账号下；采样参数写入默认预设，只影响之后的新对话。</p>
 
-  <section class="settings-group" aria-label="默认对话">
-   <h2 class="group-title">默认对话</h2>
+  <section class="settings-group" aria-label="我是谁">
+   <h2 class="group-title">我是谁</h2>
    <div class="settings-card">
-    <LoadState v-if="personasLoading||personaError" :loading="personasLoading" :error="personaError" loading-text="正在读取人设…" @retry="loadPersonas"/>
-    <template v-else>
-     <PersonaControl v-model="personaId"/>
-     <p class="section-hint">人设会在对话里作为「你的身份」注入；在这里创建和管理多个人设。</p>
-     <label class="default-persona">默认人设
-      <select :value="defaultPersonaId" aria-label="默认人设" @change="chooseDefault">
-       <option value="">不设置</option>
-       <option v-for="persona in personas" :key="persona.id" :value="persona.id">{{persona.name}}</option>
-      </select>
-      <small class="default-hint">默认人设会作为新聊天的初始选择，聊天里仍可随时切换。</small>
-     </label>
-    </template>
+    <PersonaSettings/>
    </div>
   </section>
 
@@ -179,7 +137,6 @@ onMounted(()=>{
 
   <div class="settings-footer">
    <RouterLink to="/" class="settings-back">返回角色卡</RouterLink>
-   <small v-if="defaultPersonaName">默认人设：{{defaultPersonaName}}</small>
   </div>
  </section>
 </template>
@@ -193,7 +150,6 @@ onMounted(()=>{
 .settings-card{display:flex;flex-direction:column;gap:12px;background:var(--canvas);border:1px solid var(--edge);border-radius:var(--r-card);padding:16px}
 .section-hint{color:var(--quiet);font-size:13px;line-height:1.6;margin:0}
 .default-hint{color:var(--quiet);font-size:12px;line-height:1.5}
-.default-persona{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--quiet);max-width:360px}
 .sampling-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
 .sampling-grid label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--quiet)}
 .sampling-grid input{min-height:44px;padding:0 12px;font-size:16px}
@@ -213,9 +169,8 @@ onMounted(()=>{
 .settings-footer small{color:var(--quiet)}
 @media(max-width:767px){
  .tavern-settings{padding-bottom:96px;gap:22px}
- .settings-grid,.sampling-grid{grid-template-columns:1fr}
- .default-persona{max-width:none;width:100%}
- .default-persona select,.sampling-grid input{width:100%}
+ .sampling-grid{grid-template-columns:1fr}
+ .sampling-grid input{width:100%}
  .save-sampling{width:100%}
  .settings-footer{position:sticky;bottom:0;background:var(--canvas);border-top:1px solid var(--edge);padding:10px 0 calc(6px + env(safe-area-inset-bottom));margin:0 -14px;padding-left:14px;padding-right:14px}
  .settings-back{flex:1;justify-content:center;min-height:44px;border:1px solid var(--accent);border-radius:10px;background:var(--accent);color:#fff;text-decoration:none}
