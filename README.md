@@ -1,4 +1,53 @@
-# dsh-tavern · 酒馆（DSH 插件）
+<div align="center">
+
+# dsh-tavern 「酒馆」
+
+**单用户的角色卡聊天应用，装进 DSH：侧栏一行「酒馆」，点卡开聊，回复走 DSH 当前模型逐字流出，多选 2–5 张卡还能开群聊。**
+
+A single-user character-card chat app inside DSH, with streaming replies from DSH's current model and 2–5 character group chats.
+
+[![Version](https://img.shields.io/badge/version-0.1.0-blue)](package.json)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Platform](https://img.shields.io/badge/DSH-DeepSeek%20Harness-5b5ef7)](https://github.com/frankfurtlin/dsh-pocket)
+
+[中文](README.md) · [English](README.en.md)
+
+</div>
+
+![面板里的角色卡库](docs/screenshots/native-presets/170-preset-home.png)
+
+## 这是什么
+
+酒馆是一个单用户的原生角色卡聊天应用。装进 DSH 后，侧栏只多一行「酒馆」：面板里是角色卡库，点一张卡进入全屏聊天（`/tavern/chats/<id>`），回复按 SSE 逐字流出，重新生成会追加版本，角色卡的世界书按关键词注入本轮 prompt。
+
+生成走 DSH：插件在 `/tavern` 旁边开了 `/tavern-agent` 网关，应用服务端用它调 DSH 当前模型（本机 `opencode-go / deepseek-v4.1-flash`），不依赖浏览器里的模型登录态。给想在自己的 DSH 里写卡、跑角色扮演和群聊的人用。
+
+## 功能
+
+- **角色卡**：卡库网格 + 搜索；导入 SillyTavern 卡（PNG / JSON，v2/v3 `character_book` 自动进世界书），改设定、导出 PNG/JSON、软删，另有 5 张内置预设卡。
+- **聊天**：点卡直接开聊，SSE 逐字流式、停止生成、重新生成追加版本（`‹n/m›` 切换）、编辑/删除自己的消息、改标题、导出/导入（JSONL / JSON，导入仅单聊）、长聊天按 200 条分页。
+- **群聊**：卡库多选 2–5 张卡发起群聊，按成员顺序轮转发言，assistant 气泡标发言人；重新生成沿用原发言人。
+- **世界书**：关键词、常驻、指定深度注入，概率、顺序、启用；卡详情有注入预览，列出命中条目、命中原因与拼好的注入文本。
+- **设置**：多个人设 + 默认人设；预设管理（system / main / jailbreak / post_history + 采样参数）；账号级正则替换，回复落库前生效。
+- **面板工具条**：聊天页可「让 DSH 续写 / 角色扮演」，把角色卡与最近对话预填进新的 DSH 会话；没有聊天上下文的页面按钮禁用。
+- **生成走 DSH**：`AI_MODE=dsh` 时应用服务端经 `/tavern-agent/v1/stream` 调 `ctx.llm.stream`；网关不可用就如实报错，不伪造回复。
+- **单用户、固定浅色**：旧 story 域（故事模式 / 世界 / 分支 / 长期记忆等）已删除，对应旧路由落到卡库首页，不会死链。
+
+## 安装
+
+```bash
+# 1) 装插件（写 profile 的 link: 依赖 + bundles），然后重启 DSH Web
+dsh plugin --profile web add /root/workspace/plugins/dsh-tavern
+# 再把 "dsh-tavern" 加进 profile package.json 的 dsh.profile.bundles
+systemctl restart deepseek-harness.service
+
+# 2) 应用本体（API 8001 / 静态站 8810）由 host 侧 systemd 单元常驻；
+#    单元文件在 /etc/systemd/system/dsh-tavern-*.service，不随本仓库分发
+```
+
+## 详细文档
+
+后面几节是完整说明：功能细节、配置项、设计取舍、验收记录。
 
 把本地「酒馆」装进 DSH：DSH 侧栏多一行 **酒馆**，点开不用跳站，面板里就是
 **角色卡网格**；点一张卡进入**全屏聊天**（`/tavern/chats/<id>`），回复按 SSE
@@ -24,7 +73,7 @@
 - 公开入口只有 `https://dsh.frankfurtlin.top/tavern/`（受 DSH 登录保护）。
   插件内部只连 `127.0.0.1`，不额外开端口
 
-## 功能一览
+### 功能一览
 
 | 能力 | 说明 |
 | --- | --- |
@@ -37,7 +86,7 @@
 | 采样与提示词 | 聊天页「采样参数」Sheet（temperature / top_p / max_tokens / stop，落库并回显）；卡详情「提示词与采样」（主提示词 / 越狱提示词 / 采样覆盖 + 世界书默认位置）；生成时按 **chat > 预设 > 卡设置** 逐级回退 |
 | 生成通道 | `AI_MODE=dsh` 时应用服务端走插件网关 `/tavern-agent/v1/stream` → `ctx.llm.stream`；网关不可用就如实报错，不伪造回复 |
 
-## 使用路径
+### 使用路径
 
 1. DSH 侧栏点 **酒馆**（等价于打开 `/tavern/`），面板里是角色卡网格；
    顶栏「酒馆」品牌 + 右侧「设置」。
@@ -59,7 +108,7 @@
    单个聊天可在聊天页「采样参数」里覆盖；「输出替换规则」页维护账号级正则（回复落库前生效，刷新后可见替换结果；
    旧任务会应用），导入导出说明也在设置页。
 
-## 预设角色卡
+### 预设角色卡
 
 新账号第一次打开酒馆（第一次加载角色卡库）时，会自动出现 5 张**预设角色卡**
 （不需要导入；种子在首次列卡时懒创建，资产缺失也不影响卡库）：
@@ -82,7 +131,7 @@
 - 我们做了两处格式修改：**HTML/CSS 文本转纯文本**、**头像裁成 512×512 方形缩略图**；
   卡片内容除此之外未改动。逐卡来源与署名见 [CREDITS.md](CREDITS.md)。
 
-## 它由哪几块组成
+### 它由哪几块组成
 
 | 文件 | 作用 |
 | --- | --- |
@@ -103,7 +152,7 @@
 > 单元已安装在 `/etc/systemd/system/dsh-tavern-*.service`，属于 host 运维，
 > **不随本插件仓库分发**；本仓库只含插件两半 + 应用源码。
 
-## 安装 / 启用
+### 安装 / 启用
 
 插件以 `link:` 方式注册在 Web profile（不在本仓库内执行这一步）：
 
@@ -117,7 +166,7 @@
 并刷新页面。本仓库的插件代码没有独立构建步骤：`cordis.patch.yml` + 手写
 `client.js` 由宿主直接加载。
 
-## 请求链路一句话
+### 请求链路一句话
 
 浏览器 → DSH Web `:3080` → 登录闸门（`requestRejection`）→ `prefix /tavern`
 → 剥前缀：`/api/**` 带 `x-dsh-trusted` 去 `:8001`，静态资源去 `:8810`。
@@ -125,7 +174,7 @@ chat 的 `POST /api/reader/v1/tavern/chats/<id>/messages` 由 8001 **直接在�
 回 SSE**；应用服务端同时以 Bearer secret 调 `/tavern-agent/v1/stream` 拿模型增量。
 详细分流表、头处理、超时策略见 [docs/architecture.md](docs/architecture.md)。
 
-## DSH 模型网关：应用服务端怎么用真生成
+### DSH 模型网关：应用服务端怎么用真生成
 
 应用的 API 进程是服务端进程，没有浏览器会话。插件在 `/tavern` 旁边开了一个
 平级前缀 `/tavern-agent`，用共享 secret 做服务端到服务端鉴权，复用 DSH 已经
@@ -155,7 +204,7 @@ chat 的 `POST /api/reader/v1/tavern/chats/<id>/messages` 由 8001 **直接在�
 应用侧在 `AI_MODE=dsh` 时使用它（`DSH_AGENT_URL=http://127.0.0.1:3080/tavern-agent/v1`，
 `DSH_AGENT_SECRET` 与 `DSH_TAVERN_AGENT_SECRET` 同值）；回滚改 `AI_MODE=mock`。
 
-## 配置
+### 配置
 
 | 位置 | 键 | 说明 |
 | --- | --- | --- |
@@ -174,7 +223,7 @@ chat 的 `POST /api/reader/v1/tavern/chats/<id>/messages` 由 8001 **直接在�
 secret 在插件启动（`apply`）时读入；读不到会打印告警，但不会让宿主崩溃，
 此时 API 请求不带可信头，应用侧按未登录处理（401）。
 
-## 改完代码先自检
+### 改完代码先自检
 
 ```bash
 cd /root/workspace/plugins/dsh-tavern
@@ -219,7 +268,7 @@ node verify.mjs --url "http://127.0.0.1:3080/?token=..." \
 
 应用前端改动另跑（在 `app/client` 下）：`npm run typecheck`、`npm test`。
 
-## 已知限制 / 待验证
+### 已知限制 / 待验证
 
 - **真生成依赖 DSH 侧条件**：DSH 需已登录、`agentDefaultModel` 有默认模型
   （本机 `opencode-go / deepseek-v4.1-flash`），且应用 `AI_MODE=dsh`。
@@ -263,7 +312,7 @@ node verify.mjs --url "http://127.0.0.1:3080/?token=..." \
   `context-request` 只在 `/chats/<id>` 返回角色卡 + 最近对话，其它页面回
   `ok:false`（「当前页面没有可用的聊天上下文」）。字段表见 `docs/contract.md` §3。
 
-## 文档
+### 文档
 
 | 文档 | 内容 |
 | --- | --- |
