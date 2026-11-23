@@ -4,11 +4,8 @@
 
 **单用户的角色卡聊天应用，装进 DSH：侧栏一行「酒馆」，点卡开聊，回复走 DSH 当前模型逐字流出，多选 2–5 张卡还能开群聊。**
 
-A single-user character-card chat app inside DSH, with streaming replies from DSH's current model and 2–5 character group chats.
-
 [![Version](https://img.shields.io/badge/version-0.1.0-blue)](package.json)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Platform](https://img.shields.io/badge/DSH-DeepSeek%20Harness-5b5ef7)](https://github.com/frankfurtlin/dsh-pocket)
 
 [English](README.md) · **简体中文**
 
