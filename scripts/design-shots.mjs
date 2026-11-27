@@ -7,16 +7,22 @@
  *
  *   node scripts/design-shots.mjs --out docs/screenshots/design-a3
  *   node scripts/design-shots.mjs --cdp http://127.0.0.1:39561 --base http://127.0.0.1:3080/tavern
- *   node scripts/design-shots.mjs --profile /root/.dsh/webpilot/profile --out /tmp/a3
+ *   node scripts/design-shots.mjs --profile ~/.dsh/webpilot/profile --out /tmp/a3
  *
  * 会做一次「导入酒馆聊天 JSONL」来获得带动作/跨天消息的聊天，结束后尝试删除该聊天。
  * 只在已经登录的生产实例上读取与截图；除导入的那条测试聊天外不改任何数据。
  */
 import { createRequire } from 'node:module'
 import { mkdir } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import path from 'node:path'
 
-const require = createRequire('/root/workspace/hermes-site/tools/node_modules/')
+// playwright 装在兄弟仓库 hermes-site/tools 下（本仓库不带 node_modules）：
+// 路径运行时推导，可用 DSH_TAVERN_PLAYWRIGHT_MODULES 覆盖。
+const HERMES_TOOLS =
+  process.env.DSH_TAVERN_PLAYWRIGHT_MODULES ||
+  path.join(homedir(), 'workspace', 'hermes-site', 'tools', 'node_modules')
+const require = createRequire(HERMES_TOOLS + '/')
 const { chromium } = require('playwright')
 
 const args = process.argv.slice(2)
@@ -44,7 +50,7 @@ async function discoverCdp() {
 }
 
 const cdp = arg('cdp', process.env.DSH_CDP_URL || (await discoverCdp()))
-const profile = arg('profile', process.env.DSH_TAVERN_PROFILE || '/root/.dsh/webpilot/profile')
+const profile = arg('profile', process.env.DSH_TAVERN_PROFILE || path.join(homedir(), '.dsh', 'webpilot', 'profile'))
 const base = arg('base', 'http://127.0.0.1:3080/tavern').replace(/\/$/, '')
 const outDir = path.resolve(arg('out', 'docs/screenshots/design-a3'))
 const fixture = arg('fixture', '/tmp/dsh-tavern-native/cards/chat-a2.jsonl')
@@ -72,7 +78,7 @@ async function dismissGuide(page) {
 /** 用哪一份 Chromium：WebPilot 用的是缓存里的 chromium-*，取最新一个即可。 */
 async function resolveChrome() {
   const { readdirSync, existsSync } = await import('node:fs')
-  const root = '/root/.cache/ms-playwright'
+  const root = process.env.PLAYWRIGHT_BROWSERS_PATH || path.join(homedir(), '.cache', 'ms-playwright')
   const versions = readdirSync(root)
     .filter((name) => /^chromium-\d+$/.test(name))
     .sort((a, b) => Number(b.split('-')[1]) - Number(a.split('-')[1]))

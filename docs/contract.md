@@ -1,13 +1,13 @@
 # dsh-tavern 集成契约（v3：酒馆 2.0 原生酒馆）
 
 目标：把本地「酒馆」（Tavern）应用装成 DSH 插件，放在
-`/root/workspace/plugins/dsh-tavern`，在 DSH Web 里以内嵌面板访问，登录只走 DSH
+`/opt/dsh/dsh-tavern`，在 DSH Web 里以内嵌面板访问，登录只走 DSH
 闸门。**2.0 起产品改为单用户原生酒馆**：角色卡网格 → 点卡进全屏聊天（单聊）或
 在卡库多选 2–5 张发起**群聊**，SSE 流式，重新生成追加版本（swipe），世界书按关键词
 注入 prompt。**P3 已把旧 story 域整体删除**：故事模式 / 探索 / 世界 / 分支 / 记忆 /
 伙伴 / 卡↔世界 / AI 写卡的 UI 与服务端代码都已移除（`/worlds`、`/world-chats`、
 `/books`、`/play-controls` 等旧 API 一律 404），旧表已 DROP（备份
-`/root/workspace/.backups/dsh-tavern/story_between-pre-p3-20261105-081109.dump`）。
+`~/workspace/.backups/dsh-tavern/story_between-pre-p3-20261105-081109.dump`）。
 服务端现状：`from app.main import app` 共 **86 条路由**（`/api/reader/v1/tavern/**`
 36 条），见 §7。
 
@@ -140,7 +140,7 @@ iframe → 父（主动，节流）：
 | `app/client/**` 源码与 dist 构建 | cards-client / app-auth（按任务指派） |
 | `package.json`、`cordis.patch.yml`、`lib/**`、`client.js`、`README.md`、`docs/architecture.md`、`docs/contract.md` | plugin-core |
 | `scripts/**`、`verify.mjs`、`docs/testing.md` | verifier |
-| `/etc/systemd/system`、Caddy、`/root/.dsh/profiles/web`（host 级，不在本仓库） | Lead |
+| `/etc/systemd/system`、Caddy、`~/.dsh/profiles/web`（host 级，不在本仓库） | Lead |
 | `app/.env`（含 `DSH_AGENT_*`、`AI_MODE`）、host 重启与上线 | Lead |
 | `docs/history/step1–step5*.md`（历史设计，UI 与服务端多已删除） | Lead |
 

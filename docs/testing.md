@@ -14,7 +14,7 @@
 ### `scripts/check.sh` —— 隔离验收（日常用，绝不动生产 3080）
 
 ```bash
-cd /root/workspace/plugins/dsh-tavern
+cd /opt/dsh/dsh-tavern
 
 scripts/check.sh                  # 静态检查 + /tmp 隔离实例 + 真实浏览器 E2E（默认）
 scripts/check.sh --static         # 只跑静态检查（秒级）
@@ -40,8 +40,8 @@ scripts/check.sh --port 3199      # 3099 被占用时换端口
 
 ```bash
 systemd-run --scope --unit=tavern-verify-$(date +%H%M) --property=MemoryMax=2G \
-  --setenv=HOME=/root --setenv=XDG_CACHE_HOME=/root/.cache \
-  bash -c 'cd /root/workspace/plugins/dsh-tavern && bash scripts/check.sh'
+  --setenv=HOME="$HOME" --setenv=XDG_CACHE_HOME="$HOME/.cache" \
+  bash -c 'cd /opt/dsh/dsh-tavern && bash scripts/check.sh'
 ```
 
 ### 直接跑浏览器部分（调试用）
@@ -140,7 +140,7 @@ DELETE FROM world.tavern_world_info;
 DELETE FROM world.character_cards;
 COMMIT;
 SQL
-rm -f /root/workspace/plugins/dsh-tavern/app/data/private/*/card-avatar-*.png
+rm -f /opt/dsh/dsh-tavern/app/data/private/*/card-avatar-*.png
 ```
 
 核对基线：`cards=0`、`chats=0`、`messages=0`、`world_info=0`；确认 `3099` 无监听、
@@ -266,8 +266,8 @@ SKIP 并注明 `owner: cards-client`（多选/建群 UI）或 `owner: app-auth`�
 
 ```bash
 systemd-run --scope --unit=tavern-native-p0d --property=MemoryMax=2G \
-  --setenv=HOME=/root --setenv=XDG_CACHE_HOME=/root/.cache \
-  bash -c 'cd /root/workspace/plugins/dsh-tavern && bash scripts/check.sh --instance'
+  --setenv=HOME="$HOME" --setenv=XDG_CACHE_HOME="$HOME/.cache" \
+  bash -c 'cd /opt/dsh/dsh-tavern && bash scripts/check.sh --instance'
 ```
 
 结果：浏览器 **21 PASS / 0 FAIL / 1 SKIP**，静态 7 PASS / 0 FAIL / 1 SKIP（SKIP=应用前端测试，
@@ -306,8 +306,8 @@ harness 侧同时修了两处时序：导入控件要等 Vue 挂载后再取（`
 
 ```bash
 systemd-run --scope --unit=tavern-native-p1 --property=MemoryMax=2G \
-  --setenv=HOME=/root --setenv=XDG_CACHE_HOME=/root/.cache \
-  bash -c 'cd /root/workspace/plugins/dsh-tavern && bash scripts/check.sh --instance'
+  --setenv=HOME="$HOME" --setenv=XDG_CACHE_HOME="$HOME/.cache" \
+  bash -c 'cd /opt/dsh/dsh-tavern && bash scripts/check.sh --instance'
 ```
 
 结果：浏览器 **30 PASS / 0 FAIL / 0 SKIP**，`report.ok=true`；报告
@@ -345,8 +345,8 @@ systemd-run --scope --unit=tavern-native-p1 --property=MemoryMax=2G \
 
 ```bash
 systemd-run --scope --unit=tavern-p2-run --property=MemoryMax=2G \
-  --setenv=HOME=/root --setenv=XDG_CACHE_HOME=/root/.cache \
-  bash -c 'cd /root/workspace/plugins/dsh-tavern && bash scripts/check.sh --instance'
+  --setenv=HOME="$HOME" --setenv=XDG_CACHE_HOME="$HOME/.cache" \
+  bash -c 'cd /opt/dsh/dsh-tavern && bash scripts/check.sh --instance'
 ```
 
 结果：浏览器 **41 PASS / 0 FAIL / 0 SKIP**，`report.ok=true`；报告

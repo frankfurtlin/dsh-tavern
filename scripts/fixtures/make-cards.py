@@ -140,13 +140,15 @@ def v1_payload(card: dict) -> dict:
 
 
 def find_font() -> str | None:
+    # 中文字体默认装在家目录的 .fonts 下：运行时推导，不写死绝对路径。
+    home_fonts = Path.home() / ".fonts"
     for candidate in (
-        "/root/.fonts/NotoSansSC_700Bold.ttf",
-        "/root/.fonts/NotoSansSC_400Regular.ttf",
-        "/usr/share/fonts/truetype/noto/NotoSansSC-Regular.ttf",
+        home_fonts / "NotoSansSC_700Bold.ttf",
+        home_fonts / "NotoSansSC_400Regular.ttf",
+        Path("/usr/share/fonts/truetype/noto/NotoSansSC-Regular.ttf"),
     ):
-        if Path(candidate).is_file():
-            return candidate
+        if candidate.is_file():
+            return str(candidate)
     return None
 
 
