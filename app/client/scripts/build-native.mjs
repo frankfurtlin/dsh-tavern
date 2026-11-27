@@ -9,6 +9,8 @@ function run(command,args,cwd=root){const shell=process.platform==='win32'&&(com
 run('npm',['run',`native:sync:${platform}`])
 const out=path.resolve(root,'../artifacts',platform);mkdirSync(out,{recursive:true})
 if(platform==='android'){
+  // 注意：/root/.gradle 与 /root/.android 是**容器内**路径（android-sdk 镜像以 root 运行），
+  // 不是本机家目录，故意保留绝对路径。
   if(process.argv.includes('--docker'))run('docker',['run','--rm','-v',root+':/workspace','-v','story-reader-gradle:/root/.gradle','-v','story-reader-android-debug:/root/.android','-w','/workspace/android','ghcr.io/cirruslabs/android-sdk:36@sha256:f9b3ea9ed2b5fc9522adae82c7b4622ab7aa54207ef532c8e615a347dca08f31','bash','gradlew','assembleDebug','--no-daemon'])
   else run(process.platform==='win32'?'gradlew.bat':'./gradlew',['assembleDebug','--no-daemon'],path.join(root,'android'))
   copyFileSync(path.join(root,'android/app/build/outputs/apk/debug/app-debug.apk'),path.join(out,process.env.VITE_NATIVE_DEV_SERVER?'app-debug-emulator.apk':'app-debug.apk'))

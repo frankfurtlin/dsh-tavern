@@ -40,9 +40,15 @@
 import { createRequire } from 'node:module'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { existsSync, readdirSync } from 'node:fs'
+import { homedir } from 'node:os'
 import path from 'node:path'
 
-const require = createRequire('/root/workspace/hermes-site/tools/node_modules/')
+// playwright 装在兄弟仓库 hermes-site/tools 下（本仓库不带 node_modules）：
+// 路径运行时推导，可用 DSH_TAVERN_PLAYWRIGHT_MODULES 覆盖。
+const HERMES_TOOLS =
+  process.env.DSH_TAVERN_PLAYWRIGHT_MODULES ||
+  path.join(homedir(), 'workspace', 'hermes-site', 'tools', 'node_modules')
+const require = createRequire(HERMES_TOOLS + '/')
 const { chromium } = require('playwright')
 
 const args = process.argv.slice(2)
@@ -146,7 +152,7 @@ await mkdir(outDir, { recursive: true })
 const chromiumExecutable = (() => {
   if (process.env.DSH_TAVERN_CHROMIUM) return process.env.DSH_TAVERN_CHROMIUM
   const cacheRoot =
-    process.env.PLAYWRIGHT_BROWSERS_PATH || path.join(process.env.HOME || '/root', '.cache', 'ms-playwright')
+    process.env.PLAYWRIGHT_BROWSERS_PATH || path.join(homedir(), '.cache', 'ms-playwright')
   try {
     const dirs = readdirSync(cacheRoot)
       .filter((name) => /^(chromium|chromium_headless_shell)-\d+$/.test(name))
