@@ -1,0 +1,71 @@
+# dsh-tavern API — systemd unit template.
+#
+# This file is a TEMPLATE, not an installed unit: systemd only loads files with an
+# exact ".service" suffix from its own unit directories, so a "*.service.example"
+# inside a checkout is never started by accident. Copy it to install it.
+#
+# Fields you MUST change before copying:
+#   /opt/dsh/dsh-tavern   the path of your checkout (example only). It appears in
+#                         WorkingDirectory, EnvironmentFile and ExecStart; replace
+#                         all three with the directory you cloned this repo to.
+#
+# Fields you MUST provide:
+#   app/.env   Required, not optional (no "-" prefix in EnvironmentFile= on
+#              purpose): the API reads DATABASE_URL, JWT_SIGNING_SECRET,
+#              PROVIDER_MASTER_KEY, STORAGE_PATH, DSH_TRUSTED_SECRET,
+#              DSH_AGENT_URL, DSH_AGENT_SECRET and AI_MODE from it. Start from
+#              app/.env.example (or run `python scripts/init-env.py`, which
+#              generates the secrets and refuses to overwrite an existing file),
+#              then edit at least:
+#                DATABASE_URL   -> your PostgreSQL, e.g.
+#                                  postgresql+psycopg://tavern:***@127.0.0.1:5432/tavern
+#                AI_MODE=dsh    -> generate through the plugin gateway
+#                DSH_AGENT_URL  -> http://127.0.0.1:3080/tavern-agent/v1
+#                DSH_AGENT_SECRET / DSH_TAVERN_AGENT_SECRET -> the same random value
+#                DSH_TRUSTED_SECRET -> must match DSH_TAVERN_TRUSTED_SECRET (host env)
+#                DSH_TRUSTED_AUTH=true      -> accepts the x-dsh-trusted header the plugin
+#                                              forwards; false means every panel request 401
+#                DSH_TRUSTED_USERNAME=<user> -> an *existing* active account in the app:
+#                                              security.trusted_identity() only looks it up
+#                                              (503 TRUSTED_USER_UNAVAILABLE otherwise, no
+#                                              auto-signup). deploy/systemd/README.md explains.
+#              chmod 600 app/.env. Without the file the unit fails to start.
+#
+# Prerequisites (see the README "Install" section):
+#   git clone <repo> /opt/dsh/dsh-tavern
+#   python3.12 -m venv app/venv && app/venv/bin/pip install -r app/server/requirements.lock
+#   a PostgreSQL 14+ database, schema created with
+#     cd app/server && set -a && . ../.env && set +a && ../venv/bin/alembic upgrade head
+#
+# Fields you may want to change:
+#   User=   root here, which is what the author tests on. For a production host use
+#           a dedicated account (User=tavern) and chown app/venv, app/.env and the
+#           STORAGE_PATH directory to it.
+#   --port 8001   The host half of the plugin proxies /tavern/api/* here. Keep it on
+#                 loopback, and change DSH_TAVERN_API_PORT on the host if you move it.
+#
+# Install:
+#   sudo cp deploy/systemd/dsh-tavern-api.service.example /etc/systemd/system/dsh-tavern-api.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now dsh-tavern-api
+#   curl -s http://127.0.0.1:8001/health/ready
+
+[Unit]
+Description=Tavern API (dsh-tavern plugin backend)
+After=network.target
+# Uncomment when PostgreSQL runs on this host under its own unit.
+#After=postgresql.service
+#Wants=postgresql.service
+
+[Service]
+User=root
+WorkingDirectory=/opt/dsh/dsh-tavern/app/server
+# Required: DATABASE_URL and the DSH secrets live here (see the header).
+EnvironmentFile=/opt/dsh/dsh-tavern/app/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/dsh/dsh-tavern/app/venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --no-access-log --proxy-headers --forwarded-allow-ips *
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
