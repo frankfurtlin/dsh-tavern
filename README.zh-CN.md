@@ -32,15 +32,48 @@
 
 ## 安装
 
+示例把 checkout 装在 `/opt/dsh/dsh-tavern`；这只是示例路径，换成你自己的目录，命令与
+单元文件里的路径一起改。
+
 ```bash
 # 1) 装插件（写 profile 的 link: 依赖 + bundles），然后重启 DSH Web
-dsh plugin --profile web add /root/workspace/plugins/dsh-tavern
+dsh plugin --profile web add <你的 checkout 路径>
 # 再把 "dsh-tavern" 加进 profile package.json 的 dsh.profile.bundles
 systemctl restart deepseek-harness.service
-
-# 2) 应用本体（API 8001 / 静态站 8810）由 host 侧 systemd 单元常驻；
-#    单元文件在 /etc/systemd/system/dsh-tavern-*.service，不随本仓库分发
 ```
+
+应用本体是 Python 3.12 + PostgreSQL + 一个构建好的 Vue 前端：
+
+```bash
+sudo git clone https://github.com/frankfurtlin/dsh-tavern /opt/dsh/dsh-tavern
+cd /opt/dsh/dsh-tavern
+
+python3.12 -m venv app/venv
+app/venv/bin/pip install -r app/server/requirements.lock
+
+# 生成 app/.env（0600、随机密钥；已存在则不覆盖）
+python scripts/init-env.py
+#   再改 app/.env：DATABASE_URL 指向你的 PostgreSQL、AI_MODE=dsh、
+#   DSH_AGENT_URL=http://127.0.0.1:3080/tavern-agent/v1、
+#   DSH_AGENT_SECRET 与 DSH_TAVERN_AGENT_SECRET 同值、
+#   DSH_TRUSTED_AUTH=true、DSH_TRUSTED_SECRET 与宿主的 DSH_TAVERN_TRUSTED_SECRET 同值、
+#   DSH_TRUSTED_USERNAME 指向一个**已存在**的可用账号（不会自动建号，见 deploy/systemd/README.md）
+
+# 建表，再构建前端
+cd app/server && set -a && . ../.env && set +a && ../venv/bin/alembic upgrade head && cd ../..
+cd app/client && npm ci && npm run build && cd ../..
+
+# 2) 应用本体（API 8001 / 静态站 8810）：两个单元随仓库分发
+sudo cp deploy/systemd/dsh-tavern-api.service.example /etc/systemd/system/dsh-tavern-api.service
+sudo cp deploy/systemd/dsh-tavern-web.service.example /etc/systemd/system/dsh-tavern-web.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now dsh-tavern-api dsh-tavern-web
+curl -s http://127.0.0.1:8001/health/ready
+```
+
+单元里的 `/opt/dsh/dsh-tavern` 换成你的 checkout 路径；每个字段的含义、PostgreSQL
+前置条件，以及为什么 `deploy/systemd/legacy/` 里的两个历史单元必须保持停用，见
+[`deploy/systemd/README.md`](deploy/systemd/README.md)。
 
 ## 详细文档
 
@@ -60,8 +93,8 @@ systemctl restart deepseek-harness.service
 **DROP**（备份见下）。界面**固定浅色**，没有明暗切换。
 
 - 侧栏顺序：紫微斗数(20) → **酒馆(24)** → Skill Center(30)
-- 插件目录：`/root/workspace/plugins/dsh-tavern`，已在
-  `/root/.dsh/profiles/web/package.json` 里以 `link:` 依赖注册进 `dsh.profile.bundles`
+- 插件目录：本仓库的 checkout（本文示例 `/opt/dsh/dsh-tavern`），已在
+  `~/.dsh/profiles/web/package.json` 里以 `link:` 依赖注册进 `dsh.profile.bundles`
 - 应用目录：本仓库 `app/`，由四个 systemd 单元跑在回环地址上：
   - `dsh-tavern-api.service` → `127.0.0.1:8001`（FastAPI / uvicorn；聊天 SSE 在**请求线程**里直连 DSH 网关）
   - `dsh-tavern-web.service` → `127.0.0.1:8810`（`app/client/dist` 静态站）
@@ -145,20 +178,20 @@ systemctl restart deepseek-harness.service
 | `docs/testing.md` | 验收方法：静态检查 + 隔离实例真实浏览器 E2E |
 | `scripts/check.sh`、`verify.mjs` | 验收工具：静态检查 + 隔离实例端到端 |
 
-> 应用本体（`app/`）需要先在 host 上跑起来，插件才有内容可代理。四个 systemd
-> 单元已安装在 `/etc/systemd/system/dsh-tavern-*.service`，属于 host 运维，
-> **不随本插件仓库分发**；本仓库只含插件两半 + 应用源码。
+> 应用本体（`app/`）需要先在 host 上跑起来，插件才有内容可代理。单元随仓库分发：
+> `deploy/systemd/dsh-tavern-{api,web}.service.example` 拷进 `/etc/systemd/system/` 即可；
+> 另两个历史单元放在 `deploy/systemd/legacy/`，已停用、不要启用（原因见该目录 README）。
 
 ### 安装 / 启用
 
 插件以 `link:` 方式注册在 Web profile（不在本仓库内执行这一步）：
 
 ```json
-"dependencies": { "dsh-tavern": "link:/root/workspace/plugins/dsh-tavern" },
+"dependencies": { "dsh-tavern": "link:<你的 checkout 路径>" },
 "dsh": { "profile": { "bundles": [ "...", "dsh-tavern" ] } }
 ```
 
-应用以 host 侧 systemd 单元运行（单元文件在 `/etc/systemd/system/`，不在本仓库内）；
+应用以 host 侧 systemd 单元运行（单元模板在本仓库 `deploy/systemd/`，装到 `/etc/systemd/system/`）；
 插件本身由 `dsh web` 进程加载，改完 `lib/` 或 `client.js` 后需要**重启 DSH Web 服务**
 并刷新页面。本仓库的插件代码没有独立构建步骤：`cordis.patch.yml` + 手写
 `client.js` 由宿主直接加载。
@@ -223,7 +256,7 @@ secret 在插件启动（`apply`）时读入；读不到会打印告警，但不
 ### 改完代码先自检
 
 ```bash
-cd /root/workspace/plugins/dsh-tavern
+cd <你的 checkout 路径>
 
 node --check lib/index.js && node --check client.js   # 同 npm run check
 npm run check
@@ -277,7 +310,7 @@ node verify.mjs --url "http://127.0.0.1:3080/?token=..." \
 - **旧 story 域已彻底删除**：P3 删除了故事模式/探索/世界/分支/记忆/伙伴的 UI 与服务端
   代码（旧 API `/worlds`、`/world-chats`、`/books`、`/play-controls` 全部 404）；
   `books`、`world.lines`、`world_chat_sessions` 等 51 张旧表已按备份 **DROP**（备份
-  `/root/workspace/.backups/dsh-tavern/story_between-pre-p3-20261105-081109.dump`）。
+  `~/.backups/dsh-tavern/story_between-pre-p3-20261105-081109.dump`）。
   `dsh-tavern-world-worker` 已停用并 disable（其模块 `app.world.worker` 随 P3 删除）；`dsh-tavern-worker` 也已停用并 disable（新 `app/worker.py` 只剩 adapter_for，无后台循环）。
 - **群聊限制**：成员卡被删（软删）后再打开该群聊会 404（无级联清理）；
   群聊 JSONL 可以导出但**不能导回成群聊**（导入接口只建单聊）；群聊轮转顺序

@@ -1,0 +1,50 @@
+# dsh-tavern static client — systemd unit template.
+#
+# This file is a TEMPLATE, not an installed unit: systemd only loads files with an
+# exact ".service" suffix from its own unit directories, so a "*.service.example"
+# inside a checkout is never started by accident. Copy it to install it.
+#
+# Fields you MUST change before copying:
+#   /opt/dsh/dsh-tavern   the path of your checkout (example only). It appears twice:
+#                         in STORY_DIST and in ExecStart.
+#
+# Fields you MUST provide:
+#   app/client/dist   The built Vue client. It is a build artifact and gitignored, so
+#                     build it once before enabling this unit:
+#                       cd app/client && npm ci && npm run build
+#
+# Fields you may want to change:
+#   STORY_PORT  8810. The host half of the plugin proxies /tavern/* static assets
+#               here; change DSH_TAVERN_STATIC_PORT on the host if you move it.
+#   User=   root here, which is what the author tests on. A dedicated account only
+#           needs read access to STORY_DIST.
+#
+# Notes:
+#   - The server is a ~60 line stdlib script (app/deploy/static_server.py); it needs
+#     no third-party packages, so any python3 interpreter works. /usr/bin/python3.11
+#     is what is used here; the app venv python works as well.
+#   - app/deploy/static_server.py is the same file referenced below; do not confuse
+#     it with this deploy/ directory at the repo root.
+#
+# Install:
+#   sudo cp deploy/systemd/dsh-tavern-web.service.example /etc/systemd/system/dsh-tavern-web.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now dsh-tavern-web
+#   curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8810/
+
+[Unit]
+Description=Tavern static client (dsh-tavern plugin)
+After=network.target
+
+[Service]
+User=root
+# The script resolves its document root from STORY_DIST, so no WorkingDirectory is
+# needed. Paths are served relative to that root, with an SPA fallback to index.html.
+Environment=STORY_DIST=/opt/dsh/dsh-tavern/app/client/dist
+Environment=STORY_PORT=8810
+ExecStart=/usr/bin/python3.11 /opt/dsh/dsh-tavern/app/deploy/static_server.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

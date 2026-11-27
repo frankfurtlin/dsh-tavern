@@ -1,0 +1,30 @@
+# dsh-tavern text worker — LEGACY, DO NOT ENABLE.
+#
+# Kept only to document the unit that exists on the author's host. Current code has
+# no background queue: app/worker.py only holds the completion-adapter selector
+# (`adapter_for`), there is no main loop, so `python -m app.worker` returns
+# immediately. Generation happens synchronously inside the API request thread.
+# The author's host has this unit disabled; a fresh install does not need it.
+#
+# This file sits in deploy/systemd/legacy/ on purpose: the install command in the
+# README copies deploy/systemd/*.example, and that glob must not pick up units that
+# should stay disabled. Nothing here is loaded unless you copy it yourself.
+#
+# Fields you MUST change before copying: /opt/dsh/dsh-tavern (the checkout path,
+# in WorkingDirectory, EnvironmentFile and ExecStart).
+
+[Unit]
+Description=Tavern text worker (dsh-tavern plugin) [legacy, unused]
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/opt/dsh/dsh-tavern/app/server
+EnvironmentFile=/opt/dsh/dsh-tavern/app/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/dsh/dsh-tavern/app/venv/bin/python -m app.worker
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
