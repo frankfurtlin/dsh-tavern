@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # 内嵌应用（app/client，Vue + Vite）有独立 package.json / lockfile；
+      # --with-app-tests 会跑 vue-tsc --noEmit 与 vitest run。
+      - name: 安装内嵌应用依赖
+        run: npm ci --no-audit --no-fund
+        working-directory: app/client
+
+      - name: 静态检查 + 应用前端 typecheck/单测
+        run: bash scripts/check.sh --static --with-app-tests
