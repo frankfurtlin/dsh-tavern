@@ -14,7 +14,7 @@ Self-hosted AI interactive stories with 360° exploration, character dialogue, v
 
 [快速开始](#快速开始) · [界面预览](#界面预览) · [模型配置](#模型配置) · [开发与测试](#开发与测试)
 
-![酒馆：读到一个故事，走进另一个世界](docs/images/01-hero.png)
+![酒馆：读到一个故事，走进另一个世界](docs/images/01-hero.webp)
 
 </div>
 
@@ -43,9 +43,9 @@ Self-hosted AI interactive stories with 360° exploration, character dialogue, v
 
 | 作品探索 | 360° 环境与立绘对话 |
 | --- | --- |
-| ![作品探索](docs/images/02-discovery.png) | ![360度环境与角色对话](docs/images/03-dialogue.png) |
+| ![作品探索](docs/images/02-discovery.webp) | ![360度环境与角色对话](docs/images/03-dialogue.webp) |
 | 作者可视化画布 | 独立数据站 |
-| ![作者画布](docs/images/04-author.png) | ![管理员数据站](docs/images/05-insights.png) |
+| ![作者画布](docs/images/04-author.webp) | ![管理员数据站](docs/images/05-insights.webp) |
 
 截图来自真实本地界面，账号已匿名化；作者图展示未保存的配置示例。场景图展示已生成的演示资产，自部署后的账号、存档和私人图像需自行创建。
 
