@@ -168,8 +168,8 @@ assistant「雨下得正好，进来坐坐？」+ user「好，来一盏茶。�
 （`owner: cards-client`），即 29 PASS / 0 FAIL / 1 SKIP。真实生成次数 ≤4（C 发送 1 + R 重新生成 1 +
 停止生成演练 1，其余组不触发生成）。
 
-截图新增：`100-c-stop.png`、`101-p-swipe.png`、`102-e-edit.png`、`103-e-delete.png`、
-`104-t-title.png`、`105-i-export.png`、`106-i-import.png`、`107-s-preview.png`。
+截图新增：`100-c-stop.webp`、`101-p-swipe.webp`、`102-e-edit.webp`、`103-e-delete.webp`、
+`104-t-title.webp`、`105-i-export.webp`、`106-i-import.webp`、`107-s-preview.webp`。
 
 失败归因：
 - 停止生成/版本切换/标题/编辑删除/导出菜单/导入按钮缺失或行为不符 → `owner: cards-client`；
@@ -196,8 +196,8 @@ C 发送 1 + C2 停止演练 1（取消）+ R 重新生成 1 + S2 发送 1。P2 
 S2/Q 组按缺入口记 SKIP 并注明 `owner: cards-client`；Q4 的 `prompt?chatId=` 未上线记 SKIP
 （`owner: app-auth`），Q5 预设接口 404 记 SKIP（`owner: app-auth`）。
 
-截图新增：`110-w-worldinfo.png`、`111-w-preview.png`、`112-s2-sampling.png`、
-`113-q-presets.png`、`114-q-prompt.png`、`115-q-invalid.png`。
+截图新增：`110-w-worldinfo.webp`、`111-w-preview.webp`、`112-s2-sampling.webp`、
+`113-q-presets.webp`、`114-q-prompt.webp`、`115-q-invalid.webp`。
 
 失败归因：预设/采样/世界书编辑器 UI 缺失或行为不符 → `owner: cards-client`；
 预设 CRUD、prompt 组装、preview 顺序、422 校验 → `owner: app-auth`；harness 时序 → `owner: verifier`。
@@ -222,7 +222,7 @@ P3 在 P2 的 41 项之外新增 5 项（P3-1–P3-5），验证插件工具条�
 工具条、不发送，不产生额外生成）。桥未交付/未连接时 P3 组记 SKIP 并注明 `owner: plugin-core`
 （插件工具条）或 `owner: cards-client`（应用侧桥上下文）。
 
-截图新增：`120-p3-home-disabled.png`、`121-p3-chat-enabled.png`、`122-p3-continue-prompt.png`、
+截图新增：`120-p3-home-disabled.webp`、`121-p3-chat-enabled.webp`、`122-p3-continue-prompt.webp`、
 `123-p3-roleplay-prompt.png`、`124-p3-memory.png`。
 
 失败归因：工具条按钮状态/预填文案/位置记忆 → `owner: plugin-core`；聊天页上下文缺失
@@ -253,8 +253,8 @@ P3 群聊服务端 + 客户端上线后新增 7 项（G1–G7），验证「多�
 SKIP 并注明 `owner: cards-client`（多选/建群 UI）或 `owner: app-auth`（`POST /chats` cardIds、
 `GET /chats`、轮转/删除）。
 
-截图新增：`130-g-select.png`、`131-g-chat-members.png`、`132-g-reply-first.png`、
-`133-g-reply-rotate.png`、`134-g-reload.png`、`135-g-list.png`、`136-g-deleted.png`。
+截图新增：`130-g-select.webp`、`131-g-chat-members.webp`、`132-g-reply-first.webp`、
+`133-g-reply-rotate.webp`、`134-g-reload.png`、`135-g-list.webp`、`136-g-deleted.png`。
 
 失败归因：多选/建群按钮/群聊页参与者 → `owner: cards-client`；`POST /chats` cardIds 校验、
 `GET /chats` 列表、`speakerName` 轮转、`DELETE /chats/{id}` → `owner: app-auth`；harness 时序 →
@@ -441,8 +441,8 @@ R 重新生成 1 + S2 采样发送 1）。P3 只点击工具条不发送，不�
 「单删 + 全员删除」闭环，真实生成 +2，全量总计 8 次）。未部署时 L 组依赖项记 SKIP 并注明
 `owner: app-auth`（详情容错/aliveMemberCount/409）或 `owner: cards-client`（已删除标记/只读 UI）。
 
-截图新增：`140-l-member-deleted.png`、`141-l-member-grey.png`、`142-l-speaker-switch.png`、
-`143-l-no-members.png`、`144-l-chat-deleted.png`。
+截图新增：`140-l-member-deleted.webp`、`141-l-member-grey.webp`、`142-l-speaker-switch.webp`、
+`143-l-no-members.webp`、`144-l-chat-deleted.webp`。
 
 失败归因：`GET /chats/{id}` 404、缺 `deleted/aliveMemberCount`、轮转选中已删除成员、
 `POST messages` 未返回 409 `CHAT_NO_MEMBERS` → `owner: app-auth`；页头无「（已删除）」/未灰显、
@@ -543,7 +543,7 @@ L 组证据（`report.native.groupDeletion`）：
 搜索词「茶」预期 3 条命中，无命中词用「绝无此词-ZZZ」。
 
 预期（task-65 全部部署时）：**66 PASS / 0 FAIL / 0 SKIP**（既有 60 + N 组 6；真实生成次数不变）。
-截图：150-search-hit.png、151-search-nomatch.png、152-mobile-chat.png、153-mobile-compose.png。
+截图：150-search-hit.webp、151-search-nomatch.webp、152-mobile-chat.webp、153-mobile-compose.webp。
 
 ## 实测记录（N，2026-11-06）
 
@@ -627,7 +627,7 @@ M 组本身自足（缺卡时按 fixture 导入），因此 `DSH_TAVERN_ONLY=c,m
 真实生成次数：M3 一次（继续发言），其余全部走 API/UI，不触发生成。
 
 预期（task-68/69 全部部署时）：**71 PASS / 0 FAIL / 0 SKIP**（既有 66 + M 组 5）。
-截图：145-m1-members-dialog.png、146-m2-members-3.png、147-m3-members-2-reply.png、148-m4-invalid.png、149-m5-single-no-entry.png。
+截图：145-m1-members-dialog.webp、146-m2-members-3.webp、147-m3-members-2-reply.webp、148-m4-invalid.webp、149-m5-single-no-entry.webp。
 
 ## 实测记录（打磨 3 / task-70，2026-11-10）
 
@@ -668,8 +668,8 @@ O 组在流程最前执行（A 之后、N 之前）：开跑前用 API 清空卡
 | O5 | `/settings` 与 `/settings/regex` 表单/输入不溢出，保存按钮 ≥44、「返回」≥44，正则行窄屏为 column 卡片且动作按钮 ≥44，console clean | `report.native.mobile.settings` / `regex`（backHeight/saveHeight/item/console） |
 
 预期（task-71 全部部署）：**71 + 5 = 76 PASS / 0 FAIL / 0 SKIP**；真实生成次数与打磨 3 相同。
-截图：160-mobile-empty-home.png、161-mobile-grid-2col.png、162-mobile-detail-actions.png、
-163-mobile-chats-empty.png、164-mobile-chats-row.png、165-mobile-settings.png、166-mobile-regex.png。
+截图：160-mobile-empty-home.webp、161-mobile-grid-2col.webp、162-mobile-detail-actions.webp、
+163-mobile-chats-empty.webp、164-mobile-chats-row.webp、165-mobile-settings.webp、166-mobile-regex.webp。
 
 ### O 组产品口径（task-72 验收时确认）
 
@@ -733,8 +733,8 @@ L 组 140/142、G 组 130–132、C/R/E 证据（90/91/92/94/95/101/102/152）�
 | R6 | 390×844 视口：卡库「预设」徽标可见、无横向溢出、仍为两列 | `builtinCards.mobile`（badge/overflow/columns/boxes） |
 
 预期（task-73/74 全部部署）：**76 + 6 = 82 PASS / 0 FAIL / 0 SKIP**（Lead 任务书写的 81 按 5 项估算；R 组按 R1–R6 六项落表，实际以此为准）。
-真实生成次数 +1（R4）。截图：170-preset-home.png、171-preset-detail.png、172-preset-opening.png、
-173-preset-reply.png、174-preset-deleted.png、175-preset-mobile.png（复制到 `docs/screenshots/native-presets/`）。
+真实生成次数 +1（R4）。截图：170-preset-home.webp、171-preset-detail.webp、172-preset-opening.webp、
+173-preset-reply.webp、174-preset-deleted.webp、175-preset-mobile.webp（复制到 `docs/screenshots/native-presets/`）。
 
 R 组收尾只删除**预设卡**及其聊天（按 `builtin`/`builtinSlug` 过滤；软删后种子不会重灌），
 不会动后续分组导入的角色卡/聊天——早期版本曾误删全部卡导致 S2 等后续分组受影响，已修正。
@@ -759,8 +759,8 @@ R 组收尾只删除**预设卡**及其聊天（按 `builtin`/`builtinSlug` 过�
 | Q5 | P/Q 组 console 无报错 | `guide.console` / `quoteSearch.console` |
 
 预期（两组全部交付）：**82 + 10 = 92 PASS / 0 FAIL / 0 SKIP**；真实生成 +1（Q1 发送，QI 可忽略）。
-截图：180-p1-onboarding.png、181-p2-hint-help.png、182-p3-chips.png、183-p4-guide-replay.png、
-184-q1-quote.png、185-q3-search.png、186-q4-mobile.png。
+截图：180-p1-onboarding.webp、181-p2-hint-help.webp、182-p3-chips.webp、183-p4-guide-replay.webp、
+184-q1-quote.webp、185-q3-search.webp、186-q4-mobile.webp。
 
 > 浏览器版本漂移兜底：verify.mjs 启动时若 Playwright 期望的浏览器缺失，会自动复用本机已安装的
 > `chromium*` headless shell（也可用 `DSH_TAVERN_CHROMIUM=/path/to/chrome` 显式指定），并打印 `INFO 使用浏览器：…`。
@@ -878,7 +878,7 @@ harness 侧修复（未放宽断言，只修时序/环境）：
 - 本轮顺手加固（不改断言）：G 组 restore 单聊时额外等「重新生成」按钮就绪（`report.native.restore.actionsReady`），
   避免 C2/R/P/T/E 在按钮晚一拍时误 SKIP；R4 在「POST 200 但流式无 delta/未落库」时重载重发**一次**并记录
   `reply.retryNotes`（含首次状态/第二次结果/gatewayProbe），不静默刷绿。
-- 截图：`docs/screenshots/native-cleanup/`（cleanup-characters-home.png、cleanup-chat-done.png）。
+- 截图：`docs/screenshots/native-cleanup/`（cleanup-characters-home.webp、cleanup-chat-done.webp）。
 - 清理核对：cards/chats/messages/world_info/personas/regex=0、presets=1（内置）、png 已删、3099 free、隔离 HOME 删除。
 
 ## 实测记录（A1 暖纸本视觉与卡库重排，task-84，2026-11-18/19）

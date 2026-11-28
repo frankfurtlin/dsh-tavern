@@ -92,7 +92,7 @@ node scripts/design-shots.mjs --out docs/screenshots/design-a3
 `scripts/design-shots.mjs` 会导入 `chat-a2.jsonl` 造一条含动作/跨天的聊天，
 拦截消息请求验证 `personaId`（不消耗模型），并收集两端的 console 报错；结束后删除验收人设与该聊天。
 截图：`docs/screenshots/design-a3/a3-{chat,detail,settings}-{1440,390}.png`、
-`a3-chat-390-menu.png`。
+`a3-chat-390-menu.webp`。
 
 `verify.mjs` 的 A2 组断言同步更新：
 

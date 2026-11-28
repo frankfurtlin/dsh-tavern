@@ -7,7 +7,7 @@ A single-user character-card chat app inside DSH. Cards, single chats and 2–5 
 [![Version](https://img.shields.io/badge/version-0.1.0-blue)](package.json)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-![The character library inside the panel](docs/screenshots/native-presets/170-preset-home.png)
+![The character library inside the panel](docs/screenshots/native-presets/170-preset-home.webp)
 
 ## The problem
 

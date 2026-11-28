@@ -11,7 +11,7 @@
 
 </div>
 
-![面板里的角色卡库](docs/screenshots/native-presets/170-preset-home.png)
+![面板里的角色卡库](docs/screenshots/native-presets/170-preset-home.webp)
 
 ## 这是什么
 
@@ -292,7 +292,7 @@ node verify.mjs --url "http://127.0.0.1:3080/?token=..." \
 - 最新一轮完整验收（隔离实例 + 生产各跑一遍）：全部 PASS，条数以
   `report.json` 的 `summary` 为准（P3 后新增群聊/历史页/工具条断言）；
 - 产物在 `/tmp/dsh-tavern-native/check`：`report.json`（逐项 PASS/FAIL/SKIP）、
-  `logs/*.log`（含隔离实例 `dsh.log`）、截图 `90-sidebar.png`…`99-old-routes.png`；
+  `logs/*.log`（含隔离实例 `dsh.log`）、截图 `90-sidebar.webp`…`99-old-routes.webp`；
 - 隔离实例用的是临时 `DSH_HOME`（`/tmp/dsh-tavern-native/instance`，端口默认 3099），
   不碰生产 3080；`--keep-home` 可保留现场排查。
 
